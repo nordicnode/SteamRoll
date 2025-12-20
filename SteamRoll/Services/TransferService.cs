@@ -16,7 +16,8 @@ public class TransferService : IDisposable
 {
     private const int DEFAULT_PORT = 27051;
     private const int BUFFER_SIZE = 81920; // 80KB chunks
-    private const string PROTOCOL_MAGIC = "STEAMROLL_TRANSFER_V1";
+    private const string PROTOCOL_MAGIC_V1 = "STEAMROLL_TRANSFER_V1";
+    private const string PROTOCOL_MAGIC_V2 = "STEAMROLL_TRANSFER_V2";
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -109,7 +110,7 @@ public class TransferService : IDisposable
             using var client = new TcpClient();
             await client.ConnectAsync(targetIp, targetPort, ct);
 
-            using var stream = client.GetStream();
+            using var networkStream = client.GetStream();
             
             // Gather file list with checksums
             var files = Directory.GetFiles(packagePath, "*", SearchOption.AllDirectories);
@@ -122,24 +123,28 @@ public class TransferService : IDisposable
 
             var totalSize = fileInfos.Sum(f => f.Size);
 
+            // Determine compression settings
+            bool useCompression = _settingsService?.Settings.EnableTransferCompression ?? true;
+            string protocolMagic = PROTOCOL_MAGIC_V2;
 
             // Send header
             var header = new TransferHeader
             {
-                Magic = PROTOCOL_MAGIC,
+                Magic = protocolMagic,
                 GameName = gameName,
                 TotalFiles = fileInfos.Count,
                 TotalSize = totalSize,
-                IsReceivedPackage = false // Originated here
+                IsReceivedPackage = false, // Originated here
+                Compression = useCompression ? "GZip" : "None"
             };
 
-            await SendJsonAsync(stream, header, ct);
+            await SendJsonAsync(networkStream, header, ct);
 
-            // Send file list
-            await SendJsonAsync(stream, fileInfos, ct);
+            // Send file list (uncompressed for now to keep it simple, or we could compress if header sent)
+            await SendJsonAsync(networkStream, fileInfos, ct);
 
             // Wait for acknowledgment
-            var ack = await ReceiveJsonAsync<TransferAck>(stream, ct);
+            var ack = await ReceiveJsonAsync<TransferAck>(networkStream, ct);
             if (ack?.Accepted != true)
             {
                 Error?.Invoke(this, "Transfer was rejected by recipient");
@@ -161,65 +166,87 @@ public class TransferService : IDisposable
             var limiter = new BandwidthLimiter(_settingsService?.Settings.TransferSpeedLimit ?? 0);
             var startTime = DateTime.UtcNow;
 
-            foreach (var fileInfo in fileInfos)
+            // Setup the output stream (either raw network stream or compressed wrapper)
+            Stream outputStream = networkStream;
+            System.IO.Compression.GZipStream? gzipStream = null;
+
+            if (useCompression)
             {
-                if (skippedFiles.Contains(fileInfo.RelativePath))
+                gzipStream = new System.IO.Compression.GZipStream(networkStream, System.IO.Compression.CompressionLevel.Fastest, true);
+                outputStream = gzipStream;
+            }
+
+            try
+            {
+                foreach (var fileInfo in fileInfos)
                 {
-                    // Skip sending content, but update progress
-                    // Don't add to sentBytes (network bytes), but add to totalProgressBytes
-                    // Actually, let's just mark it as done in progress
-
-                    ProgressChanged?.Invoke(this, new TransferProgress
+                    if (skippedFiles.Contains(fileInfo.RelativePath))
                     {
-                        GameName = gameName,
-                        CurrentFile = fileInfo.RelativePath + " (skipped)",
-                        BytesTransferred = totalProgressBytes,
-                        TotalBytes = totalSize, // Keep total relative to full package size
-                        IsSending = true,
-                        EstimatedTimeRemaining = null
-                    });
-
-                    continue;
-                }
-
-                var fullPath = System.IO.Path.Combine(packagePath, fileInfo.RelativePath);
-                using var fileStream = File.OpenRead(fullPath);
-
-                int bytesRead;
-                while ((bytesRead = await fileStream.ReadAsync(buffer, ct)) > 0)
-                {
-                    await limiter.WaitAsync(bytesRead, ct);
-                    await stream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-                    sentBytes += bytesRead;
-                    totalProgressBytes += bytesRead;
-
-                    // Calculate ETA based on actual transfer speed
-                    TimeSpan? eta = null;
-                    var elapsed = DateTime.UtcNow - startTime;
-                    if (elapsed.TotalSeconds > 2 && sentBytes > 0)
-                    {
-                        var bytesPerSecond = sentBytes / elapsed.TotalSeconds;
-                        if (bytesPerSecond > 0)
+                        // Skip sending content, but update progress
+                        ProgressChanged?.Invoke(this, new TransferProgress
                         {
-                            var remainingBytes = bytesToTransfer - sentBytes; // Only count bytes we actually need to send
-                            eta = TimeSpan.FromSeconds(remainingBytes / bytesPerSecond);
-                        }
+                            GameName = gameName,
+                            CurrentFile = fileInfo.RelativePath + " (skipped)",
+                            BytesTransferred = totalProgressBytes,
+                            TotalBytes = totalSize, // Keep total relative to full package size
+                            IsSending = true,
+                            EstimatedTimeRemaining = null
+                        });
+
+                        continue;
                     }
 
-                    ProgressChanged?.Invoke(this, new TransferProgress
+                    var fullPath = System.IO.Path.Combine(packagePath, fileInfo.RelativePath);
+                    using var fileStream = File.OpenRead(fullPath);
+
+                    int bytesRead;
+                    while ((bytesRead = await fileStream.ReadAsync(buffer, ct)) > 0)
                     {
-                        GameName = gameName,
-                        CurrentFile = fileInfo.RelativePath,
-                        BytesTransferred = totalProgressBytes,
-                        TotalBytes = totalSize,
-                        IsSending = true,
-                        EstimatedTimeRemaining = eta
-                    });
+                        // Throttle based on uncompressed bytes (read speed)
+                        await limiter.WaitAsync(bytesRead, ct);
+
+                        await outputStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+
+                        sentBytes += bytesRead;
+                        totalProgressBytes += bytesRead;
+
+                        // Calculate ETA based on actual transfer speed
+                        TimeSpan? eta = null;
+                        var elapsed = DateTime.UtcNow - startTime;
+                        if (elapsed.TotalSeconds > 2 && sentBytes > 0)
+                        {
+                            var bytesPerSecond = sentBytes / elapsed.TotalSeconds;
+                            if (bytesPerSecond > 0)
+                            {
+                                var remainingBytes = bytesToTransfer - sentBytes;
+                                eta = TimeSpan.FromSeconds(remainingBytes / bytesPerSecond);
+                            }
+                        }
+
+                        ProgressChanged?.Invoke(this, new TransferProgress
+                        {
+                            GameName = gameName,
+                            CurrentFile = fileInfo.RelativePath,
+                            BytesTransferred = totalProgressBytes,
+                            TotalBytes = totalSize,
+                            IsSending = true,
+                            EstimatedTimeRemaining = eta
+                        });
+                    }
+                }
+            }
+            finally
+            {
+                // Ensure we finish the compression stream properly
+                if (gzipStream != null)
+                {
+                    // Dispose flushes the GZip footer
+                    await gzipStream.DisposeAsync();
                 }
             }
 
             // Wait for completion confirmation
-            var complete = await ReceiveJsonAsync<TransferComplete>(stream, ct);
+            var complete = await ReceiveJsonAsync<TransferComplete>(networkStream, ct);
 
             TransferComplete?.Invoke(this, new TransferResult
             {
@@ -264,17 +291,26 @@ public class TransferService : IDisposable
         try
         {
             using var _ = client;
-            using var stream = client.GetStream();
+            using var networkStream = client.GetStream();
 
             // Receive header
-            var header = await ReceiveJsonAsync<TransferHeader>(stream, ct);
-            if (header == null || header.Magic != PROTOCOL_MAGIC)
+            var header = await ReceiveJsonAsync<TransferHeader>(networkStream, ct);
+            if (header == null) return;
+
+            // Check protocol compatibility
+            bool isV1 = header.Magic == PROTOCOL_MAGIC_V1;
+            bool isV2 = header.Magic == PROTOCOL_MAGIC_V2;
+
+            if (!isV1 && !isV2)
             {
+                LogService.Instance.Warning($"Unknown transfer protocol magic: {header.Magic}", "TransferService");
                 return;
             }
 
+            bool isCompressed = isV2 && header.Compression == "GZip";
+
             // Receive file list
-            var fileInfos = await ReceiveJsonAsync<List<TransferFileInfo>>(stream, ct);
+            var fileInfos = await ReceiveJsonAsync<List<TransferFileInfo>>(networkStream, ct);
             if (fileInfos == null) return;
 
             var gameName = header.GameName ?? "Unknown";
@@ -298,7 +334,7 @@ public class TransferService : IDisposable
             if (!approved)
             {
                 LogService.Instance.Info($"Transfer of {gameName} was rejected by user", "TransferService");
-                await SendJsonAsync(stream, new TransferAck { Accepted = false }, ct);
+                await SendJsonAsync(networkStream, new TransferAck { Accepted = false }, ct);
                 return;
             }
 
@@ -388,7 +424,7 @@ public class TransferService : IDisposable
             }
             
             // Send acknowledgment with approval and skipped files
-            await SendJsonAsync(stream, new TransferAck { Accepted = true, SkippedFiles = skippedFiles }, ct);
+            await SendJsonAsync(networkStream, new TransferAck { Accepted = true, SkippedFiles = skippedFiles }, ct);
             
             // If not approved, return early
             if (!approved)
@@ -437,110 +473,129 @@ public class TransferService : IDisposable
             long receivedBytes = previouslyReceivedBytes;
             var buffer = new byte[BUFFER_SIZE];
 
-            foreach (var fileInfo in fileInfos)
+            // Setup input stream (compressed or raw)
+            Stream inputStream = networkStream;
+            System.IO.Compression.GZipStream? gzipStream = null;
+
+            if (isCompressed)
             {
-                // Validate path to prevent directory traversal
-                if (!IsPathSafe(fileInfo.RelativePath))
-                {
-                    LogService.Instance.Warning($"Blocked potentially malicious file path: {fileInfo.RelativePath}", "TransferService");
+                gzipStream = new System.IO.Compression.GZipStream(networkStream, System.IO.Compression.CompressionMode.Decompress, true);
+                inputStream = gzipStream;
+            }
 
-                    // Consume bytes to keep stream in sync but don't write to disk
-                    long toSkip = fileInfo.Size;
-                    while (toSkip > 0)
+            try
+            {
+                foreach (var fileInfo in fileInfos)
+                {
+                    // Validate path to prevent directory traversal
+                    if (!IsPathSafe(fileInfo.RelativePath))
                     {
-                        var toRead = (int)Math.Min(toSkip, buffer.Length);
-                        var bytesRead = await stream.ReadAsync(buffer.AsMemory(0, toRead), ct);
-                        if (bytesRead == 0) break;
-                        toSkip -= bytesRead;
+                        LogService.Instance.Warning($"Blocked potentially malicious file path: {fileInfo.RelativePath}", "TransferService");
+
+                        // Consume bytes to keep stream in sync but don't write to disk
+                        long toSkip = fileInfo.Size;
+                        while (toSkip > 0)
+                        {
+                            var toRead = (int)Math.Min(toSkip, buffer.Length);
+                            var bytesRead = await inputStream.ReadAsync(buffer.AsMemory(0, toRead), ct);
+                            if (bytesRead == 0) break;
+                            toSkip -= bytesRead;
+                        }
+                        continue;
                     }
-                    continue;
-                }
 
-                // Check if this file was already completed in a previous transfer attempt
-                if (completedFiles.Contains(fileInfo.RelativePath))
-                {
-                    // Skip the bytes in the stream (sender still sends them)
-                    // We need to consume them to keep the stream in sync
-                    long toSkip = fileInfo.Size;
-                    while (toSkip > 0)
+                    // Check if this file was already completed in a previous transfer attempt
+                    if (completedFiles.Contains(fileInfo.RelativePath))
                     {
-                        var toRead = (int)Math.Min(toSkip, buffer.Length);
-                        var bytesRead = await stream.ReadAsync(buffer.AsMemory(0, toRead), ct);
-                        if (bytesRead == 0) break;
-                        toSkip -= bytesRead;
+                        // Skip the bytes in the stream (sender still sends them)
+                        // We need to consume them to keep the stream in sync
+                        long toSkip = fileInfo.Size;
+                        while (toSkip > 0)
+                        {
+                            var toRead = (int)Math.Min(toSkip, buffer.Length);
+                            var bytesRead = await inputStream.ReadAsync(buffer.AsMemory(0, toRead), ct);
+                            if (bytesRead == 0) break;
+                            toSkip -= bytesRead;
+                        }
+
+                        // Report progress for skipped file
+                        ProgressChanged?.Invoke(this, new TransferProgress
+                        {
+                            GameName = gameName,
+                            CurrentFile = fileInfo.RelativePath + " (skipped - already received)",
+                            BytesTransferred = receivedBytes,
+                            TotalBytes = header.TotalSize,
+                            IsSending = false
+                        });
+                        continue;
                     }
                     
-                    // Report progress for skipped file
-                    ProgressChanged?.Invoke(this, new TransferProgress
+                    var fullPath = System.IO.Path.Combine(destPath, fileInfo.RelativePath);
+                    // Ensure the final path is actually within destPath (double check)
+                    if (!Path.GetFullPath(fullPath).StartsWith(Path.GetFullPath(destPath), StringComparison.OrdinalIgnoreCase))
                     {
-                        GameName = gameName,
-                        CurrentFile = fileInfo.RelativePath + " (skipped - already received)",
-                        BytesTransferred = receivedBytes,
-                        TotalBytes = header.TotalSize,
-                        IsSending = false
-                    });
-                    continue;
-                }
-                
-                var fullPath = System.IO.Path.Combine(destPath, fileInfo.RelativePath);
-                // Ensure the final path is actually within destPath (double check)
-                if (!Path.GetFullPath(fullPath).StartsWith(Path.GetFullPath(destPath), StringComparison.OrdinalIgnoreCase))
-                {
-                    LogService.Instance.Warning($"Blocked path traversal attempt: {fileInfo.RelativePath} -> {fullPath}", "TransferService");
-                    // Consume bytes
-                     long toSkip = fileInfo.Size;
-                    while (toSkip > 0)
+                        LogService.Instance.Warning($"Blocked path traversal attempt: {fileInfo.RelativePath} -> {fullPath}", "TransferService");
+                        // Consume bytes
+                        long toSkip = fileInfo.Size;
+                        while (toSkip > 0)
+                        {
+                            var toRead = (int)Math.Min(toSkip, buffer.Length);
+                            var bytesRead = await inputStream.ReadAsync(buffer.AsMemory(0, toRead), ct);
+                            if (bytesRead == 0) break;
+                            toSkip -= bytesRead;
+                        }
+                        continue;
+                    }
+
+                    var dir = System.IO.Path.GetDirectoryName(fullPath);
+                    if (!string.IsNullOrEmpty(dir))
+                        Directory.CreateDirectory(dir);
+
+                    using var fileStream = File.Create(fullPath);
+                    long remaining = fileInfo.Size;
+
+                    while (remaining > 0)
                     {
-                        var toRead = (int)Math.Min(toSkip, buffer.Length);
-                        var bytesRead = await stream.ReadAsync(buffer.AsMemory(0, toRead), ct);
+                        var toRead = (int)Math.Min(remaining, buffer.Length);
+                        var bytesRead = await inputStream.ReadAsync(buffer.AsMemory(0, toRead), ct);
                         if (bytesRead == 0) break;
-                        toSkip -= bytesRead;
+
+                        await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                        remaining -= bytesRead;
+                        receivedBytes += bytesRead;
+
+                        ProgressChanged?.Invoke(this, new TransferProgress
+                        {
+                            GameName = gameName,
+                            CurrentFile = fileInfo.RelativePath,
+                            BytesTransferred = receivedBytes,
+                            TotalBytes = header.TotalSize,
+                            IsSending = false
+                        });
                     }
-                    continue;
-                }
 
-                var dir = System.IO.Path.GetDirectoryName(fullPath);
-                if (!string.IsNullOrEmpty(dir))
-                    Directory.CreateDirectory(dir);
-
-                using var fileStream = File.Create(fullPath);
-                long remaining = fileInfo.Size;
-
-                while (remaining > 0)
-                {
-                    var toRead = (int)Math.Min(remaining, buffer.Length);
-                    var bytesRead = await stream.ReadAsync(buffer.AsMemory(0, toRead), ct);
-                    if (bytesRead == 0) break;
-
-                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-                    remaining -= bytesRead;
-                    receivedBytes += bytesRead;
-
-                    ProgressChanged?.Invoke(this, new TransferProgress
+                    // Verify checksum if provided
+                    if (!string.IsNullOrEmpty(fileInfo.Sha256))
                     {
-                        GameName = gameName,
-                        CurrentFile = fileInfo.RelativePath,
-                        BytesTransferred = receivedBytes,
-                        TotalBytes = header.TotalSize,
-                        IsSending = false
-                    });
-                }
-                
-                // Verify checksum if provided
-                if (!string.IsNullOrEmpty(fileInfo.Sha256))
-                {
-                    if (!VerifySha256(fullPath, fileInfo.Sha256))
-                    {
-                        LogService.Instance.Error($"Checksum mismatch for {fileInfo.RelativePath}", category: "TransferService");
-                        throw new InvalidDataException($"Checksum verification failed for {fileInfo.RelativePath}");
+                        if (!VerifySha256(fullPath, fileInfo.Sha256))
+                        {
+                            LogService.Instance.Error($"Checksum mismatch for {fileInfo.RelativePath}", category: "TransferService");
+                            throw new InvalidDataException($"Checksum verification failed for {fileInfo.RelativePath}");
+                        }
                     }
+
+                    // Mark file as completed and save state after each file
+                    state.FilesCompleted++;
+                    state.BytesReceived = receivedBytes;
+                    state.CompletedFiles.Add(fileInfo.RelativePath);
+                    TransferState.Save(destPath, state);
                 }
-                
-                // Mark file as completed and save state after each file
-                state.FilesCompleted++;
-                state.BytesReceived = receivedBytes;
-                state.CompletedFiles.Add(fileInfo.RelativePath);
-                TransferState.Save(destPath, state);
+            }
+            finally
+            {
+                 // No need to dispose reader stream specifically if it just wraps,
+                 // but good practice if we want to ensure any internal buffers are cleared
+                 if (gzipStream != null) await gzipStream.DisposeAsync();
             }
             
             // Transfer complete - delete state file
@@ -575,7 +630,7 @@ public class TransferService : IDisposable
             }
 
             // Send completion
-            await SendJsonAsync(stream, new TransferComplete { Success = true }, ct);
+            await SendJsonAsync(networkStream, new TransferComplete { Success = true }, ct);
 
             TransferComplete?.Invoke(this, new TransferResult
             {
@@ -781,6 +836,11 @@ public class TransferHeader
     public int TotalFiles { get; set; }
     public long TotalSize { get; set; }
     public bool IsReceivedPackage { get; set; }
+
+    /// <summary>
+    /// Compression mode used for file transfer (e.g., "None", "GZip").
+    /// </summary>
+    public string Compression { get; set; } = "None";
 }
 
 public class TransferFileInfo
