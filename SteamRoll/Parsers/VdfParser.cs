@@ -119,7 +119,11 @@ public static class VdfParser
     private static List<string> Tokenize(string content)
     {
         var tokens = new List<string>();
-        var regex = new Regex(@"""([^""\\]*(?:\\.[^""\\]*)*)""|(\{|\})", RegexOptions.Compiled);
+        // Matches:
+        // 1. Quoted strings (capturing content)
+        // 2. Braces { or }
+        // 3. Unquoted strings (alphanumeric/symbols) - typical in Source engine files but not strict JSON
+        var regex = new Regex(@"""([^""\\]*(?:\\.[^""\\]*)*)""|(\{|\})|([a-zA-Z0-9_\-\.]+)", RegexOptions.Compiled);
 
         foreach (Match match in regex.Matches(content))
         {
@@ -133,6 +137,11 @@ public static class VdfParser
             {
                 // Brace
                 tokens.Add(match.Groups[2].Value);
+            }
+            else if (match.Groups[3].Success)
+            {
+                // Unquoted string
+                tokens.Add(match.Groups[3].Value);
             }
         }
 

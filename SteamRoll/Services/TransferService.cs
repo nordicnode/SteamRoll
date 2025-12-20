@@ -682,7 +682,8 @@ public class TransferService : IDisposable
         await ReadExactlyAsync(stream, lengthBytes, ct);
         var length = BitConverter.ToInt32(lengthBytes, 0);
 
-        if (length <= 0 || length > 1_000_000) return default; // Sanity check
+        // Increased limit to 64MB to support large game file lists
+        if (length <= 0 || length > 64_000_000) return default; // Sanity check
 
         var data = new byte[length];
         await ReadExactlyAsync(stream, data, ct);

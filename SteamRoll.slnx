@@ -1,3 +1,4 @@
 <Solution>
+  <Project Path="SteamRoll.Tests/SteamRoll.Tests.csproj" />
   <Project Path="SteamRoll/SteamRoll.csproj" />
 </Solution>
