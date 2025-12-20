@@ -775,7 +775,7 @@ public class PackageBuilder
     }
 
     /// <summary>
-    /// Copies a directory recursively with progress reporting. Skips files that already exist with matching size/timestamp.
+    /// Copies a directory recursively with progress reporting using parallelism. Skips files that already exist with matching size/timestamp.
     /// </summary>
     private async Task CopyDirectoryAsync(string sourceDir, string destDir, CancellationToken ct = default)
     {
@@ -787,38 +787,60 @@ public class PackageBuilder
 
             var allFiles = dir.GetFiles("*", SearchOption.AllDirectories);
             var totalFiles = allFiles.Length;
-            var copiedFiles = 0;
+            int copiedFiles = 0;
 
-            foreach (var file in allFiles)
+            var parallelOptions = new ParallelOptions
             {
-                ct.ThrowIfCancellationRequested();
-                
+                MaxDegreeOfParallelism = Environment.ProcessorCount,
+                CancellationToken = ct
+            };
+
+            Parallel.ForEach(allFiles, parallelOptions, (file) =>
+            {
                 var relativePath = System.IO.Path.GetRelativePath(sourceDir, file.FullName);
                 var destPath = System.IO.Path.Combine(destDir, relativePath);
-                
+
                 Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
-                
+
                 // Check if file exists and matches
                 bool skip = false;
                 if (File.Exists(destPath))
                 {
                     var destInfo = new FileInfo(destPath);
-                    if (destInfo.Length == file.Length && 
+                    if (destInfo.Length == file.Length &&
                         Math.Abs((destInfo.LastWriteTimeUtc - file.LastWriteTimeUtc).TotalSeconds) < 2)
                     {
                         skip = true;
                     }
                 }
-                
+
                 if (!skip)
                 {
-                    file.CopyTo(destPath, overwrite: true);
+                    // CopyTo is not thread safe if two threads try to write to same file, but we are writing to unique paths
+                    // However, we need to handle potential IO exceptions for file access
+                    try
+                    {
+                        file.CopyTo(destPath, overwrite: true);
+                    }
+                    catch (IOException ioEx)
+                    {
+                        LogService.Instance.Warning($"Retry copy for {file.Name}: {ioEx.Message}", "PackageBuilder");
+                        // Simple retry logic could be added here
+                        Thread.Sleep(100);
+                        file.CopyTo(destPath, overwrite: true);
+                    }
                 }
 
-                copiedFiles++;
-                var progress = 10 + (int)(((double)copiedFiles / totalFiles) * 60); // 10-70%
-                ReportProgress($"{(skip ? "Skipping" : "Copying")}: {relativePath}", progress);
-            }
+                // Increment atomically
+                var currentCount = Interlocked.Increment(ref copiedFiles);
+
+                // Report progress occasionally to avoid swamping the UI thread
+                if (currentCount % 10 == 0 || currentCount == totalFiles)
+                {
+                    var progress = 10 + (int)(((double)currentCount / totalFiles) * 60); // 10-70%
+                    ReportProgress($"{(skip ? "Skipping" : "Copying")}: {relativePath}", progress);
+                }
+            });
         }, ct);
     }
 
