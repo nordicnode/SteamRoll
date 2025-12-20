@@ -315,7 +315,7 @@
                     </StackPanel>
                     
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <!-- View Toggle (Library only now) -->
+                        <!-- View Toggle -->
                         <Border Background="{DynamicResource BackgroundLightBrush}" CornerRadius="6" Margin="0,0,16,0">
                             <StackPanel Orientation="Horizontal">
                                 <Button x:Name="LibraryTabBtn" 
@@ -324,6 +324,14 @@
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="📚" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
                                         <TextBlock Text="Library"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="PackagesTabBtn"
+                                        Style="{DynamicResource SecondaryButton}"
+                                        Click="PackagesTab_Click" Padding="12,8">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="📦" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Packages"/>
                                     </StackPanel>
                                 </Button>
                             </StackPanel>
@@ -618,6 +626,13 @@
                                                         <Setter Property="Header" Value="📂 Open Package"/>
                                                     </DataTrigger>
                                                 </Style.Triggers>
+                                            </Style>
+                                        </MenuItem.Style>
+                                    </MenuItem>
+                                    <MenuItem Header="🗑️ Delete Package" Click="ContextMenu_DeletePackage_Click" Tag="{Binding}">
+                                        <MenuItem.Style>
+                                            <Style TargetType="MenuItem">
+                                                <Setter Property="IsEnabled" Value="{Binding IsPackaged}"/>
                                             </Style>
                                         </MenuItem.Style>
                                     </MenuItem>

@@ -296,6 +296,23 @@
                             <CheckBox x:Name="AutoAnalyzeCheck" Content="Automatically analyze games on scan" Margin="0,15,0,0" Style="{DynamicResource SettingsCheckBoxStyle}"/>
                         </StackPanel>
                     </Border>
+
+                    <!-- Network Settings -->
+                    <TextBlock Text="🌐 Network Settings" Style="{DynamicResource SectionHeader}"/>
+                    <Border Background="#27272A" CornerRadius="8" Padding="16" Margin="0,0,0,20">
+                        <StackPanel>
+                            <TextBlock Text="Transfer Speed Limit" Style="{DynamicResource SettingLabel}"/>
+                            <ComboBox x:Name="BandwidthLimitCombo" Width="200" HorizontalAlignment="Left" Style="{DynamicResource SettingsComboBoxStyle}">
+                                <ComboBoxItem Content="Unlimited" Tag="0" Style="{DynamicResource SettingsComboBoxItemStyle}"/>
+                                <ComboBoxItem Content="50 MB/s" Tag="52428800" Style="{DynamicResource SettingsComboBoxItemStyle}"/>
+                                <ComboBoxItem Content="20 MB/s" Tag="20971520" Style="{DynamicResource SettingsComboBoxItemStyle}"/>
+                                <ComboBoxItem Content="10 MB/s" Tag="10485760" Style="{DynamicResource SettingsComboBoxItemStyle}"/>
+                                <ComboBoxItem Content="5 MB/s" Tag="5242880" Style="{DynamicResource SettingsComboBoxItemStyle}"/>
+                                <ComboBoxItem Content="1 MB/s" Tag="1048576" Style="{DynamicResource SettingsComboBoxItemStyle}"/>
+                            </ComboBox>
+                            <TextBlock Text="Limit bandwidth usage during game transfers." Style="{DynamicResource SettingDescription}"/>
+                        </StackPanel>
+                    </Border>
                     
                     <!-- Notifications -->
                     <TextBlock Text="🔔 Notifications" Style="{DynamicResource SectionHeader}"/>

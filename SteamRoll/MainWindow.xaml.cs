@@ -16,6 +16,7 @@ public partial class MainWindow : Window
 {
     private readonly SteamLocator _steamLocator;
     private readonly LibraryScanner _libraryScanner;
+    private readonly PackageScanner _packageScanner;
     private readonly GoldbergService _goldbergService;
     private readonly PackageBuilder _packageBuilder;
     private readonly DlcService _dlcService;
@@ -25,6 +26,7 @@ public partial class MainWindow : Window
     private readonly SettingsService _settingsService;
     private readonly UpdateService _updateService;
     private CancellationTokenSource? _currentOperationCts;
+    private CancellationTokenSource? _scanCts;
     private List<InstalledGame> _allGames = new();
     private readonly object _gamesLock = new(); // Thread-safety lock for _allGames modifications
     private string _outputPath;
@@ -47,6 +49,7 @@ public partial class MainWindow : Window
         _libraryScanner = new LibraryScanner(_steamLocator);
         _goldbergService = new GoldbergService();
         _dlcService = new DlcService();
+        _packageScanner = new PackageScanner(_settingsService);
         _cacheService = new CacheService();
         _packageBuilder = new PackageBuilder(_goldbergService, _settingsService, _dlcService);
         
@@ -246,14 +249,43 @@ public partial class MainWindow : Window
         GameDetailsView.Visibility = Visibility.Collapsed;
         LibraryView.Visibility = Visibility.Visible;
         
-        // Update tab button styles (Library-only now)
+        // Update tab button styles
         LibraryTabBtn.Background = new System.Windows.Media.SolidColorBrush(
-            (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#30363D"));
+            (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#30363D")); // Active
+        PackagesTabBtn.Background = System.Windows.Media.Brushes.Transparent; // Inactive
+
+        // Cancel any running scan
+        _scanCts?.Cancel();
+        _scanCts = new CancellationTokenSource();
+
+        SafeFireAndForget(ScanLibraryAsync(_scanCts.Token), "Scan Library");
     }
     
+    private void ShowPackagesView()
+    {
+        GameDetailsView.Visibility = Visibility.Collapsed;
+        LibraryView.Visibility = Visibility.Visible; // Reuse library view layout
+
+        // Update tab button styles
+        LibraryTabBtn.Background = System.Windows.Media.Brushes.Transparent; // Inactive
+        PackagesTabBtn.Background = new System.Windows.Media.SolidColorBrush(
+            (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#30363D")); // Active
+
+        // Cancel any running scan
+        _scanCts?.Cancel();
+        _scanCts = new CancellationTokenSource();
+
+        SafeFireAndForget(ScanPackagesAsync(_scanCts.Token), "Scan Packages");
+    }
+
     private void LibraryTab_Click(object sender, RoutedEventArgs e)
     {
         ShowLibraryView();
+    }
+
+    private void PackagesTab_Click(object sender, RoutedEventArgs e)
+    {
+        ShowPackagesView();
     }
     
     private void OnDetailsBackRequested(object? sender, EventArgs e)
@@ -337,7 +369,8 @@ public partial class MainWindow : Window
         }
         
         // Scan Steam libraries
-        await ScanLibraryAsync();
+        _scanCts = new CancellationTokenSource();
+        await ScanLibraryAsync(_scanCts.Token);
         
         // Start LAN services for peer discovery
         _lanDiscoveryService.Start();
@@ -526,8 +559,14 @@ public partial class MainWindow : Window
                             $"{result.GameName} was received but verification failed:\n{errorSummary}");
                     }
                     
-                    // Refresh the game list to show received packages
-                    await ScanLibraryAsync();
+                    // Refresh the game list to show received packages if we are in Packages view or just generally update
+                    // Since we received a package, it makes sense to ensure it's visible.
+                    // However, we shouldn't arbitrarily switch views or interrupt user.
+                    // Let's just refresh current view if appropriate.
+                    // For now, minimal intrusion:
+                    _scanCts?.Cancel();
+                    _scanCts = new CancellationTokenSource();
+                    await ScanPackagesAsync(_scanCts.Token);
                 }
                 else
                 {
@@ -655,7 +694,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task ScanLibraryAsync()
+    private async Task ScanLibraryAsync(CancellationToken ct = default)
     {
         LoadingOverlay.Show("Scanning Steam libraries...");
         StatusText.Text = "Scanning Steam libraries...";
@@ -675,13 +714,19 @@ public partial class MainWindow : Window
             var (cachedCount, _) = _cacheService.GetStats();
             
             // Run scan on background thread
-            _allGames = await Task.Run(() => _libraryScanner.ScanAllLibraries());
+            var scannedGames = await Task.Run(() => _libraryScanner.ScanAllLibraries(), ct);
+            ct.ThrowIfCancellationRequested();
+
+            lock (_gamesLock)
+            {
+                _allGames = scannedGames;
+            }
             
             // Apply cache to games - separate into cached and uncached
             var gamesToAnalyze = new List<InstalledGame>();
             var cachedGames = 0;
             
-            foreach (var game in _allGames)
+            foreach (var game in scannedGames)
             {
                 if (_cacheService.ApplyCachedData(game))
                 {
@@ -693,34 +738,24 @@ public partial class MainWindow : Window
                 }
             }
 
-            StatusText.Text = $"Found {_allGames.Count} games ({cachedGames} cached, {gamesToAnalyze.Count} to analyze)...";
+            StatusText.Text = $"Found {scannedGames.Count} games ({cachedGames} cached, {gamesToAnalyze.Count} to analyze)...";
             
             // Only analyze games not in cache
             if (gamesToAnalyze.Count > 0)
             {
                 await AnalyzeGamesForDrmAsync(gamesToAnalyze);
             }
+            ct.ThrowIfCancellationRequested();
             
             // Check for existing packages
-            CheckExistingPackages(_allGames);
-            
-            // Add received packages that aren't in Steam library (standalone received games)
-            var receivedOnlyGames = ScanReceivedPackages(_allGames);
-            if (receivedOnlyGames.Count > 0)
-            {
-                lock (_gamesLock)
-                {
-                    _allGames.AddRange(receivedOnlyGames);
-                }
-                StatusText.Text = $"Found {receivedOnlyGames.Count} received packages...";
-            }
+            CheckExistingPackages(scannedGames);
             
             // Show games immediately
-            UpdateGamesList(_allGames);
-            UpdateStats(_allGames);
+            UpdateGamesList(scannedGames);
+            UpdateStats(scannedGames);
             
             // Save updated cache
-            foreach (var game in _allGames)
+            foreach (var game in scannedGames)
             {
                 _cacheService.UpdateCache(game);
             }
@@ -739,17 +774,62 @@ public partial class MainWindow : Window
                 SafeFireAndForget(FetchDlcForGamesAsync(gamesNeedingDlc), "DLC Fetch");
             }
             
-            var packageableCount = _allGames.Count(g => g.IsPackageable);
-            var packagedCount = _allGames.Count(g => g.IsPackaged);
-            var receivedCount = _allGames.Count(g => g.IsReceivedPackage);
-            StatusText.Text = $"✓ {_allGames.Count} games • {packageableCount} ready • {packagedCount} packaged" + 
-                              (receivedCount > 0 ? $" • {receivedCount} received" : "");
+            var packageableCount = scannedGames.Count(g => g.IsPackageable);
+            var packagedCount = scannedGames.Count(g => g.IsPackaged);
+            StatusText.Text = $"✓ {scannedGames.Count} games • {packageableCount} ready • {packagedCount} packaged";
             LoadingOverlay.Hide();
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected cancellation
         }
         catch (Exception ex)
         {
             LoadingOverlay.Hide();
             StatusText.Text = $"⚠ Error scanning library: {ex.Message}";
+            ToastService.Instance.ShowError("Scan Failed", ex.Message);
+        }
+    }
+
+    private async Task ScanPackagesAsync(CancellationToken ct = default)
+    {
+        LoadingOverlay.Show("Scanning packaged games...");
+        StatusText.Text = "Scanning packaged games...";
+
+        try
+        {
+            var scannedPackages = await Task.Run(() => _packageScanner.ScanPackages(ct), ct);
+            ct.ThrowIfCancellationRequested();
+
+            lock (_gamesLock)
+            {
+                _allGames = scannedPackages;
+            }
+
+            // Apply cache if possible to get better metadata (images, etc)
+            foreach (var game in scannedPackages)
+            {
+                _cacheService.ApplyCachedData(game);
+            }
+
+            UpdateGamesList(scannedPackages);
+
+            // Simple stats for packages view
+            TotalGamesText.Text = scannedPackages.Count.ToString();
+            PackageableText.Text = "-";
+            TotalSizeText.Text = FormatUtils.FormatBytes(scannedPackages.Sum(g => g.SizeOnDisk));
+
+            StatusText.Text = $"✓ Found {scannedPackages.Count} packaged games";
+            LoadingOverlay.Hide();
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected cancellation
+        }
+        catch (Exception ex)
+        {
+            LoadingOverlay.Hide();
+            StatusText.Text = $"⚠ Error scanning packages: {ex.Message}";
             ToastService.Instance.ShowError("Scan Failed", ex.Message);
         }
     }
@@ -1139,7 +1219,19 @@ public partial class MainWindow : Window
 
     private void RefreshButton_Click(object sender, RoutedEventArgs e)
     {
-        SafeFireAndForget(ScanLibraryAsync(), "Library Scan");
+        // Cancel existing
+        _scanCts?.Cancel();
+        _scanCts = new CancellationTokenSource();
+
+        // Refresh based on current view (check button states)
+        if (LibraryTabBtn.Background != System.Windows.Media.Brushes.Transparent)
+        {
+            SafeFireAndForget(ScanLibraryAsync(_scanCts.Token), "Library Scan");
+        }
+        else
+        {
+            SafeFireAndForget(ScanPackagesAsync(_scanCts.Token), "Package Scan");
+        }
     }
 
 
@@ -1792,6 +1884,52 @@ public partial class MainWindow : Window
         if (game?.IsPackaged == true)
         {
             ToastService.Instance.ShowInfo("Send to Peer", $"Use the 'Send to Peer' button on the game card to transfer {game.Name}");
+        }
+    }
+
+    private async void ContextMenu_DeletePackage_Click(object sender, RoutedEventArgs e)
+    {
+        var game = GetGameFromContextMenu(sender);
+        if (game == null || !game.IsPackaged || string.IsNullOrEmpty(game.PackagePath)) return;
+
+        var result = MessageBox.Show(
+            $"Are you sure you want to delete the package for {game.Name}?\n\nThis will permanently remove the folder:\n{game.PackagePath}",
+            "Delete Package",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (result == MessageBoxResult.Yes)
+        {
+            try
+            {
+                await PackageBuilder.DeletePackageAsync(game.PackagePath);
+
+                // Update game state
+                game.IsPackaged = false;
+                game.PackagePath = null;
+                game.LastPackaged = null;
+
+                // If the game is purely a package (not an installed Steam game), remove it from the list
+                // This applies to received packages AND packages found via PackageScanner
+                if (game.LibraryPath == _outputPath)
+                {
+                    lock (_gamesLock)
+                    {
+                        _allGames.Remove(game);
+                    }
+                }
+
+                _cacheService.UpdateCache(game);
+                _cacheService.SaveCache();
+
+                UpdateGamesList(_allGames);
+
+                ToastService.Instance.ShowSuccess("Package Deleted", $"Deleted package for {game.Name}");
+            }
+            catch (Exception ex)
+            {
+                ToastService.Instance.ShowError("Delete Failed", ex.Message);
+            }
         }
     }
     
