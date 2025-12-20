@@ -238,4 +238,9 @@ public class AppSettings
     /// Transfer speed limit in bytes per second (0 = unlimited).
     /// </summary>
     public long TransferSpeedLimit { get; set; } = 0;
+
+    /// <summary>
+    /// Whether to compress file transfers using GZip.
+    /// </summary>
+    public bool EnableTransferCompression { get; set; } = true;
 }
