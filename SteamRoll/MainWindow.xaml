@@ -350,6 +350,13 @@
                                 <TextBlock Text="Open Output"/>
                             </StackPanel>
                         </Button>
+                        <Button Style="{DynamicResource SecondaryButton}"
+                                Click="ImportPackageButton_Click" Margin="0,0,12,0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="📥" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
+                                <TextBlock Text="Import Package"/>
+                            </StackPanel>
+                        </Button>
                         <ToggleButton x:Name="SelectModeToggle" 
                                       Click="SelectModeToggle_Click" Margin="0,0,12,0"
                                       Background="Transparent" Foreground="{DynamicResource TextSecondaryBrush}"

@@ -212,6 +212,133 @@ public partial class GameDetailsWindow : Window
         if (_game.IsPackaged)
         {
             PackageBtn.Content = "📂 Open Package";
+            PackageActionsPanel.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void Verify_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_game.IsPackaged || string.IsNullOrEmpty(_game.PackagePath)) return;
+
+        VerifyBtn.IsEnabled = false;
+        VerifyBtn.Content = "⏳ Verifying...";
+
+        Task.Run(() =>
+        {
+            try
+            {
+                var (isValid, mismatches) = PackageBuilder.VerifyIntegrity(_game.PackagePath);
+
+                Dispatcher.Invoke(() =>
+                {
+                    VerifyBtn.IsEnabled = true;
+                    VerifyBtn.Content = "🛡️ Verify";
+
+                    if (isValid)
+                    {
+                        MessageBox.Show("Package integrity verified successfully! All files match.",
+                            "Verification Passed", MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
+                    else
+                    {
+                        MessageBox.Show($"Verification failed!\n\nFound {mismatches.Count} issues:\n" +
+                            string.Join("\n", mismatches.Take(10)) + (mismatches.Count > 10 ? "\n..." : ""),
+                            "Verification Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    VerifyBtn.IsEnabled = true;
+                    VerifyBtn.Content = "🛡️ Verify";
+                    MessageBox.Show($"Verification error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                });
+            }
+        });
+    }
+
+    private void Play_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_game.IsPackaged || string.IsNullOrEmpty(_game.PackagePath)) return;
+
+        var launchPath = Path.Combine(_game.PackagePath, "LAUNCH.bat");
+        if (File.Exists(launchPath))
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = launchPath,
+                    UseShellExecute = true,
+                    WorkingDirectory = _game.PackagePath
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to launch game: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        else
+        {
+            MessageBox.Show("LAUNCH.bat not found in package folder.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async void BackupSaves_Click(object sender, RoutedEventArgs e)
+    {
+        var saveService = new SaveGameService(new SettingsService());
+        var saveDir = saveService.FindSaveDirectory(_game.AppId, _game.PackagePath);
+
+        if (string.IsNullOrEmpty(saveDir))
+        {
+            MessageBox.Show($"Could not find save games for AppID {_game.AppId}.", "No Saves Found", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Backup Saves",
+            FileName = $"{_game.Name}_Saves.zip",
+            DefaultExt = ".zip",
+            Filter = "Zip Files (*.zip)|*.zip"
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            try
+            {
+                await saveService.BackupSavesAsync(_game.AppId, dialog.FileName, _game.PackagePath);
+                MessageBox.Show($"Saves backed up to {dialog.FileName}", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to backup saves: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+    }
+
+    private async void RestoreSaves_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Select Save Backup",
+            Filter = "Zip Files (*.zip)|*.zip"
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            try
+            {
+                var saveService = new SaveGameService(new SettingsService());
+                await saveService.RestoreSavesAsync(dialog.FileName, _game.AppId, _game.PackagePath);
+                MessageBox.Show("Saves restored successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to restore saves: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 

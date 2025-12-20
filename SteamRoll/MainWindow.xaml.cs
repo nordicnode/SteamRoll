@@ -1244,6 +1244,39 @@ public partial class MainWindow : Window
         Process.Start("explorer.exe", _outputPath);
     }
     
+    private async void ImportPackageButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Import SteamRoll Package",
+            Filter = "Zip Files (*.zip)|*.zip",
+            Multiselect = false
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            try
+            {
+                LoadingOverlay.Show("Importing package...");
+
+                var importedPath = await _packageBuilder.ImportPackageAsync(dialog.FileName, _outputPath);
+
+                LoadingOverlay.Hide();
+                ToastService.Instance.ShowSuccess("Import Successful", $"Imported to {Path.GetFileName(importedPath)}");
+
+                // Refresh to show new package
+                _scanCts?.Cancel();
+                _scanCts = new CancellationTokenSource();
+                await ScanPackagesAsync(_scanCts.Token);
+            }
+            catch (Exception ex)
+            {
+                LoadingOverlay.Hide();
+                MessageBox.Show($"Import failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+    }
+
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
         var settingsWindow = new SettingsWindow(_settingsService, _cacheService)

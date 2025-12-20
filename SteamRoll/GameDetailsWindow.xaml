@@ -257,6 +257,19 @@
                                         Click="OpenSteamDb_Click"/>
                             </StackPanel>
                         </Border>
+
+                        <!-- Save Games -->
+                        <Border Background="{DynamicResource BackgroundCardBrush}" CornerRadius="12"
+                                Padding="20" Margin="0,16,0,0" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="💾 Save Games" FontSize="16" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+                                <Button x:Name="BackupSavesBtn" Content="Backup Saves" Style="{DynamicResource SecondaryButton}"
+                                        Margin="0,0,0,8" Click="BackupSaves_Click"/>
+                                <Button x:Name="RestoreSavesBtn" Content="Restore Saves" Style="{DynamicResource SecondaryButton}"
+                                        Click="RestoreSaves_Click"/>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </Grid>
             </ScrollViewer>
@@ -292,6 +305,15 @@
                     <Button Grid.Column="3" x:Name="PackageBtn" Content="📦 Create Package" 
                             Style="{DynamicResource PrimaryButton}" Width="180"
                             Click="Package_Click"/>
+
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" x:Name="PackageActionsPanel" Visibility="Collapsed">
+                        <Button x:Name="VerifyBtn" Content="🛡️ Verify"
+                                Style="{DynamicResource SecondaryButton}" Width="100" Margin="0,0,12,0"
+                                Click="Verify_Click" />
+                        <Button x:Name="PlayBtn" Content="▶️ Play"
+                                Style="{DynamicResource PrimaryButton}" Width="120"
+                                Click="Play_Click"/>
+                    </StackPanel>
                 </Grid>
             </Border>
         </Grid>

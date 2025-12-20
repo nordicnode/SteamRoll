@@ -30,6 +30,85 @@ public partial class SettingsWindow : Window
         
         LoadSettings();
         UpdateCacheStats();
+        _ = LoadGoldbergVersionsAsync();
+    }
+
+    private async Task LoadGoldbergVersionsAsync()
+    {
+        try
+        {
+            DownloadGoldbergBtn.IsEnabled = false;
+
+            // Get current version
+            var currentVersion = new GoldbergService(_settingsService).GetInstalledVersion();
+            CurrentGoldbergVersionText.Text = string.IsNullOrEmpty(currentVersion)
+                ? "Current: Not Installed"
+                : $"Current: {currentVersion}";
+
+            // Load available versions
+            var versions = await new GoldbergService(_settingsService).GetAvailableVersionsAsync();
+
+            GoldbergVersionCombo.Items.Clear();
+            if (versions.Count > 0)
+            {
+                foreach (var v in versions)
+                {
+                    GoldbergVersionCombo.Items.Add(v);
+                }
+                GoldbergVersionCombo.SelectedIndex = 0;
+                DownloadGoldbergBtn.IsEnabled = true;
+            }
+            else
+            {
+                GoldbergVersionCombo.Items.Add("No versions found");
+                GoldbergVersionCombo.SelectedIndex = 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Error loading Goldberg versions: {ex.Message}", ex, "SettingsWindow");
+        }
+    }
+
+    private async void DownloadGoldberg_Click(object sender, RoutedEventArgs e)
+    {
+        var selectedVersion = GoldbergVersionCombo.SelectedItem as string;
+        if (string.IsNullOrEmpty(selectedVersion) || selectedVersion == "No versions found")
+            return;
+
+        DownloadGoldbergBtn.IsEnabled = false;
+        DownloadGoldbergBtn.Content = "⏳ Downloading...";
+
+        try
+        {
+            var service = new GoldbergService(_settingsService);
+            // Wire up progress
+            service.DownloadProgressChanged += (status, percent) =>
+            {
+                Dispatcher.Invoke(() => DownloadGoldbergBtn.Content = $"{percent}%");
+            };
+
+            var success = await service.DownloadGoldbergAsync(selectedVersion);
+
+            if (success)
+            {
+                ToastService.Instance.ShowSuccess("Goldberg Updated", $"Successfully installed version {selectedVersion}");
+                CurrentGoldbergVersionText.Text = $"Current: {selectedVersion}";
+            }
+            else
+            {
+                MessageBox.Show("Failed to download Goldberg Emulator. Check logs for details.", "Download Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Error downloading: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            DownloadGoldbergBtn.Content = "⬇️ Download";
+            DownloadGoldbergBtn.IsEnabled = true;
+        }
     }
     
     /// <summary>
