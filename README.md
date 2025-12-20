@@ -61,6 +61,3 @@ On the target PC, simply open the game folder and run **`LAUNCH.bat`**. No Steam
 ## ⚠️ Disclaimer
 **SteamRoll is for personal, local use only.**
 Please respect game developers. Only use this tool to play games you legally own on your own local network. Do not use this tool to distribute pirated copies of games.
-
-## 🤝 Contributing
-Contributions are welcome! Please feel free to verify the `security_report.md` in the artifacts or submit pull requests.
