@@ -614,6 +614,16 @@ public class GoldbergService : IDisposable
 
         try
         {
+            // Sanity check: steam_api.dll shouldn't be massive
+            // If it is, it's likely not the real DLL or something weird is going on.
+            // Reading a 100MB+ file into a string for regex is bad for memory.
+            var info = new FileInfo(steamApiPath);
+            if (info.Length > 10 * 1024 * 1024) // 10MB limit
+            {
+                LogService.Instance.Warning($"Skipping interface detection for {steamApiPath} (size {info.Length} > 10MB)", "GoldbergService");
+                return interfaces;
+            }
+
             var bytes = File.ReadAllBytes(steamApiPath);
             var content = System.Text.Encoding.ASCII.GetString(bytes);
             

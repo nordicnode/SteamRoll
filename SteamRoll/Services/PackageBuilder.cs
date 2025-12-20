@@ -297,7 +297,7 @@ public class PackageBuilder
     }
     
     /// <summary>
-    /// Creates a ZIP archive of the package directory for easy sharing.
+    /// Creates a ZIP archive of the package directory for easy sharing with progress tracking.
     /// Optionally deletes the source folder after archiving.
     /// </summary>
     private async Task<string> CreateZipArchiveAsync(string packageDir, CancellationToken ct = default, bool deleteSourceFolder = true)
@@ -312,9 +312,63 @@ public class PackageBuilder
             File.Delete(zipPath);
         }
         
-        await Task.Run(() =>
+        await Task.Run(async () =>
         {
-            ZipFile.CreateFromDirectory(packageDir, zipPath, CompressionLevel.Optimal, includeBaseDirectory: true);
+            // Get all files and directories to compress
+            var files = Directory.GetFiles(packageDir, "*", SearchOption.AllDirectories);
+            var directories = Directory.GetDirectories(packageDir, "*", SearchOption.AllDirectories);
+            var totalBytes = files.Sum(f => new FileInfo(f).Length);
+            long processedBytes = 0;
+
+            using var zipStream = new FileStream(zipPath, FileMode.Create);
+            using var archive = new ZipArchive(zipStream, ZipArchiveMode.Create);
+
+            // Add empty directories first
+            foreach (var dir in directories)
+            {
+                 // Only add empty directories (files handle their own paths)
+                 if (Directory.GetFileSystemEntries(dir).Length == 0)
+                 {
+                     var relativePath = Path.GetRelativePath(packageDir, dir);
+                     var entryName = Path.Combine(folderName, relativePath).Replace("\\", "/");
+
+                     // Directory entries must end with a slash
+                     if (!entryName.EndsWith("/")) entryName += "/";
+
+                     archive.CreateEntry(entryName);
+                 }
+            }
+
+            foreach (var file in files)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var relativePath = Path.GetRelativePath(packageDir, file);
+                // Include the base folder name in the zip structure
+                // ZIP spec requires forward slashes
+                var entryName = Path.Combine(folderName, relativePath).Replace("\\", "/");
+
+                var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
+
+                // Set the LastWriteTime to preserve timestamp
+                entry.LastWriteTime = File.GetLastWriteTime(file);
+
+                using var sourceStream = File.OpenRead(file);
+                using var entryStream = entry.Open();
+
+                // Copy with progress
+                var buffer = new byte[81920]; // 80KB buffer
+                int bytesRead;
+                while ((bytesRead = await sourceStream.ReadAsync(buffer, ct)) > 0)
+                {
+                    await entryStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                    processedBytes += bytesRead;
+
+                    // Throttle updates
+                    var percentage = totalBytes > 0 ? 90 + (int)((double)processedBytes / totalBytes * 10) : 100;
+                    ThrottleProgress("Creating ZIP archive...", percentage); // 90-100%
+                }
+            }
         }, ct);
         
         var zipSize = new FileInfo(zipPath).Length;
@@ -718,7 +772,8 @@ public class PackageBuilder
             .Where(x => !x.Folder.Equals("platform", StringComparison.OrdinalIgnoreCase))
             .Where(x => !x.Folder.Equals("bin", StringComparison.OrdinalIgnoreCase))
             .Where(x => !x.Folder.Equals("hl2", StringComparison.OrdinalIgnoreCase)) // Skip base HL2 content
-            .OrderBy(x => x.Path.Replace("\\", "/").Count(c => c == '/')) // Sort by depth (number of separators)
+            // Count separators for depth to avoid array allocation overhead of Split()
+            .OrderBy(x => x.Path.Count(c => c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar))
             .FirstOrDefault();
             
         if (validGameInfo == null)
@@ -827,26 +882,52 @@ public class PackageBuilder
                         LogService.Instance.Warning($"Retry copy for {file.Name}: {ioEx.Message}", "PackageBuilder");
                         // Simple retry logic could be added here
                         Thread.Sleep(100);
-                        file.CopyTo(destPath, overwrite: true);
+                        try { file.CopyTo(destPath, overwrite: true); }
+                        catch (Exception retryEx)
+                        {
+                            LogService.Instance.Error($"Failed to copy {file.Name} after retry: {retryEx.Message}", retryEx, "PackageBuilder");
+                            // Re-throw to ensure package failure - a partial package is worse than a failed one
+                            throw;
+                        }
                     }
                 }
 
                 // Increment atomically
                 var currentCount = Interlocked.Increment(ref copiedFiles);
 
-                // Report progress occasionally to avoid swamping the UI thread
-                if (currentCount % 10 == 0 || currentCount == totalFiles)
-                {
-                    var progress = 10 + (int)(((double)currentCount / totalFiles) * 60); // 10-70%
-                    ReportProgress($"{(skip ? "Skipping" : "Copying")}: {relativePath}", progress);
-                }
+                // Report progress with throttling to avoid swamping the UI thread
+                var progress = 10 + (int)(((double)currentCount / totalFiles) * 60); // 10-70%
+                ThrottleProgress($"{(skip ? "Skipping" : "Copying")}: {relativePath}", progress);
             });
         }, ct);
     }
 
+    private DateTime _lastReportTime = DateTime.MinValue;
+    private readonly object _progressLock = new();
+
     private void ReportProgress(string status, int percentage)
     {
         ProgressChanged?.Invoke(status, percentage);
+    }
+
+    /// <summary>
+    /// Reports progress but limits update frequency to avoid UI saturation.
+    /// </summary>
+    private void ThrottleProgress(string status, int percentage)
+    {
+        var now = DateTime.UtcNow;
+        lock (_progressLock)
+        {
+            // Report max 10 times per second (100ms) or if finished
+            if ((now - _lastReportTime).TotalMilliseconds >= 100 || percentage >= 100)
+            {
+                _lastReportTime = now;
+                // Invoke directly on the current thread (ThreadPool thread)
+                // The UI event handler is responsible for marshaling to UI thread if needed (which it does via Dispatcher.Invoke)
+                // Using Task.Run causes race conditions in event ordering
+                ProgressChanged?.Invoke(status, percentage);
+            }
+        }
     }
 
     /// <summary>
