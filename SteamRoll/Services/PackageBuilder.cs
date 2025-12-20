@@ -789,29 +789,29 @@ public class PackageBuilder
                 // We convert backslashes to forward slashes for Linux paths
                 var linuxCdPath = cdPath.Replace("\\", "/");
 
-                var shellScriptContent = $"""
+                var shellScriptContent = $$"""
                     #!/bin/bash
-                    # SteamRoll Launcher for {game.Name}
+                    # SteamRoll Launcher for {{game.Name}}
 
                     # Set working directory to script location + relative path
-                    DIR="$( cd "$( dirname "${{BASH_SOURCE[0]}}" )" && pwd )"
-                    cd "$DIR/{linuxCdPath}"
+                    DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+                    cd "$DIR/{{linuxCdPath}}"
 
                     # Add current directory to library path (for Goldberg steam_api.so)
                     export LD_LIBRARY_PATH=".:$LD_LIBRARY_PATH"
 
-                    echo "Launching {game.Name}..."
+                    echo "Launching {{game.Name}}..."
 
                     # Try to launch with wine if it's an exe, or directly if it's executable
-                    if [[ "{exeName}" == *.exe ]]; then
+                    if [[ "{{exeName}}" == *.exe ]]; then
                         if command -v wine &> /dev/null; then
-                            wine "{exeName}"{args}
+                            wine "{{exeName}}"{{args}}
                         else
                             echo "Wine not found. Attempting to run directly..."
-                            ./"{exeName}"{args}
+                            ./"{{exeName}}"{{args}}
                         fi
                     else
-                         ./"{exeName}"{args}
+                         ./"{{exeName}}"{{args}}
                     fi
                     """;
 
@@ -913,24 +913,24 @@ public class PackageBuilder
         var linuxRelativeExePath = relativeExePath.Replace("\\", "/");
         var linuxGamePath = sourceInfo.ContentFolderRelativeToRoot.Replace("\\", "/");
 
-        var shellScriptContent = $"""
+        var shellScriptContent = $$"""
             #!/bin/bash
-            # SteamRoll Source Engine Launcher for {gameName}
+            # SteamRoll Source Engine Launcher for {{gameName}}
 
             # Set working directory to package root
-            DIR="$( cd "$( dirname "${{BASH_SOURCE[0]}}" )" && pwd )"
+            DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
             cd "$DIR"
 
             # Add current directory to library path
             export LD_LIBRARY_PATH=".:$LD_LIBRARY_PATH"
 
-            echo "Launching {gameName} (Source Engine)..."
+            echo "Launching {{gameName}} (Source Engine)..."
 
             if command -v wine &> /dev/null; then
-                wine "{linuxRelativeExePath}" -game "{linuxGamePath}"{args}
+                wine "{{linuxRelativeExePath}}" -game "{{linuxGamePath}}"{{args}}
             else
                 echo "Wine not found. Attempting to run directly..."
-                ./"{linuxRelativeExePath}" -game "{linuxGamePath}"{args}
+                ./"{{linuxRelativeExePath}}" -game "{{linuxGamePath}}"{{args}}
             fi
             """;
 
