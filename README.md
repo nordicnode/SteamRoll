@@ -2,27 +2,34 @@
 
 ![SteamRoll Logo](SteamRoll/logo.png)
 
-
 **SteamRoll** is a tool designed for households to easily share and play their Steam libraries across local computers without the restrictions of Steam Family Sharing or requiring multiple accounts to be online.
 
 It creates portable, LAN-ready game packages by automatically applying compatibility layers (Goldberg Emulator / CreamAPI) and provides a high-speed peer-to-peer transfer system to move games between PCs.
 
 ## ✨ Features
 
-*   **📦 One-Click Packaging**: Automatically converts installed Steam games into portable, DRM-free folders.
-*   **🔓 Auto-Configuration**: 
-    *   Automatically downloads and applies **Goldberg Emulator** to bypass Steam DRM for LAN play.
-    *   Optional **CreamAPI** support for unlocking DLC content.
-    *   Generates custom `LAUNCH.bat` scripts for easy one-click play.
-    *   Special handling for Source Engine games (e.g., Half-Life 2 mods).
-*   **🚀 Direct LAN Transfer**:
-    *   Built-in high-speed TCP file transfer between SteamRoll clients.
-    *   No external drives or slow cloud downloads required.
-    *   **Integrity Verification**: Uses SHA-256 hashing to ensure game files are not corrupted during transfer.
-*   **🛡️ Robust & Safe**:
-    *   Verifies file hashes after transfer.
-    *   Isolated environment (does not modify your actual Steam installation).
-    *   "Offline" mode configuration to prevent accidental Steam connection attempts.
+### 📦 Automated Packaging
+*   **One-Click Conversion**: Automatically converts installed Steam games into portable, DRM-free folders.
+*   **Smart Emulation**:
+    *   **Goldberg Emulator**: Automatically downloads and applies the Goldberg Emulator to bypass Steam DRM for offline/LAN play.
+    *   **CreamAPI Support**: Optional support for unlocking DLC content while maintaining Steam integration.
+    *   **Interface Detection**: Scans game files to detect and configure necessary Steam interfaces.
+*   **Game-Specific Logic**:
+    *   **Source Engine Support**: Special handling for Source engine games (e.g., Half-Life 2 mods) to correctly configure `gameinfo.txt` and launch arguments.
+    *   **Launcher Generation**: Creates custom `LAUNCH.bat` scripts for easy one-click play.
+*   **Rich Metadata**: Fetches game details (descriptions, release dates, ratings) from the Steam Store and generates a detailed `README.txt` and machine-readable `steamroll.json` for every package.
+
+### 🚀 Advanced LAN Transfer
+*   **Zero-Config Discovery**: Automatically finds other SteamRoll clients on your local network via UDP broadcast (Port 27050).
+*   **Smart Sync**: Differential transfer algorithm that analyzes the destination folder and skips files that are already present (matching size and hash). Perfect for resuming interrupted transfers or pushing game updates.
+*   **Integrity Verification**: Uses SHA-256 hashing to ensure every file is transferred correctly and matches the source.
+*   **Bandwidth Control**: Configurable transfer speed limits to prevent network saturation.
+
+### 🛠️ Management & Safety
+*   **Library Scanning**: Automatically detects games across multiple Steam library folders.
+*   **Save Game Manager**: Built-in tools to back up and restore game saves, supporting both standard Goldberg paths and portable package paths.
+*   **Defender Exclusion Helper**: An optional utility to safely add Windows Defender exclusions for SteamRoll folders, preventing false positives often triggered by emulator DLLs.
+*   **Isolated Environment**: SteamRoll works in its own output directory and does **not** modify your actual Steam installation.
 
 ## 🚀 How to Use
 
@@ -30,28 +37,38 @@ It creates portable, LAN-ready game packages by automatically applying compatibi
 Run **SteamRoll** on the computer where the games are installed. It will automatically detect your Steam library.
 
 ### 2. Create a Package
-1.  Select a game from the list.
+1.  Select a game from the "Library" view.
 2.  Click the **Create Package** button.
 3.  SteamRoll will:
-    *   Copy the game files to a staging area.
-    *   Detect DRM protection (SteamStub/Denuvo). *Note: Denuvo games are not supported.*
-    *   Apply the appropriate emulator (Goldberg/CreamAPI).
-    *   Generate a launcher and metadata.
+    *   Copy game files to the staging area.
+    *   Apply the selected emulator (Goldberg/CreamAPI).
+    *   Configure DLC and generate a launcher.
+    *   (Optional) Create a ZIP archive of the package.
 
 ### 3. Transfer to Another PC
-**Option A: Direct Transfer (Recommended)**
-1.  Open **SteamRoll** on the destination PC. It will automatically start listening for peers.
-2.  On the source PC, right-click the packaged game and select **Send to Peer**.
-3.  Select the destination PC from the list.
-4.  Accept the transfer on the destination PC.
+**Option A: Direct LAN Transfer (Recommended)**
+1.  Open **SteamRoll** on the destination PC. It will automatically start listening.
+2.  On the source PC, go to the "Packages" view.
+3.  Right-click the packaged game and select **Send to Peer**.
+4.  Select the destination PC from the list.
+5.  On the destination PC, accept the incoming transfer request.
 
 **Option B: Manual Copy**
-1.  Click **Open Output / Open Package** to view the folder.
-2.  Copy the entire game folder to a USB drive or network share.
+1.  Click **Open Folder** to view the package.
+2.  Copy the folder to a USB drive or network share.
 3.  Paste it onto the target PC.
 
 ### 4. Play!
 On the target PC, simply open the game folder and run **`LAUNCH.bat`**. No Steam login required!
+
+## ⚙️ Technical Details
+
+*   **Ports**:
+    *   **TCP 27051**: File transfer
+    *   **UDP 27050**: Peer discovery
+*   **Configuration**: Settings are stored in `%LocalAppData%/SteamRoll/settings.json`.
+*   **Goldberg Path**: Emulator files are managed in `%LocalAppData%/SteamRoll/Goldberg`.
+*   **Metadata**: Each package contains a `steamroll.json` file with build info and file hashes for integrity checks.
 
 ## System Requirements
 *   **OS**: Windows 10/11 (64-bit)
