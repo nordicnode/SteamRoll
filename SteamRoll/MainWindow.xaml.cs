@@ -591,12 +591,15 @@ public partial class MainWindow : Window
         // Must invoke on UI thread synchronously to get user response
         Dispatcher.Invoke(() =>
         {
+            // Standard transfer message - we analyze for updates AFTER approval to prevent UI hang
+            var message = $"📥 Incoming game transfer request:\n\n" +
+                          $"Game: {e.GameName}\n" +
+                          $"Size: {e.FormattedSize}\n" +
+                          $"Files: {e.FileCount}\n\n" +
+                          "Do you want to accept this transfer?";
+
             var result = MessageBox.Show(
-                $"📥 Incoming game transfer request:\n\n" +
-                $"Game: {e.GameName}\n" +
-                $"Size: {e.FormattedSize}\n" +
-                $"Files: {e.FileCount}\n\n" +
-                "Do you want to accept this transfer?",
+                message,
                 "Incoming Transfer Request",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question,
