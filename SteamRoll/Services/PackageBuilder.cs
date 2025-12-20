@@ -1006,6 +1006,30 @@ public class PackageBuilder
         return incompletePackages;
     }
 
+    /// <summary>
+    /// Deletes a package directory completely.
+    /// </summary>
+    /// <param name="packagePath">The path to the package folder.</param>
+    public static async Task DeletePackageAsync(string packagePath)
+    {
+        if (string.IsNullOrEmpty(packagePath) || !Directory.Exists(packagePath))
+            return;
+
+        await Task.Run(() =>
+        {
+            try
+            {
+                Directory.Delete(packagePath, true);
+                LogService.Instance.Info($"Deleted package at {packagePath}", "PackageBuilder");
+            }
+            catch (Exception ex)
+            {
+                LogService.Instance.Error($"Failed to delete package at {packagePath}", ex, "PackageBuilder");
+                throw;
+            }
+        });
+    }
+
     private static string SanitizeFileName(string name) => FormatUtils.SanitizeFileName(name);
 
     /// <summary>

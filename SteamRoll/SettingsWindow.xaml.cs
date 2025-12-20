@@ -53,6 +53,24 @@ public partial class SettingsWindow : Window
         
         AutoAnalyzeCheck.IsChecked = settings.AutoAnalyzeOnScan;
         ToastNotificationsCheck.IsChecked = settings.ShowToastNotifications;
+
+        // Set bandwidth limit combo
+        bool found = false;
+        foreach (System.Windows.Controls.ComboBoxItem item in BandwidthLimitCombo.Items)
+        {
+            if (item.Tag?.ToString() == settings.TransferSpeedLimit.ToString())
+            {
+                BandwidthLimitCombo.SelectedItem = item;
+                found = true;
+                break;
+            }
+        }
+
+        if (!found)
+        {
+            // If custom value not in list, select unlimited (or closest, but simplifed to Unlimited for now)
+             BandwidthLimitCombo.SelectedIndex = 0;
+        }
     }
     
     /// <summary>
@@ -133,6 +151,15 @@ public partial class SettingsWindow : Window
             
             settings.AutoAnalyzeOnScan = AutoAnalyzeCheck.IsChecked ?? true;
             settings.ShowToastNotifications = ToastNotificationsCheck.IsChecked ?? true;
+
+            // Get selected bandwidth limit
+            if (BandwidthLimitCombo.SelectedItem is System.Windows.Controls.ComboBoxItem limitItem)
+            {
+                if (long.TryParse(limitItem.Tag?.ToString(), out var limit))
+                {
+                    settings.TransferSpeedLimit = limit;
+                }
+            }
         });
         
         ChangesSaved = true;
