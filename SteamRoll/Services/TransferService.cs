@@ -113,7 +113,7 @@ public class TransferService : IDisposable
             
             // Gather file list with checksums
             var files = Directory.GetFiles(packagePath, "*", SearchOption.AllDirectories);
-            var fileInfos = files.Select(f => new TransferFileInfo
+            var fileInfos = files.AsParallel().Select(f => new TransferFileInfo
             {
                 RelativePath = System.IO.Path.GetRelativePath(packagePath, f),
                 Size = new FileInfo(f).Length,
@@ -150,6 +150,7 @@ public class TransferService : IDisposable
             long sentBytes = 0;
             var buffer = new byte[BUFFER_SIZE];
             var limiter = new BandwidthLimiter(_settingsService?.Settings.TransferSpeedLimit ?? 0);
+            var startTime = DateTime.UtcNow;
 
             foreach (var fileInfo in fileInfos)
             {
@@ -163,13 +164,27 @@ public class TransferService : IDisposable
                     await stream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
                     sentBytes += bytesRead;
 
+                    // Calculate ETA
+                    TimeSpan? eta = null;
+                    var elapsed = DateTime.UtcNow - startTime;
+                    if (elapsed.TotalSeconds > 2 && sentBytes > 0)
+                    {
+                        var bytesPerSecond = sentBytes / elapsed.TotalSeconds;
+                        if (bytesPerSecond > 0)
+                        {
+                            var remainingBytes = totalSize - sentBytes;
+                            eta = TimeSpan.FromSeconds(remainingBytes / bytesPerSecond);
+                        }
+                    }
+
                     ProgressChanged?.Invoke(this, new TransferProgress
                     {
                         GameName = gameName,
                         CurrentFile = fileInfo.RelativePath,
                         BytesTransferred = sentBytes,
                         TotalBytes = totalSize,
-                        IsSending = true
+                        IsSending = true,
+                        EstimatedTimeRemaining = eta
                     });
                 }
             }
@@ -675,6 +690,7 @@ public class TransferProgress
     public long BytesTransferred { get; set; }
     public long TotalBytes { get; set; }
     public bool IsSending { get; set; }
+    public TimeSpan? EstimatedTimeRemaining { get; set; }
 
     public double Percentage => TotalBytes > 0 ? (double)BytesTransferred / TotalBytes * 100 : 0;
 
@@ -684,7 +700,11 @@ public class TransferProgress
         {
             var transferred = FormatBytes(BytesTransferred);
             var total = FormatBytes(TotalBytes);
-            return $"{transferred} / {total} ({Percentage:F1}%)";
+            var percentage = Percentage;
+            var eta = EstimatedTimeRemaining.HasValue
+                ? $" - ETA: {EstimatedTimeRemaining.Value:hh\\:mm\\:ss}"
+                : "";
+            return $"{transferred} / {total} ({percentage:F1}%){eta}";
         }
     }
 
