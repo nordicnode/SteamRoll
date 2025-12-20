@@ -146,14 +146,42 @@ public class TransferService : IDisposable
                 return false;
             }
 
+            var skippedFiles = new HashSet<string>(ack.SkippedFiles ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+
+            // Adjust total size to transfer
+            var bytesToTransfer = fileInfos.Where(f => !skippedFiles.Contains(f.RelativePath)).Sum(f => f.Size);
+            var skippedBytes = totalSize - bytesToTransfer;
+
             // Send files
             long sentBytes = 0;
+            // Initialize with skipped bytes so progress bar starts correctly if we're resuming/updating
+            long totalProgressBytes = skippedBytes;
+
             var buffer = new byte[BUFFER_SIZE];
             var limiter = new BandwidthLimiter(_settingsService?.Settings.TransferSpeedLimit ?? 0);
             var startTime = DateTime.UtcNow;
 
             foreach (var fileInfo in fileInfos)
             {
+                if (skippedFiles.Contains(fileInfo.RelativePath))
+                {
+                    // Skip sending content, but update progress
+                    // Don't add to sentBytes (network bytes), but add to totalProgressBytes
+                    // Actually, let's just mark it as done in progress
+
+                    ProgressChanged?.Invoke(this, new TransferProgress
+                    {
+                        GameName = gameName,
+                        CurrentFile = fileInfo.RelativePath + " (skipped)",
+                        BytesTransferred = totalProgressBytes,
+                        TotalBytes = totalSize, // Keep total relative to full package size
+                        IsSending = true,
+                        EstimatedTimeRemaining = null
+                    });
+
+                    continue;
+                }
+
                 var fullPath = System.IO.Path.Combine(packagePath, fileInfo.RelativePath);
                 using var fileStream = File.OpenRead(fullPath);
 
@@ -163,8 +191,9 @@ public class TransferService : IDisposable
                     await limiter.WaitAsync(bytesRead, ct);
                     await stream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
                     sentBytes += bytesRead;
+                    totalProgressBytes += bytesRead;
 
-                    // Calculate ETA
+                    // Calculate ETA based on actual transfer speed
                     TimeSpan? eta = null;
                     var elapsed = DateTime.UtcNow - startTime;
                     if (elapsed.TotalSeconds > 2 && sentBytes > 0)
@@ -172,7 +201,7 @@ public class TransferService : IDisposable
                         var bytesPerSecond = sentBytes / elapsed.TotalSeconds;
                         if (bytesPerSecond > 0)
                         {
-                            var remainingBytes = totalSize - sentBytes;
+                            var remainingBytes = bytesToTransfer - sentBytes; // Only count bytes we actually need to send
                             eta = TimeSpan.FromSeconds(remainingBytes / bytesPerSecond);
                         }
                     }
@@ -181,7 +210,7 @@ public class TransferService : IDisposable
                     {
                         GameName = gameName,
                         CurrentFile = fileInfo.RelativePath,
-                        BytesTransferred = sentBytes,
+                        BytesTransferred = totalProgressBytes,
                         TotalBytes = totalSize,
                         IsSending = true,
                         EstimatedTimeRemaining = eta
@@ -252,6 +281,7 @@ public class TransferService : IDisposable
             var destPath = System.IO.Path.Combine(_receiveBasePath, gameName);
 
             // Request approval from UI before accepting
+            // We pass 0 for skipped files initially because we haven't analyzed yet to avoid hanging
             var approvalArgs = new TransferApprovalEventArgs
             {
                 GameName = gameName,
@@ -264,9 +294,101 @@ public class TransferService : IDisposable
             
             // Wait for approval decision from UI thread (with 60 second timeout)
             var approved = await approvalArgs.WaitForApprovalAsync();
+
+            if (!approved)
+            {
+                LogService.Instance.Info($"Transfer of {gameName} was rejected by user", "TransferService");
+                await SendJsonAsync(stream, new TransferAck { Accepted = false }, ct);
+                return;
+            }
+
+            // Now perform analysis for differential update
+            // Check for existing files to skip (Smart Sync)
+            var skippedFiles = new List<string>();
+
+            if (Directory.Exists(destPath))
+            {
+                // Try to load local metadata first for fast checking
+                Dictionary<string, string> localHashes = new();
+                try
+                {
+                    var metadataPath = System.IO.Path.Combine(destPath, "steamroll.json");
+                    if (File.Exists(metadataPath))
+                    {
+                        var json = await File.ReadAllTextAsync(metadataPath, ct);
+                        var metadata = JsonSerializer.Deserialize<Models.PackageMetadata>(json); // Full qual to avoid using ambiguity
+                        if (metadata?.FileHashes != null)
+                        {
+                            localHashes = metadata.FileHashes;
+                        }
+                    }
+                }
+                catch { /* Ignore metadata read errors */ }
+
+                foreach (var fileInfo in fileInfos)
+                {
+                    // Security check: Prevent directory traversal in analysis phase
+                    if (!IsPathSafe(fileInfo.RelativePath)) continue;
+
+                    var localPath = System.IO.Path.Combine(destPath, fileInfo.RelativePath);
+
+                    // Double check path containment
+                    if (!Path.GetFullPath(localPath).StartsWith(Path.GetFullPath(destPath), StringComparison.OrdinalIgnoreCase)) continue;
+
+                    if (File.Exists(localPath))
+                    {
+                        bool matches = false;
+
+                        // Check size first
+                        var fi = new FileInfo(localPath);
+                        if (fi.Length == fileInfo.Size)
+                        {
+                            // Check hash if available in metadata
+                            if (localHashes.TryGetValue(fileInfo.RelativePath, out var localHash) &&
+                                string.Equals(localHash, fileInfo.Sha256, StringComparison.OrdinalIgnoreCase))
+                            {
+                                matches = true;
+                            }
+                            // Fallback to checking hash if size matches but no metadata hash (safe but slower)
+                            else
+                            {
+                                try
+                                {
+                                    // Only hash if we have a hash to compare against
+                                    if (!string.IsNullOrEmpty(fileInfo.Sha256))
+                                    {
+                                        var computedHash = ComputeSha256(localPath);
+                                        if (string.Equals(computedHash, fileInfo.Sha256, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            matches = true;
+                                        }
+                                    }
+                                }
+                                catch { /* If we can't read it, we can't skip it */ }
+                            }
+                        }
+
+                        if (matches)
+                        {
+                            skippedFiles.Add(fileInfo.RelativePath);
+                        }
+                    }
+
+                    // Update analysis progress (avoid UI hang appearance)
+                    // We can't update percentage accurately without total files count processed so far,
+                    // but we can show activity.
+                    // This runs on a thread pool thread, so it won't block UI if marshaled correctly.
+                    ProgressChanged?.Invoke(this, new TransferProgress
+                    {
+                        GameName = gameName,
+                        CurrentFile = $"Analyzing local files: {fileInfo.RelativePath}",
+                        IsSending = false
+                    });
+                }
+            }
             
-            // Send acknowledgment based on approval
-            await SendJsonAsync(stream, new TransferAck { Accepted = approved }, ct);
+            // Send acknowledgment with approval and skipped files
+            await SendJsonAsync(stream, new TransferAck { Accepted = true, SkippedFiles = skippedFiles }, ct);
             
             // If not approved, return early
             if (!approved)
@@ -676,6 +798,11 @@ public class TransferFileInfo
 public class TransferAck
 {
     public bool Accepted { get; set; }
+
+    /// <summary>
+    /// List of relative paths of files that the receiver already has and wants to skip.
+    /// </summary>
+    public List<string> SkippedFiles { get; set; } = new();
 }
 
 public class TransferComplete
