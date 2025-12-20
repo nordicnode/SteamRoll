@@ -1,0 +1,152 @@
+using System.IO;
+
+namespace SteamRoll.Services;
+
+/// <summary>
+/// Shared utility methods and constants used across the application.
+/// </summary>
+public static class AppConstants
+{
+    // ============================================
+    // Network Constants
+    // ============================================
+    
+    /// <summary>
+    /// Default port for LAN file transfers between SteamRoll instances.
+    /// </summary>
+    public const int DEFAULT_TRANSFER_PORT = 27051;
+    
+    /// <summary>
+    /// Default port for LAN peer discovery.
+    /// </summary>
+    public const int DEFAULT_DISCOVERY_PORT = 27050;
+    
+    /// <summary>
+    /// Buffer size for file transfers (80KB).
+    /// </summary>
+    public const int TRANSFER_BUFFER_SIZE = 81920;
+    
+    // ============================================
+    // Cache Constants
+    // ============================================
+    
+    /// <summary>
+    /// Number of days before cached game data expires.
+    /// </summary>
+    public const int CACHE_EXPIRY_DAYS = 7;
+    
+    // ============================================
+    // DRM Detection Constants
+    // ============================================
+    
+    /// <summary>
+    /// File size threshold (100MB) that may indicate Denuvo protection.
+    /// </summary>
+    public const long DENUVO_SIZE_THRESHOLD = 100_000_000;
+    
+    /// <summary>
+    /// Overlay size threshold (10MB) that may indicate packed/protected executable.
+    /// </summary>
+    public const long PACKED_OVERLAY_THRESHOLD = 10_000_000;
+    
+    // ============================================
+    // API Constants
+    // ============================================
+    
+    /// <summary>
+    /// HTTP timeout for Steam API requests.
+    /// </summary>
+    public const int HTTP_TIMEOUT_SECONDS = 15;
+    
+    /// <summary>
+    /// HTTP timeout for large file downloads.
+    /// </summary>
+    public const int HTTP_DOWNLOAD_TIMEOUT_MINUTES = 5;
+    
+    // ============================================
+    // LAN Discovery Constants
+    // ============================================
+    
+    /// <summary>
+    /// Interval between peer announcements in milliseconds.
+    /// </summary>
+    public const int ANNOUNCE_INTERVAL_MS = 5000;
+    
+    /// <summary>
+    /// Time before a peer is considered lost in milliseconds.
+    /// </summary>
+    public const int PEER_TIMEOUT_MS = 15000;
+    
+    // ============================================
+    // UI Constants
+    // ============================================
+    
+    /// <summary>
+    /// Maximum number of toast notifications to display at once.
+    /// </summary>
+    public const int MAX_TOASTS = 5;
+    
+    /// <summary>
+    /// Default duration for toast notifications in milliseconds.
+    /// </summary>
+    public const int TOAST_DURATION_MS = 4000;
+    
+    // ============================================
+    // DLC Fetch Constants
+    // ============================================
+    
+    /// <summary>
+    /// Delay between DLC fetch requests to avoid rate limiting in milliseconds.
+    /// </summary>
+    public const int DLC_FETCH_DELAY_MS = 100;
+    
+    // ============================================
+    // Cache Limits
+    // ============================================
+    
+    /// <summary>
+    /// Maximum number of entries in the in-memory Steam Store cache.
+    /// </summary>
+    public const int MAX_STORE_CACHE_ENTRIES = 500;
+}
+
+
+/// <summary>
+/// Shared utility methods for formatting and common operations.
+/// </summary>
+public static class FormatUtils
+{
+    private static readonly string[] SizeSuffixes = { "B", "KB", "MB", "GB", "TB" };
+    
+    /// <summary>
+    /// Formats a byte count into a human-readable string (e.g., "15.2 GB").
+    /// </summary>
+    /// <param name="bytes">The byte count to format.</param>
+    /// <returns>A formatted string with appropriate size suffix.</returns>
+    public static string FormatBytes(long bytes)
+    {
+        if (bytes < 0) return "0 B";
+        
+        int order = 0;
+        double len = bytes;
+        
+        while (len >= 1024 && order < SizeSuffixes.Length - 1)
+        {
+            order++;
+            len /= 1024;
+        }
+        
+        return $"{len:0.##} {SizeSuffixes[order]}";
+    }
+    
+    /// <summary>
+    /// Sanitizes a string to be used as a valid file name.
+    /// </summary>
+    /// <param name="name">The name to sanitize.</param>
+    /// <returns>A sanitized string safe for use as a file name.</returns>
+    public static string SanitizeFileName(string name)
+    {
+        var invalid = System.IO.Path.GetInvalidFileNameChars();
+        return string.Join("_", name.Split(invalid, StringSplitOptions.RemoveEmptyEntries)).Trim();
+    }
+}

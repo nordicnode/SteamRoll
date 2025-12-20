@@ -1,0 +1,300 @@
+<Window x:Class="SteamRoll.GameDetailsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Game Details" 
+        Height="800" Width="1100"
+        MinHeight="600" MinWidth="900"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BackgroundDarkBrush}"
+        Loaded="Window_Loaded">
+    
+    <Grid>
+        <!-- Background Image -->
+        <Image x:Name="BackgroundImage" Stretch="UniformToFill" Opacity="0.15"
+               HorizontalAlignment="Center" VerticalAlignment="Top"/>
+        
+        <!-- Dark Gradient Overlay -->
+        <Border>
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Color="#CC0D1117" Offset="0"/>
+                    <GradientStop Color="#FF0D1117" Offset="0.4"/>
+                </LinearGradientBrush>
+            </Border.Background>
+        </Border>
+        
+        <!-- Main Content -->
+        <Grid Margin="32">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Header: Game Title and Info -->
+            <Grid Grid.Row="0" Margin="0,0,0,24">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <!-- Header Image -->
+                <Border Grid.Column="0" CornerRadius="8" Margin="0,0,20,0" Width="300" Height="140">
+                    <Border.Background>
+                        <ImageBrush x:Name="HeaderImageBrush" Stretch="UniformToFill"/>
+                    </Border.Background>
+                </Border>
+                
+                <!-- Title and Meta -->
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock x:Name="GameTitle" Text="Game Name" FontSize="32" FontWeight="Bold" 
+                               Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="GenresText" Text="Action • Adventure • RPG" FontSize="14" 
+                               Foreground="{DynamicResource AccentSecondaryBrush}" Margin="0,6,0,0"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                        <TextBlock x:Name="DeveloperText" Text="Developer: Unknown" FontSize="12" 
+                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,20,0"/>
+                        <TextBlock x:Name="ReleaseDateText" Text="Released: Unknown" FontSize="12" 
+                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <Border Background="#21262D" CornerRadius="4" Padding="8,4" Margin="0,0,8,0">
+                            <TextBlock x:Name="AppIdText" Text="#12345" FontSize="11" 
+                                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        </Border>
+                        <Border Background="#21262D" CornerRadius="4" Padding="8,4" Margin="0,0,8,0">
+                            <TextBlock x:Name="SizeText" Text="0 GB" FontSize="11" 
+                                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        </Border>
+                        <Border x:Name="MetacriticBadge" Background="#3FB950" CornerRadius="4" 
+                                Padding="8,4" Visibility="Collapsed">
+                            <TextBlock x:Name="MetacriticText" Text="85" FontSize="11" 
+                                       Foreground="White" FontWeight="Bold"/>
+                        </Border>
+                    </StackPanel>
+                </StackPanel>
+                
+                <!-- Compatibility Badge -->
+                <Border Grid.Column="2" x:Name="CompatBadge" CornerRadius="8" Padding="16,10" 
+                        VerticalAlignment="Top">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse x:Name="CompatDot" Width="12" Height="12" Fill="#3FB950" Margin="0,0,10,0"/>
+                        <TextBlock x:Name="CompatText" Text="Compatible" FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+            
+            <!-- Content Area -->
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="340"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <!-- Left Column: Description, Screenshots, Trailer -->
+                    <StackPanel Grid.Column="0" Margin="0,0,24,0">
+                        
+                        <!-- Description -->
+                        <Border Background="{DynamicResource BackgroundCardBrush}" CornerRadius="12" 
+                                Padding="20" Margin="0,0,0,16" BorderBrush="{DynamicResource BorderSubtleBrush}" 
+                                BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="� About This Game" FontSize="16" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+                                <TextBlock x:Name="DescriptionText" TextWrapping="Wrap" FontSize="13"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" 
+                                           Text="Loading game description..."/>
+                            </StackPanel>
+                        </Border>
+                        
+                        <!-- Screenshots -->
+                        <Border Background="{DynamicResource BackgroundCardBrush}" CornerRadius="12" 
+                                Padding="20" Margin="0,0,0,16" BorderBrush="{DynamicResource BorderSubtleBrush}" 
+                                BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="🖼️ Screenshots" FontSize="16" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+                                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                    <ItemsControl x:Name="ScreenshotsList">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border CornerRadius="6" Margin="0,0,10,0" Width="280" Height="160">
+                                                    <Border.Background>
+                                                        <ImageBrush ImageSource="{Binding}" Stretch="UniformToFill"/>
+                                                    </Border.Background>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                                <TextBlock x:Name="NoScreenshotsText" Text="No screenshots available" 
+                                           Foreground="{DynamicResource TextMutedBrush}" FontStyle="Italic"
+                                           Visibility="Collapsed"/>
+                            </StackPanel>
+                        </Border>
+                        
+                        <!-- Features -->
+                        <Border Background="{DynamicResource BackgroundCardBrush}" CornerRadius="12" 
+                                Padding="20" Margin="0,0,0,16" BorderBrush="{DynamicResource BorderSubtleBrush}" 
+                                BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="✨ Features" FontSize="16" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+                                <ItemsControl x:Name="FeaturesList">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="#21262D" CornerRadius="4" Padding="10,5" Margin="0,0,8,8">
+                                                <TextBlock Text="{Binding}" FontSize="11" 
+                                                           Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                    
+                    <!-- Right Column: DRM, DLC, Package Status -->
+                    <StackPanel Grid.Column="1">
+                        
+                        <!-- DRM Analysis -->
+                        <Border Background="{DynamicResource BackgroundCardBrush}" CornerRadius="12" 
+                                Padding="20" Margin="0,0,0,16" BorderBrush="{DynamicResource BorderSubtleBrush}" 
+                                BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="🔒 DRM Analysis" FontSize="16" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Primary DRM:" 
+                                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4"/>
+                                    <TextBlock Grid.Row="0" Grid.Column="1" x:Name="PrimaryDrmText" Text="SteamStub" 
+                                               Foreground="{DynamicResource SuccessBrush}" FontWeight="SemiBold" Margin="0,4"/>
+                                    
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Compat Score:" 
+                                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="1" x:Name="CompatScoreText" Text="100%" 
+                                               Foreground="{DynamicResource SuccessBrush}" Margin="0,4"/>
+                                    
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Status:" 
+                                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="1" x:Name="StatusReasonText" 
+                                               Text="Ready to package" TextWrapping="Wrap"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                        
+                        <!-- DLC Section -->
+                        <Border Background="{DynamicResource BackgroundCardBrush}" CornerRadius="12" 
+                                Padding="20" Margin="0,0,0,16" BorderBrush="{DynamicResource BorderSubtleBrush}" 
+                                BorderThickness="1">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <TextBlock Text="📦 DLC" FontSize="16" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                    <TextBlock x:Name="DlcCountText" Text=" (0/0 installed)" FontSize="14"
+                                               Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Bottom"/>
+                                </StackPanel>
+                                <ScrollViewer MaxHeight="200" VerticalScrollBarVisibility="Auto">
+                                    <ItemsControl x:Name="DlcList">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="#21262D" CornerRadius="6" Padding="10,8" Margin="0,0,0,6">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Grid.Column="0" Text="{Binding Name}" FontSize="12"
+                                                                   Foreground="{DynamicResource TextPrimaryBrush}" 
+                                                                   TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding DisplayStatus}" FontSize="10"
+                                                                   Foreground="{DynamicResource TextMutedBrush}"/>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                                <TextBlock x:Name="NoDlcText" Text="No DLC available" 
+                                           Foreground="{DynamicResource TextMutedBrush}" FontStyle="Italic"
+                                           Visibility="Collapsed"/>
+                            </StackPanel>
+                        </Border>
+                        
+                        <!-- Links -->
+                        <Border Background="{DynamicResource BackgroundCardBrush}" CornerRadius="12" 
+                                Padding="20" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="🌐 Links" FontSize="16" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+                                <Button Content="View on Steam Store" Style="{DynamicResource SecondaryButton}" 
+                                        Margin="0,0,0,8" Click="OpenSteamStore_Click"/>
+                                <Button Content="View on SteamDB" Style="{DynamicResource SecondaryButton}" 
+                                        Click="OpenSteamDb_Click"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </ScrollViewer>
+            
+            <!-- Bottom Actions -->
+            <Border Grid.Row="2" Margin="0,24,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <!-- Loading indicator -->
+                    <TextBlock Grid.Column="0" x:Name="LoadingText" Text="⏳ Loading Steam data..." 
+                               Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"
+                               Visibility="Visible"/>
+                    
+                    <!-- Mode Selector -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0">
+                        <TextBlock Text="Mode:" Foreground="{DynamicResource TextSecondaryBrush}" 
+                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="EmulatorModeCombo" Width="180" SelectedIndex="0">
+                            <ComboBoxItem Content="🎮 Goldberg (Offline)" Tag="Goldberg"/>
+                            <ComboBoxItem Content="🔓 CreamAPI (Compat)" Tag="CreamApi"/>
+                        </ComboBox>
+                    </StackPanel>
+                    
+                    <Button Grid.Column="2" x:Name="CloseBtn" Content="Close" 
+                            Style="{DynamicResource SecondaryButton}" Width="120" Margin="0,0,12,0"
+                            Click="Close_Click"/>
+                    <Button Grid.Column="3" x:Name="PackageBtn" Content="📦 Create Package" 
+                            Style="{DynamicResource PrimaryButton}" Width="180"
+                            Click="Package_Click"/>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>
+

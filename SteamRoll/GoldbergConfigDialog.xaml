@@ -1,0 +1,131 @@
+<Window x:Class="SteamRoll.GoldbergConfigDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Advanced Goldberg Settings"
+        Width="420" Height="380"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="#0D1117"
+        ShowInTaskbar="False"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        BorderBrush="#30363D"
+        BorderThickness="1">
+    
+    <Border Background="#0D1117" CornerRadius="8" Padding="20">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Header -->
+            <StackPanel Grid.Row="0" Margin="0,0,0,20">
+                <TextBlock Text="⚙️ Advanced Goldberg Settings" FontSize="18" FontWeight="SemiBold" 
+                           Foreground="White" FontFamily="Segoe UI Emoji"/>
+                <TextBlock Text="Configure emulator behavior for this package" FontSize="12" 
+                           Foreground="#8B949E" Margin="0,4,0,0"/>
+            </StackPanel>
+            
+            <!-- Options -->
+            <StackPanel Grid.Row="1" Margin="0,0,0,20">
+                
+                <!-- Account Name -->
+                <StackPanel Margin="0,0,0,16">
+                    <TextBlock Text="Player Name" FontSize="13" Foreground="#C9D1D9" Margin="0,0,0,6"/>
+                    <TextBox x:Name="AccountNameBox" Text="Player" FontSize="13"
+                             Background="#161B22" Foreground="White" BorderBrush="#30363D"
+                             Padding="10,8" BorderThickness="1"/>
+                    <TextBlock Text="The name shown in-game" FontSize="11" Foreground="#6E7681" Margin="0,4,0,0"/>
+                </StackPanel>
+                
+                <!-- Toggle Options -->
+                <StackPanel Margin="0,8,0,0">
+                    
+                    <!-- Disable Networking -->
+                    <Border Background="#161B22" CornerRadius="6" Padding="12,10" Margin="0,0,0,8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Disable Networking" FontSize="13" Foreground="#C9D1D9"/>
+                                <TextBlock Text="Prevent all online connections (recommended)" FontSize="11" Foreground="#6E7681"/>
+                            </StackPanel>
+                            <CheckBox x:Name="DisableNetworkingCheck" Grid.Column="1" IsChecked="True" 
+                                      VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                    
+                    <!-- Disable Overlay -->
+                    <Border Background="#161B22" CornerRadius="6" Padding="12,10" Margin="0,0,0,8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Disable Overlay" FontSize="13" Foreground="#C9D1D9"/>
+                                <TextBlock Text="Turn off Steam overlay hooks (prevents crashes)" FontSize="11" Foreground="#6E7681"/>
+                            </StackPanel>
+                            <CheckBox x:Name="DisableOverlayCheck" Grid.Column="1" IsChecked="True" 
+                                      VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                    
+                    <!-- Enable LAN -->
+                    <Border Background="#161B22" CornerRadius="6" Padding="12,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Enable LAN Multiplayer" FontSize="13" Foreground="#C9D1D9"/>
+                                <TextBlock Text="Allow local network play with other Goldberg users" FontSize="11" Foreground="#6E7681"/>
+                            </StackPanel>
+                            <CheckBox x:Name="EnableLanCheck" Grid.Column="1" IsChecked="False" 
+                                      VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                    
+                </StackPanel>
+            </StackPanel>
+            
+            <!-- Buttons -->
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <Button Grid.Column="1" Content="Cancel" Padding="20,10" Margin="0,0,10,0"
+                        Background="#21262D" Foreground="#C9D1D9" BorderThickness="0" 
+                        Cursor="Hand" Click="Cancel_Click">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                
+                <Button Grid.Column="2" Content="Apply" Padding="20,10"
+                        Background="#238636" Foreground="White" BorderThickness="0" 
+                        FontWeight="SemiBold" Cursor="Hand" Click="Apply_Click">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

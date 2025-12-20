@@ -1,0 +1,1891 @@
+﻿using System.Diagnostics;
+using System.IO;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using SteamRoll.Controls;
+using SteamRoll.Models;
+using SteamRoll.Services;
+
+namespace SteamRoll;
+
+/// <summary>
+/// Main application window - handles game library display and user interactions.
+/// </summary>
+public partial class MainWindow : Window
+{
+    private readonly SteamLocator _steamLocator;
+    private readonly LibraryScanner _libraryScanner;
+    private readonly GoldbergService _goldbergService;
+    private readonly PackageBuilder _packageBuilder;
+    private readonly DlcService _dlcService;
+    private readonly CacheService _cacheService;
+    private readonly LanDiscoveryService _lanDiscoveryService;
+    private readonly TransferService _transferService;
+    private readonly SettingsService _settingsService;
+    private readonly UpdateService _updateService;
+    private CancellationTokenSource? _currentOperationCts;
+    private List<InstalledGame> _allGames = new();
+    private readonly object _gamesLock = new(); // Thread-safety lock for _allGames modifications
+    private string _outputPath;
+
+
+    public MainWindow()
+    {
+        InitializeComponent();
+
+        // Initialize logging
+        LogService.Instance.Info("SteamRoll starting up", "App");
+        LogService.Instance.CleanupOldLogs();
+        
+        // Load settings
+        _settingsService = new SettingsService();
+        _settingsService.Load();
+        
+        // Initialize services
+        _steamLocator = new SteamLocator();
+        _libraryScanner = new LibraryScanner(_steamLocator);
+        _goldbergService = new GoldbergService();
+        _dlcService = new DlcService();
+        _cacheService = new CacheService();
+        _packageBuilder = new PackageBuilder(_goldbergService, _settingsService, _dlcService);
+        
+        // Set output path from settings
+        _outputPath = _settingsService.Settings.OutputPath;
+        
+        // Initialize LAN services
+        _lanDiscoveryService = new LanDiscoveryService();
+        _transferService = new TransferService(_outputPath);
+        
+        // Initialize update service
+        _updateService = new UpdateService(_goldbergService.GoldbergPath);
+        _updateService.UpdateAvailable += OnUpdateAvailable;
+        
+        // Subscribe to progress updates
+        _packageBuilder.ProgressChanged += OnPackageProgress;
+        _transferService.ProgressChanged += OnTransferProgress;
+        _transferService.TransferComplete += OnTransferComplete;
+        _transferService.TransferApprovalRequested += OnTransferApprovalRequested;
+        _lanDiscoveryService.PeerDiscovered += OnPeerDiscovered;
+        _lanDiscoveryService.PeerLost += OnPeerLost;
+        _lanDiscoveryService.TransferRequested += OnTransferRequested;
+        
+        // Handle transfer errors
+        _transferService.Error += (s, msg) => 
+        {
+            LogService.Instance.Error($"Transfer error: {msg}", category: "Transfer");
+            Dispatcher.Invoke(() => ToastService.Instance.Show(msg, "Error", ToastType.Error));
+        };
+        
+        // Initialize Goldberg directory (creates setup instructions)
+        _goldbergService.InitializeGoldbergDirectory();
+        
+        // Initialize Toast Service
+        ToastService.Instance.Initialize(ToastContainer);
+        
+        // Set search placeholder
+        SearchBox.Text = "🔍 Search games...";
+        SearchBox.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
+        
+        // Apply saved window dimensions and state
+        if (_settingsService.Settings.WindowWidth > 0 && _settingsService.Settings.WindowHeight > 0)
+        {
+            Width = _settingsService.Settings.WindowWidth;
+            Height = _settingsService.Settings.WindowHeight;
+        }
+
+        if (!double.IsNaN(_settingsService.Settings.WindowTop)) Top = _settingsService.Settings.WindowTop;
+        if (!double.IsNaN(_settingsService.Settings.WindowLeft)) Left = _settingsService.Settings.WindowLeft;
+
+        if (Enum.TryParse<WindowState>(_settingsService.Settings.WindowState, out var savedState))
+        {
+            WindowState = savedState;
+        }
+
+        // Load games on startup
+        Loaded += MainWindow_Loaded;
+        Closed += MainWindow_Closed;
+        KeyDown += MainWindow_KeyDown;
+
+        
+        // Subscribe to GameDetailsView events
+        GameDetailsView.BackRequested += OnDetailsBackRequested;
+        GameDetailsView.PackageRequested += OnDetailsPackageRequested;
+    }
+    
+
+    
+    private async Task CheckForIncompletePackages()
+    {
+        var outputPath = _settingsService.Settings.OutputPath; // Changed from OutputDirectory to OutputPath based on existing code
+        if (string.IsNullOrEmpty(outputPath)) return;
+        
+        var incompletePackages = await Task.Run(() => PackageBuilder.FindIncompletePackages(outputPath));
+        
+        if (incompletePackages.Count > 0)
+        {
+            var msg = incompletePackages.Count == 1 
+                ? $"Found an incomplete package for {incompletePackages[0].GameName}. Would you like to resume it?" 
+                : $"Found {incompletePackages.Count} incomplete packages. Would you like to resume them?";
+                
+            var result = MessageBox.Show(msg, "Resume Packaging", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            
+            if (result == MessageBoxResult.Yes)
+            {
+                foreach (var pkg in incompletePackages)
+                {
+                    await ResumePackage(pkg);
+                }
+            }
+        }
+    }
+    
+    private async Task ResumePackage(PackageState state)
+    {
+        var game = _allGames.FirstOrDefault(g => g.AppId == state.AppId);
+        
+        // If game not found in library (e.g. library path changed), try to construct minimalist object
+        if (game == null)
+        {
+            if (Directory.Exists(state.SourcePath))
+            {
+                game = new InstalledGame 
+                {
+                    AppId = state.AppId,
+                    Name = state.GameName,
+                    FullPath = state.SourcePath,
+                    InstallDir = System.IO.Path.GetFileName(state.SourcePath)
+                };
+            }
+            else
+            {
+                ToastService.Instance.ShowError("Resume Failed", $"Source path not found for {state.GameName}");
+                return;
+            }
+        }
+        
+        var mode = PackageMode.Goldberg;
+        if (Enum.TryParse<PackageMode>(state.Mode, out var parsedMode))
+        {
+            mode = parsedMode;
+        } else if (state.Mode == "CreamApi") {
+            mode = PackageMode.CreamApi;
+        }
+
+        await CreatePackageAsync(game, mode, state);
+    }
+    
+    private void MainWindow_KeyDown(object sender, KeyEventArgs e)
+    {
+        // Cancel current operation with Escape key
+        if (e.Key == Key.Escape && _currentOperationCts != null)
+        {
+            _currentOperationCts.Cancel();
+            StatusText.Text = "⏳ Cancelling operation...";
+            e.Handled = true;
+        }
+    }
+
+    // ============================================
+    // Window Chrome Handlers
+    // ============================================
+    
+    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2)
+        {
+            // Double-click to maximize/restore
+            MaximizeButton_Click(sender, e);
+        }
+        else if (e.LeftButton == MouseButtonState.Pressed)
+        {
+            DragMove();
+        }
+    }
+    
+    private void MinimizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState.Minimized;
+    }
+    
+    private void MaximizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (WindowState == WindowState.Maximized)
+        {
+            WindowState = WindowState.Normal;
+            MaximizeButton.Content = "☐";
+        }
+        else
+        {
+            WindowState = WindowState.Maximized;
+            MaximizeButton.Content = "❐";
+        }
+    }
+    
+    private void CloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        Close();
+    }
+
+
+    
+    // ============================================
+    // View Switching Methods
+    // ============================================
+    
+    private void ShowDetailsView(InstalledGame game)
+    {
+        LibraryView.Visibility = Visibility.Collapsed;
+        GameDetailsView.Visibility = Visibility.Visible;
+        SafeFireAndForget(GameDetailsView.LoadGameAsync(game), "Load Game Details");
+
+    }
+    
+    private void ShowLibraryView()
+    {
+        GameDetailsView.Visibility = Visibility.Collapsed;
+        LibraryView.Visibility = Visibility.Visible;
+        
+        // Update tab button styles (Library-only now)
+        LibraryTabBtn.Background = new System.Windows.Media.SolidColorBrush(
+            (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#30363D"));
+    }
+    
+    private void LibraryTab_Click(object sender, RoutedEventArgs e)
+    {
+        ShowLibraryView();
+    }
+    
+    private void OnDetailsBackRequested(object? sender, EventArgs e)
+    {
+        ShowLibraryView();
+    }
+    
+    private async void OnDetailsPackageRequested(object? sender, (InstalledGame Game, PackageMode Mode) args)
+    {
+        try
+        {
+            await CreatePackageAsync(args.Game, args.Mode);
+            // Refresh and stay in details view so user can see updated package status
+            SafeFireAndForget(GameDetailsView.LoadGameAsync(args.Game), "Refresh Game Details");
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error("Failed to create package from details view", ex, "MainWindow");
+            ToastService.Instance.ShowError("Package Failed", ex.Message);
+        }
+    }
+    
+    private void GameCard_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.Tag is InstalledGame game)
+        {
+            ShowDetailsView(game);
+        }
+        else
+        {
+            LogService.Instance.Warning($"GameCard_Click received unexpected sender type or Tag: {sender?.GetType().Name}", "MainWindow");
+        }
+    }
+    
+    private void OnPackageProgress(string status, int percentage)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            StatusText.Text = $"[{percentage}%] {status}";
+            LoadingOverlay.UpdateProgress(status, percentage);
+        });
+    }
+    
+    private void OnGoldbergDownloadProgress(string status, int percentage)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            StatusText.Text = $"🔧 [{percentage}%] {status}";
+        });
+    }
+
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        // Subscribe to Goldberg download progress
+        _goldbergService.DownloadProgressChanged += OnGoldbergDownloadProgress;
+        
+        // Check if we need Defender exclusions (before downloading)
+        if (!_goldbergService.IsGoldbergAvailable())
+        {
+            await EnsureDefenderExclusionsAsync();
+            
+            StatusText.Text = "🔧 Goldberg Emulator not found - Downloading automatically...";
+            
+            var success = await _goldbergService.DownloadGoldbergAsync();
+            
+            if (success)
+            {
+                StatusText.Text = "✓ Goldberg Emulator installed successfully!";
+            }
+            else
+            {
+                StatusText.Text = "⚠ Could not download Goldberg - packages will need manual setup";
+            }
+        }
+        else
+        {
+            StatusText.Text = "✓ Goldberg Emulator ready";
+            
+            // Check for Goldberg updates in the background
+            SafeFireAndForget(_updateService.CheckGoldbergUpdateAsync(), "Update Check");
+        }
+        
+        // Scan Steam libraries
+        await ScanLibraryAsync();
+        
+        // Start LAN services for peer discovery
+        _lanDiscoveryService.Start();
+        _transferService.StartListening();
+        UpdateNetworkStatus();
+        
+        // Check for incomplete packages after loading
+        await CheckForIncompletePackages();
+    }
+    
+    private void OnUpdateAvailable(object? sender, UpdateAvailableEventArgs e)
+    {
+        Dispatcher.Invoke(async () =>
+        {
+            var result = MessageBox.Show(
+                $"{e.Update.Name} Update Available!\n\n" +
+                $"Current version: {e.Update.CurrentVersion}\n" +
+                $"New version: {e.Update.LatestVersion}\n\n" +
+                "Would you like to update now?",
+                "Update Available",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Information);
+            
+            if (result == MessageBoxResult.Yes)
+            {
+                await PerformGoldbergUpdateAsync();
+            }
+            else
+            {
+                ToastService.Instance.ShowInfo(
+                    "Update Skipped",
+                    "You can update later via Settings or by restarting the app."
+                );
+            }
+        });
+    }
+    
+    private async Task PerformGoldbergUpdateAsync()
+    {
+        LoadingOverlay.Show("Updating Goldberg Emulator...");
+        StatusText.Text = "⏳ Downloading Goldberg update...";
+        
+        // Subscribe to progress updates
+        void OnProgress(string status, int percentage)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                LoadingOverlay.UpdateProgress(status, percentage);
+                StatusText.Text = $"⏳ {status}";
+            });
+        }
+        
+        _goldbergService.DownloadProgressChanged += OnProgress;
+        
+        try
+        {
+            var success = await _goldbergService.DownloadGoldbergAsync();
+            LoadingOverlay.Hide();
+            
+            if (success)
+            {
+                StatusText.Text = "✓ Goldberg Emulator updated successfully!";
+                ToastService.Instance.ShowSuccess(
+                    "Update Complete",
+                    "Goldberg Emulator has been updated to the latest version."
+                );
+            }
+            else
+            {
+                StatusText.Text = "⚠ Goldberg update failed";
+                ToastService.Instance.ShowError(
+                    "Update Failed",
+                    "Failed to download Goldberg update. Check logs for details."
+                );
+            }
+        }
+        catch (Exception ex)
+        {
+            LoadingOverlay.Hide();
+            StatusText.Text = $"⚠ Update error: {ex.Message}";
+            ToastService.Instance.ShowError("Update Failed", ex.Message);
+            LogService.Instance.Error("Goldberg update failed", ex, "Update");
+        }
+        finally
+        {
+            _goldbergService.DownloadProgressChanged -= OnProgress;
+        }
+    }
+
+
+    
+    private void MainWindow_Closed(object? sender, EventArgs e)
+    {
+        LogService.Instance.Info("SteamRoll shutting down", "App");
+        
+        // Save window size and state to settings
+        _settingsService.Update(s =>
+        {
+            if (WindowState == WindowState.Normal)
+            {
+                s.WindowWidth = Width;
+                s.WindowHeight = Height;
+                s.WindowTop = Top;
+                s.WindowLeft = Left;
+            }
+            s.WindowState = WindowState.ToString();
+        });
+        
+        // Clean up LAN services
+        _lanDiscoveryService.Stop();
+        _transferService.StopListening();
+        _lanDiscoveryService.Dispose();
+        _transferService.Dispose();
+        
+        // Dispose services with IDisposable
+        _goldbergService.Dispose();
+        _dlcService.Dispose();
+        
+        // Flush logs before exit
+        LogService.Instance.Dispose();
+    }
+
+    
+    private void UpdateNetworkStatus()
+    {
+        var peerCount = _lanDiscoveryService.GetPeers().Count;
+        Dispatcher.Invoke(() =>
+        {
+            NetworkStatusText.Text = peerCount > 0 
+                ? $"📡 {peerCount} peer(s) on LAN" 
+                : "📡 Searching for peers...";
+        });
+    }
+    
+    private void OnPeerDiscovered(object? sender, PeerInfo peer)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            UpdateNetworkStatus();
+            StatusText.Text = $"🔗 Found peer: {peer.HostName}";
+            ToastService.Instance.ShowInfo("Peer Found", $"Connected to {peer.HostName}");
+        });
+    }
+    
+    private void OnPeerLost(object? sender, PeerInfo peer)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            UpdateNetworkStatus();
+        });
+    }
+    
+    private void OnTransferProgress(object? sender, TransferProgress progress)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            var direction = progress.IsSending ? "📤 Sending" : "📥 Receiving";
+            StatusText.Text = $"{direction} {progress.GameName}: {progress.FormattedProgress}";
+        });
+    }
+    
+    private void OnTransferComplete(object? sender, TransferResult result)
+    {
+        Dispatcher.Invoke(async () =>
+        {
+            if (result.Success)
+            {
+                var action = result.WasReceived ? "received" : "sent";
+                
+                if (result.WasReceived)
+                {
+                    // Show verification status for received packages
+                    if (result.VerificationPassed)
+                    {
+                        StatusText.Text = $"✓ Successfully {action}: {result.GameName} (Verified ✓)";
+                        ToastService.Instance.ShowSuccess("Transfer Complete", 
+                            $"Successfully {action} {result.GameName}\n✓ Package integrity verified");
+                    }
+                    else
+                    {
+                        var errorSummary = result.VerificationErrors.Count > 0 
+                            ? string.Join(", ", result.VerificationErrors.Take(3)) 
+                            : "Unknown verification error";
+                        StatusText.Text = $"⚠ {action}: {result.GameName} (Verification failed)";
+                        ToastService.Instance.ShowWarning("Transfer Complete - Verification Failed", 
+                            $"{result.GameName} was received but verification failed:\n{errorSummary}");
+                    }
+                    
+                    // Refresh the game list to show received packages
+                    await ScanLibraryAsync();
+                }
+                else
+                {
+                    StatusText.Text = $"✓ Successfully {action}: {result.GameName}";
+                    ToastService.Instance.ShowSuccess("Transfer Complete", $"Successfully {action} {result.GameName}");
+                }
+            }
+            else
+            {
+                StatusText.Text = $"⚠ Transfer failed: {result.GameName}";
+                ToastService.Instance.ShowError("Transfer Failed", $"Failed to transfer {result.GameName}");
+            }
+        });
+    }
+    
+    /// <summary>
+    /// Handles incoming transfer approval requests - this is the new proper mechanism.
+    /// User's choice actually affects whether the transfer proceeds.
+    /// </summary>
+    private void OnTransferApprovalRequested(object? sender, TransferApprovalEventArgs e)
+    {
+        // Must invoke on UI thread synchronously to get user response
+        Dispatcher.Invoke(() =>
+        {
+            var result = MessageBox.Show(
+                $"📥 Incoming game transfer request:\n\n" +
+                $"Game: {e.GameName}\n" +
+                $"Size: {e.FormattedSize}\n" +
+                $"Files: {e.FileCount}\n\n" +
+                "Do you want to accept this transfer?",
+                "Incoming Transfer Request",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.No // Default to No for safety
+            );
+            
+            var approved = (result == MessageBoxResult.Yes);
+            e.SetApproval(approved);
+            
+            if (approved)
+            {
+                StatusText.Text = $"✓ Accepted transfer of {e.GameName}";
+                ToastService.Instance.ShowInfo("Transfer Accepted", $"Receiving {e.GameName}...");
+            }
+            else
+            {
+                StatusText.Text = $"✗ Rejected transfer of {e.GameName}";
+                ToastService.Instance.ShowWarning("Transfer Rejected", $"Declined transfer of {e.GameName}");
+            }
+        });
+    }
+
+    
+    /// <summary>
+    /// Handles transfer request notifications from LAN discovery (informational only).
+    /// The actual accept/reject happens in OnTransferApprovalRequested.
+    /// </summary>
+    private void OnTransferRequested(object? sender, TransferRequest request)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            StatusText.Text = $"📥 Transfer request from {request.FromHostName}: {request.GameName}";
+        });
+    }
+
+    /// <summary>
+    /// Ensures Windows Defender exclusions are in place to prevent false positive detections.
+    /// Now uses improved dialog with user consent and "never ask again" option.
+    /// </summary>
+    private async Task EnsureDefenderExclusionsAsync()
+    {
+        // Check if user has disabled this prompt
+        if (_settingsService.Settings.DefenderExclusionsAdded)
+            return;
+            
+        // Check if exclusions are actually needed
+        if (!DefenderExclusionHelper.NeedsExclusions())
+        {
+            _settingsService.Update(s => s.DefenderExclusionsAdded = true);
+            return;
+        }
+
+        StatusText.Text = "🛡️ Checking Windows Defender exclusions...";
+
+        if (DefenderExclusionHelper.IsRunningAsAdmin())
+        {
+            // We have admin rights - ask user if they want to add exclusions
+            var (shouldProceed, neverAskAgain) = DefenderExclusionHelper.GetUserConfirmation(this);
+            
+            if (neverAskAgain)
+            {
+                _settingsService.Update(s => s.DefenderExclusionsAdded = true); // Mark as "handled" (user opted out)
+                return;
+            }
+            
+            if (shouldProceed)
+            {
+                StatusText.Text = "🛡️ Adding Windows Defender exclusions...";
+                var exclusionPaths = DefenderExclusionHelper.GetSteamRollExclusionPaths();
+                DefenderExclusionHelper.AddExclusions(exclusionPaths);
+                _settingsService.Update(s => s.DefenderExclusionsAdded = true);
+                await Task.Delay(500);
+                ToastService.Instance.ShowSuccess("Defender Exclusions", "Windows Defender exclusions added successfully.");
+            }
+        }
+        else
+        {
+            // Not admin - ask if user wants to elevate
+            var (shouldProceed, neverAskAgain) = DefenderExclusionHelper.GetUserConfirmation(this);
+            
+            if (neverAskAgain)
+            {
+                _settingsService.Update(s => s.DefenderExclusionsAdded = true); // Mark as "handled" (user opted out)
+                return;
+            }
+            
+            if (shouldProceed)
+            {
+                if (DefenderExclusionHelper.RequestElevation())
+                {
+                    Application.Current.Shutdown();
+                    return;
+                }
+            }
+        }
+    }
+
+    private async Task ScanLibraryAsync()
+    {
+        LoadingOverlay.Show("Scanning Steam libraries...");
+        StatusText.Text = "Scanning Steam libraries...";
+
+        var steamPath = _steamLocator.GetSteamInstallPath();
+        if (steamPath == null)
+        {
+            LoadingOverlay.Hide();
+            StatusText.Text = "⚠ Steam installation not found. Please ensure Steam is installed.";
+            ToastService.Instance.ShowError("Steam Not Found", "Please ensure Steam is installed.");
+            return;
+        }
+
+        try
+        {
+            // Get cache stats
+            var (cachedCount, _) = _cacheService.GetStats();
+            
+            // Run scan on background thread
+            _allGames = await Task.Run(() => _libraryScanner.ScanAllLibraries());
+            
+            // Apply cache to games - separate into cached and uncached
+            var gamesToAnalyze = new List<InstalledGame>();
+            var cachedGames = 0;
+            
+            foreach (var game in _allGames)
+            {
+                if (_cacheService.ApplyCachedData(game))
+                {
+                    cachedGames++;
+                }
+                else
+                {
+                    gamesToAnalyze.Add(game);
+                }
+            }
+
+            StatusText.Text = $"Found {_allGames.Count} games ({cachedGames} cached, {gamesToAnalyze.Count} to analyze)...";
+            
+            // Only analyze games not in cache
+            if (gamesToAnalyze.Count > 0)
+            {
+                await AnalyzeGamesForDrmAsync(gamesToAnalyze);
+            }
+            
+            // Check for existing packages
+            CheckExistingPackages(_allGames);
+            
+            // Add received packages that aren't in Steam library (standalone received games)
+            var receivedOnlyGames = ScanReceivedPackages(_allGames);
+            if (receivedOnlyGames.Count > 0)
+            {
+                lock (_gamesLock)
+                {
+                    _allGames.AddRange(receivedOnlyGames);
+                }
+                StatusText.Text = $"Found {receivedOnlyGames.Count} received packages...";
+            }
+            
+            // Show games immediately
+            UpdateGamesList(_allGames);
+            UpdateStats(_allGames);
+            
+            // Save updated cache
+            foreach (var game in _allGames)
+            {
+                _cacheService.UpdateCache(game);
+            }
+            _cacheService.SaveCache();
+            
+            // Fetch DLC info for games without it (in background)
+            // Note: Using ToList() creates a snapshot for thread-safe background processing
+            List<InstalledGame> gamesNeedingDlc;
+            lock (_gamesLock)
+            {
+                gamesNeedingDlc = _allGames.Where(g => !g.DlcFetched).ToList();
+            }
+            if (gamesNeedingDlc.Count > 0)
+            {
+                StatusText.Text = $"Fetching DLC for {gamesNeedingDlc.Count} games...";
+                SafeFireAndForget(FetchDlcForGamesAsync(gamesNeedingDlc), "DLC Fetch");
+            }
+            
+            var packageableCount = _allGames.Count(g => g.IsPackageable);
+            var packagedCount = _allGames.Count(g => g.IsPackaged);
+            var receivedCount = _allGames.Count(g => g.IsReceivedPackage);
+            StatusText.Text = $"✓ {_allGames.Count} games • {packageableCount} ready • {packagedCount} packaged" + 
+                              (receivedCount > 0 ? $" • {receivedCount} received" : "");
+            LoadingOverlay.Hide();
+        }
+        catch (Exception ex)
+        {
+            LoadingOverlay.Hide();
+            StatusText.Text = $"⚠ Error scanning library: {ex.Message}";
+            ToastService.Instance.ShowError("Scan Failed", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Analyzes all games for DRM protection in parallel with progress updates.
+    /// </summary>
+    private async Task AnalyzeGamesForDrmAsync(List<InstalledGame> games)
+    {
+        var total = games.Count;
+        var completed = 0;
+
+        // Analyze in parallel but limit concurrency to avoid I/O saturation
+        var options = new ParallelOptions { MaxDegreeOfParallelism = 4 };
+        
+        await Task.Run(() =>
+        {
+            Parallel.ForEach(games, options, game =>
+            {
+                game.Analyze();
+                
+                var current = Interlocked.Increment(ref completed);
+                
+                // Update status periodically (every 10 games or at milestones)
+                if (current % 10 == 0 || current == total)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        StatusText.Text = $"Analyzing DRM: {current}/{total} games...";
+                    });
+                }
+            });
+        });
+    }
+
+    /// <summary>
+    /// Fetches DLC information for all games in the background.
+    /// Updates the UI as data comes in.
+    /// </summary>
+    private async Task FetchDlcForGamesAsync(List<InstalledGame> games)
+    {
+        var total = games.Count;
+        var completed = 0;
+        var gamesWithDlc = 0;
+
+        foreach (var game in games)
+        {
+            try
+            {
+                var dlcList = await _dlcService.GetDlcListAsync(game.AppId);
+                game.AvailableDlc = dlcList;
+                game.DlcFetched = true;
+
+                // Check which DLC are actually installed (verified from Steam manifests)
+                if (dlcList.Count > 0 && !string.IsNullOrEmpty(game.LibraryPath))
+                {
+                    _dlcService.CheckInstalledDlc(game.FullPath, game.LibraryPath, dlcList);
+                    gamesWithDlc++;
+                }
+
+                completed++;
+
+                // Update UI periodically
+                if (completed % 5 == 0 || completed == total)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        StatusText.Text = $"Fetching DLC: {completed}/{total} games ({gamesWithDlc} with DLC)...";
+                        // Refresh the list to show updated DLC info
+                        GamesList.Items.Refresh();
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Instance.Error($"Error fetching DLC for {game.Name}", ex);
+                game.DlcFetched = true; // Mark as fetched even on error
+                completed++;
+            }
+        }
+
+        // Final UI update and cache save
+        Dispatcher.Invoke(() =>
+        {
+            var packageableCount = _allGames.Count(g => g.IsPackageable);
+            var totalDlc = _allGames.Sum(g => g.TotalDlcCount);
+            StatusText.Text = $"✓ {_allGames.Count} games • {packageableCount} packageable • {totalDlc} DLC available";
+            GamesList.Items.Refresh();
+            
+            // Save updated DLC info to cache
+            foreach (var game in games)
+            {
+                _cacheService.UpdateCache(game);
+            }
+            _cacheService.SaveCache();
+        });
+    }
+
+    /// <summary>
+    /// Checks which games have already been packaged by scanning the output directory.
+    /// Clears package status if the package no longer exists.
+    /// </summary>
+    private void CheckExistingPackages(List<InstalledGame> games)
+    {
+        string[] packageDirs = Array.Empty<string>();
+        
+        if (Directory.Exists(_outputPath))
+        {
+            try
+            {
+                packageDirs = Directory.GetDirectories(_outputPath);
+            }
+            catch (Exception ex)
+            {
+                LogService.Instance.Error($"Error scanning output directory: {ex.Message}", ex, "MainWindow");
+            }
+        }
+
+        // Build a map of AppID -> Package Path for robust detection
+        var packageMap = ScanForPackages(packageDirs);
+
+        foreach (var game in games)
+        {
+            // First, reset package status
+            var wasPackaged = game.IsPackaged;
+            game.IsPackaged = false;
+            game.PackagePath = null;
+            game.LastPackaged = null;
+
+            if (packageDirs.Length == 0) continue;
+
+            // Strategy 1: Match by AppID (Robust)
+            string? matchingDir = null;
+            if (packageMap.TryGetValue(game.AppId, out var appIdMatch))
+            {
+                matchingDir = appIdMatch;
+            }
+            
+            // Strategy 2: Fallback to folder name matching (Legacy support)
+            if (matchingDir == null)
+            {
+                var sanitizedName = SanitizeFileName(game.Name);
+                if (!string.IsNullOrEmpty(sanitizedName))
+                {
+                    matchingDir = packageDirs.FirstOrDefault(d => 
+                        Path.GetFileName(d).Equals(sanitizedName, StringComparison.OrdinalIgnoreCase));
+                }
+            }
+
+            if (matchingDir != null)
+            {
+                // Check if it has Goldberg applied (steam_settings folder or steam_api.dll backup)
+                var hasGoldberg = Directory.Exists(Path.Combine(matchingDir, "steam_settings")) ||
+                                 File.Exists(Path.Combine(matchingDir, "steam_api_o.dll")) ||
+                                 File.Exists(Path.Combine(matchingDir, "steam_api64_o.dll"));
+
+                if (hasGoldberg)
+                {
+                    game.IsPackaged = true;
+                    game.PackagePath = matchingDir;
+                    game.LastPackaged = Directory.GetLastWriteTime(matchingDir);
+                    
+                    // Check if this was received from another SteamRoll client
+                    game.IsReceivedPackage = File.Exists(Path.Combine(matchingDir, ".steamroll_received"));
+                    
+                    // Read package metadata for update detection
+                    var metadataPath = Path.Combine(matchingDir, "steamroll.json");
+                    if (File.Exists(metadataPath))
+                    {
+                        try
+                        {
+                            var json = File.ReadAllText(metadataPath);
+                            var metadata = System.Text.Json.JsonSerializer.Deserialize<SteamRoll.Models.PackageMetadata>(json);
+                            if (metadata != null)
+                            {
+                                game.PackageBuildId = metadata.BuildId;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.Instance.Warning($"Failed to read metadata for {game.Name}: {ex.Message}", "MainWindow");
+                        }
+                    }
+                }
+            }
+
+            // Update cache if status changed
+            if (wasPackaged != game.IsPackaged)
+            {
+                _cacheService.UpdateCache(game);
+            }
+        }
+        
+        // Save cache if any changes were made
+        _cacheService.SaveCache();
+    }
+
+    /// <summary>
+    /// Scans package directories to map AppIDs to their package paths.
+    /// This is more robust than matching by folder name.
+    /// </summary>
+    private Dictionary<int, string> ScanForPackages(string[] packageDirs)
+    {
+        var map = new Dictionary<int, string>();
+        if (packageDirs == null) return map;
+
+        foreach (var dir in packageDirs)
+        {
+            try
+            {
+                int appId = -1;
+                
+                // Strategy 1: Check steam_appid.txt in root (standard Goldberg/Steam)
+                var rootAppIdPath = Path.Combine(dir, "steam_appid.txt");
+                if (File.Exists(rootAppIdPath))
+                {
+                    if (int.TryParse(File.ReadLines(rootAppIdPath).FirstOrDefault() ?? "", out var id)) appId = id;
+                }
+                
+                if (appId == -1)
+                {
+                    var goldbergIdPath = Path.Combine(dir, "steam_settings", "steam_appid.txt");
+                    if (File.Exists(goldbergIdPath))
+                    {
+                        if (int.TryParse(File.ReadLines(goldbergIdPath).FirstOrDefault() ?? "", out var id)) appId = id;
+                    }
+                }
+                
+                // Strategy 3: Check steamroll.json (New metadata file)
+                if (appId == -1)
+                {
+                    var metadataPath = Path.Combine(dir, "steamroll.json");
+                    if (File.Exists(metadataPath))
+                    {
+                        try 
+                        {
+                            var json = File.ReadAllText(metadataPath);
+                            // Simple parsing to avoid heavy dependency if possible, or use JsonSerializer
+                            var metadata = System.Text.Json.JsonSerializer.Deserialize<SteamRoll.Models.PackageMetadata>(json);
+                            if (metadata != null && metadata.AppId > 0)
+                            {
+                                appId = metadata.AppId;
+                            }
+                        }
+                        catch 
+                        { 
+                            // Ignore malformed json 
+                        }
+                    }
+                }
+
+                if (appId > 0 && !map.ContainsKey(appId))
+                {
+                    map.Add(appId, dir);
+                }
+
+            }
+            catch (Exception ex)
+            {
+                LogService.Instance.Error($"Error scanning package {dir}", ex);
+            }
+        }
+        return map;
+    }
+    
+    /// <summary>
+    /// Scans output folder for received packages that aren't in Steam library.
+    /// Creates InstalledGame entries for these "received-only" packages.
+    /// </summary>
+    private List<InstalledGame> ScanReceivedPackages(List<InstalledGame> existingGames)
+    {
+        var receivedGames = new List<InstalledGame>();
+        
+        if (!Directory.Exists(_outputPath))
+            return receivedGames;
+        
+        try
+        {
+            var existingNames = new HashSet<string>(
+                existingGames.Select(g => SanitizeFileName(g.Name)),
+                StringComparer.OrdinalIgnoreCase);
+            
+            foreach (var dir in Directory.GetDirectories(_outputPath))
+            {
+                var dirName = Path.GetFileName(dir);
+                
+                // Skip if this matches an existing Steam game
+                if (existingNames.Contains(dirName))
+                    continue;
+                
+                // Check if this is a received package
+                var markerPath = Path.Combine(dir, ".steamroll_received");
+                if (!File.Exists(markerPath))
+                    continue;
+                
+                // Check if it has Goldberg markers (steam_settings folder or backup DLLs)
+                var hasGoldberg = Directory.Exists(Path.Combine(dir, "steam_settings")) ||
+                                 File.Exists(Path.Combine(dir, "steam_api_o.dll")) ||
+                                 File.Exists(Path.Combine(dir, "steam_api64_o.dll"));
+                
+                if (!hasGoldberg)
+                    continue;
+                
+                // Extract AppID from steam_settings if possible
+                var appId = 0;
+                var steamAppIdPath = Path.Combine(dir, "steam_settings", "steam_appid.txt");
+                if (File.Exists(steamAppIdPath))
+                {
+                    var appIdContent = File.ReadAllText(steamAppIdPath).Trim();
+                    int.TryParse(appIdContent, out appId);
+                }
+                
+                // Calculate size
+                long sizeOnDisk = 0;
+                try
+                {
+                    sizeOnDisk = Directory.GetFiles(dir, "*", SearchOption.AllDirectories)
+                        .Sum(f => new FileInfo(f).Length);
+                }
+                catch (Exception sizeEx) 
+                { 
+                    LogService.Instance.Debug($"Could not calculate size for {dir}: {sizeEx.Message}", "MainWindow"); 
+                }
+                
+                // Create a special InstalledGame for this received package
+                var receivedGame = new InstalledGame
+                {
+                    AppId = appId,
+                    Name = dirName,
+                    InstallDir = dirName,
+                    FullPath = dir,
+                    LibraryPath = _outputPath,
+                    SizeOnDisk = sizeOnDisk,
+                    StateFlags = 4, // Mark as fully installed
+                    IsPackaged = true,
+                    PackagePath = dir,
+                    IsReceivedPackage = true,
+                    LastPackaged = Directory.GetLastWriteTime(dir),
+                    // DrmAnalysis left null - received packages don't need analysis
+                    LastAnalyzed = DateTime.Now
+                };
+                
+                receivedGames.Add(receivedGame);
+                LogService.Instance.Info($"Found received package: {dirName} (AppID: {appId})", "MainWindow");
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Error scanning received packages: {ex.Message}", ex, "MainWindow");
+        }
+        
+        return receivedGames;
+    }
+
+    private static string SanitizeFileName(string name) => FormatUtils.SanitizeFileName(name);
+
+    private void UpdateGamesList(List<InstalledGame> games)
+{
+    GamesList.ItemsSource = games;
+    
+    // Show/hide empty state
+    var isEmpty = games.Count == 0;
+    EmptyStatePanel.Visibility = isEmpty ? Visibility.Visible : Visibility.Collapsed;
+    
+    // Update empty state message based on context
+    if (isEmpty && _allGames.Count > 0)
+    {
+        EmptyStateTitle.Text = "No Matching Games";
+        EmptyStateMessage.Text = "No games match your current filters. Try adjusting your filters or search.";
+    }
+    else if (isEmpty)
+    {
+        EmptyStateTitle.Text = "No Games Found";
+        EmptyStateMessage.Text = "No Steam games were detected. Try adding Steam library paths in Settings or refreshing the library.";
+    }
+}
+
+    private void UpdateStats(List<InstalledGame> games)
+    {
+        var (total, installed, size) = _libraryScanner.GetLibraryStats(games);
+        var packageable = games.Count(g => g.IsPackageable);
+        
+        TotalGamesText.Text = total.ToString();
+        PackageableText.Text = packageable.ToString();
+        TotalSizeText.Text = FormatUtils.FormatBytes(size);
+    }
+
+    private void RefreshButton_Click(object sender, RoutedEventArgs e)
+    {
+        SafeFireAndForget(ScanLibraryAsync(), "Library Scan");
+    }
+
+
+    private void OpenOutputButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!Directory.Exists(_outputPath))
+        {
+            Directory.CreateDirectory(_outputPath);
+        }
+        Process.Start("explorer.exe", _outputPath);
+    }
+    
+    private void SettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        var settingsWindow = new SettingsWindow(_settingsService, _cacheService)
+        {
+            Owner = this
+        };
+        
+        if (settingsWindow.ShowDialog() == true && settingsWindow.ChangesSaved)
+        {
+            // Apply any settings that need immediate effect
+            _outputPath = _settingsService.Settings.OutputPath;
+            _transferService.UpdateReceivePath(_outputPath);
+            
+            ToastService.Instance.ShowSuccess("Settings Saved", "Your changes have been applied.");
+        }
+    }
+
+
+    private void SearchBox_GotFocus(object sender, RoutedEventArgs e)
+    {
+        if (SearchBox.Text == "🔍 Search games...")
+        {
+            SearchBox.Text = "";
+            SearchBox.Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush");
+        }
+    }
+
+    private void SearchBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(SearchBox.Text))
+        {
+            SearchBox.Text = "🔍 Search games...";
+            SearchBox.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
+        }
+    }
+
+    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        ApplyFilters();
+    }
+    
+    // ============================================
+    // Filters
+    // ============================================
+    
+    private void FilterReady_Click(object sender, RoutedEventArgs e) => ApplyFilters();
+    private void FilterPackaged_Click(object sender, RoutedEventArgs e) => ApplyFilters();
+    private void FilterDlc_Click(object sender, RoutedEventArgs e) => ApplyFilters();
+    private void FilterUpdate_Click(object sender, RoutedEventArgs e) => ApplyFilters();
+    
+    private void ApplyFilters()
+    {
+        var searchText = SearchBox.Text;
+        var isSearchActive = !string.IsNullOrWhiteSpace(searchText) && searchText != "🔍 Search games...";
+        
+        var filterReady = FilterReadyBtn.IsChecked == true;
+        var filterPackaged = FilterPackagedBtn.IsChecked == true;
+        var filterDlc = FilterDlcBtn.IsChecked == true;
+        var filterUpdate = FilterUpdateBtn.IsChecked == true;
+        
+        // If no filters active, show all games
+        if (!isSearchActive && !filterReady && !filterPackaged && !filterDlc && !filterUpdate)
+        {
+            UpdateGamesList(_allGames);
+            return;
+        }
+        
+        var filtered = _allGames.AsEnumerable();
+        
+        // Apply search filter
+        if (isSearchActive)
+        {
+            filtered = filtered.Where(g => 
+                g.Name.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                g.AppId.ToString().Contains(searchText));
+        }
+        
+        // Apply toggle filters
+        if (filterReady)
+            filtered = filtered.Where(g => g.IsPackageable);
+        
+        if (filterPackaged)
+            filtered = filtered.Where(g => g.IsPackaged);
+            
+        if (filterDlc)
+            filtered = filtered.Where(g => g.HasDlc);
+        
+        if (filterUpdate)
+            filtered = filtered.Where(g => g.UpdateAvailable);
+        
+        UpdateGamesList(filtered.ToList());
+    }
+
+    private async void PackageButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button button && button.Tag is InstalledGame game)
+        {
+            // If already packaged, open the folder instead
+            if (game.IsPackaged && !string.IsNullOrEmpty(game.PackagePath))
+            {
+                try
+                {
+                    Process.Start("explorer.exe", game.PackagePath);
+                }
+                catch (Exception ex)
+                {
+                    LogService.Instance.Error($"Failed to open package folder: {ex.Message}", ex, "MainWindow");
+                }
+                return;
+            }
+            
+            await PackageGameAsync(game, button);
+        }
+    }
+
+    private async Task PackageGameAsync(InstalledGame game, Button? button = null)
+    {
+        if (button != null)
+        {
+            button.IsEnabled = false;
+        }
+        
+        // Create cancellation token for this operation
+        _currentOperationCts?.Cancel();
+        _currentOperationCts = new CancellationTokenSource();
+        var ct = _currentOperationCts.Token;
+        
+        LoadingOverlay.Show($"Packaging {game.Name}... (Press ESC to cancel)");
+        StatusText.Text = $"⏳ Packaging {game.Name}...";
+
+        try
+        {
+            // Use the new PackageBuilder with Goldberg integration
+            var packagePath = await _packageBuilder.CreatePackageAsync(game, _outputPath, null, ct);
+            
+            // Update game's package status
+            game.IsPackaged = true;
+            game.PackagePath = packagePath;
+            game.LastPackaged = DateTime.Now;
+            _cacheService.UpdateCache(game);
+            _cacheService.SaveCache();
+            
+            var goldbergStatus = _goldbergService.IsGoldbergAvailable() 
+                ? "Goldberg Emulator applied!" 
+                : "Manual Goldberg setup required.";
+            
+            StatusText.Text = $"✓ Packaged {game.Name} - {goldbergStatus}";
+            GamesList.Items.Refresh();
+            LoadingOverlay.Hide();
+            
+            ToastService.Instance.ShowSuccess("Package Complete", $"{game.Name} packaged successfully!", 5000);
+        }
+        catch (OperationCanceledException)
+        {
+            LoadingOverlay.Hide();
+            StatusText.Text = $"⚠ Packaging cancelled for {game.Name}";
+            ToastService.Instance.ShowWarning("Packaging Cancelled", $"{game.Name} packaging was cancelled.");
+        }
+        catch (Exception ex)
+        {
+            LoadingOverlay.Hide();
+            StatusText.Text = $"⚠ Failed to package {game.Name}: {ex.Message}";
+            ToastService.Instance.ShowError("Package Failed", ex.Message);
+        }
+        finally
+        {
+            _currentOperationCts = null;
+            if (button != null)
+            {
+                button.IsEnabled = true;
+            }
+        }
+    }
+
+
+    private void PackageGameAsync(InstalledGame game)
+    {
+        // Wrapper for callback from GameDetailsWindow
+        _ = PackageGameAsync(game, null);
+    }
+    
+    private async Task CreatePackageAsync(InstalledGame game, PackageMode mode, PackageState? resumeState = null)
+    {
+        // Create cancellation token for this operation
+        _currentOperationCts?.Cancel();
+        _currentOperationCts = new CancellationTokenSource();
+        var ct = _currentOperationCts.Token;
+        
+        LoadingOverlay.Show($"Packaging {game.Name}... (Press ESC to cancel)");
+        StatusText.Text = $"⏳ Packaging {game.Name}...";
+        
+        try
+        {
+            // Look up any stored Goldberg config for this game
+            _gameGoldbergConfigs.TryGetValue(game.AppId, out var goldbergConfig);
+            
+            // Create package options with specified mode
+            var options = new PackageOptions
+            {
+                Mode = mode,
+                IncludeDlc = true,
+                GoldbergConfig = goldbergConfig
+            };
+            
+            // Start packaging process with optional resume state
+            var packagePath = await _packageBuilder.CreatePackageAsync(game, _outputPath, options, ct, resumeState);
+            
+            // Update game status
+            game.IsPackaged = true;
+            game.PackagePath = packagePath;
+            
+            // We just created it, so build ID matches
+            game.PackageBuildId = game.BuildId;
+            game.LastPackaged = DateTime.Now;
+            
+            _cacheService.UpdateCache(game);
+            _cacheService.SaveCache();
+            
+            GamesList.Items.Refresh();
+            LoadingOverlay.Hide();
+            
+            ToastService.Instance.ShowSuccess("Packaging Complete", $"Successfully packaged {game.Name}!");
+            StatusText.Text = $"✓ Packaged {game.Name}";
+        }
+        catch (OperationCanceledException)
+        {
+            LoadingOverlay.Hide();
+            StatusText.Text = $"⚠ Packaging cancelled for {game.Name}";
+            ToastService.Instance.ShowWarning("Packaging Cancelled", $"{game.Name} packaging was cancelled.");
+        }
+        catch (Exception ex)
+        {
+            LoadingOverlay.Hide();
+            StatusText.Text = $"⚠ Failed to package {game.Name}: {ex.Message}";
+            ToastService.Instance.ShowError("Package Failed", ex.Message);
+        }
+        finally
+        {
+            _currentOperationCts = null;
+        }
+    }
+
+    
+    private async void SendToPeerButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button button && button.Tag is InstalledGame game)
+        {
+            if (!game.IsPackaged || string.IsNullOrEmpty(game.PackagePath))
+            {
+                MessageBox.Show("This game has not been packaged yet.", "Not Packaged", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            
+            var peers = _lanDiscoveryService.GetPeers();
+            
+            if (peers.Count == 0)
+            {
+                MessageBox.Show(
+                    "No peers found on the network.\n\n" +
+                    "Make sure another SteamRoll instance is running on your LAN.",
+                    "No Peers",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information
+                );
+                return;
+            }
+            
+            // If only one peer, send directly; otherwise show selection
+            PeerInfo selectedPeer;
+            if (peers.Count == 1)
+            {
+                selectedPeer = peers[0];
+            }
+            else
+            {
+                // Show peer selection dialog
+                var dialog = new Controls.PeerSelectionDialog(peers)
+                {
+                    Owner = this
+                };
+                
+                if (dialog.ShowDialog() != true || dialog.SelectedPeer == null)
+                {
+                    return;
+                }
+                
+                selectedPeer = dialog.SelectedPeer;
+            }
+            
+            // Confirm transfer
+            var confirm = MessageBox.Show(
+                $"Send \"{game.Name}\" to {selectedPeer.HostName}?\n\n" +
+                $"Size: {game.FormattedSize}",
+                "Confirm Transfer",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question
+            );
+            
+            if (confirm != MessageBoxResult.Yes) return;
+            
+            // Start transfer
+            StatusText.Text = $"📤 Sending {game.Name} to {selectedPeer.HostName}...";
+            button.IsEnabled = false;
+            
+            try
+            {
+                var success = await _transferService.SendPackageAsync(
+                    selectedPeer.IpAddress,
+                    selectedPeer.TransferPort,
+                    game.PackagePath
+                );
+                
+                if (success)
+                {
+                    StatusText.Text = $"✓ Successfully sent {game.Name} to {selectedPeer.HostName}";
+                }
+                else
+                {
+                    StatusText.Text = $"⚠ Failed to send {game.Name}";
+                }
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = $"⚠ Transfer error: {ex.Message}";
+            }
+            finally
+            {
+                button.IsEnabled = true;
+            }
+        }
+    }
+    
+    // ============================================
+    // Utility Methods
+    // ============================================
+    
+    /// <summary>
+    /// Safely executes an async task in fire-and-forget mode with error handling.
+    /// Any exceptions are logged and shown as error toasts.
+    /// </summary>
+    /// <param name="task">The task to execute.</param>
+    /// <param name="operationName">Name of the operation for error messages.</param>
+    private static async void SafeFireAndForget(Task task, string operationName)
+    {
+        try
+        {
+            await task;
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation is expected, don't log as error
+            LogService.Instance.Info($"{operationName} was cancelled.", "MainWindow");
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"{operationName} failed: {ex.Message}", ex, "MainWindow");
+            try
+            {
+                ToastService.Instance.ShowError($"{operationName} Failed", ex.Message);
+            }
+            catch
+            {
+                // Ignore if toast service isn't available
+            }
+        }
+    }
+    
+    // ============================================
+    // Batch Operations
+    // ============================================
+    
+    private void GameSelection_Click(object sender, RoutedEventArgs e)
+    {
+        // Update batch action bar visibility based on selection
+        UpdateBatchActionBar();
+    }
+    
+    private void UpdateBatchActionBar()
+    {
+        var selectedGames = _allGames.Where(g => g.IsSelected).ToList();
+        var selectedCount = selectedGames.Count;
+        var packageableCount = selectedGames.Count(g => g.IsPackageable);
+        var sendableCount = selectedGames.Count(g => g.IsPackaged);
+        
+        if (selectedCount > 0)
+        {
+            BatchSelectionText.Text = $"{selectedCount} game{(selectedCount > 1 ? "s" : "")} selected";
+            BatchActionBar.Visibility = Visibility.Visible;
+            BatchSendBtn.IsEnabled = sendableCount > 0;
+        }
+        else
+        {
+            BatchActionBar.Visibility = Visibility.Collapsed;
+        }
+    }
+    
+    private void BatchClear_Click(object sender, RoutedEventArgs e) => ClearSelection_Click(sender, e);
+    
+    private void ClearSelection_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var game in _allGames)
+        {
+            game.IsSelected = false;
+        }
+        
+        // Refresh the list to update checkboxes
+        UpdateGamesList(_allGames);
+        UpdateBatchActionBar();
+    }
+    
+    private void SelectModeToggle_Click(object sender, RoutedEventArgs e)
+    {
+        // Toggle handled via ToggleButton binding - just update display
+        UpdateBatchActionBar();
+    }
+    
+    private async void BatchPackage_Click(object sender, RoutedEventArgs e)
+    {
+        var selectedGames = _allGames.Where(g => g.IsSelected && g.IsPackageable).ToList();
+        
+        if (selectedGames.Count == 0)
+        {
+            ToastService.Instance.ShowWarning("No Games Selected", "Please select packageable games first.");
+            return;
+        }
+        
+        var result = MessageBox.Show(
+            $"Package {selectedGames.Count} game{(selectedGames.Count > 1 ? "s" : "")}?\n\nThis may take a while depending on game sizes.",
+            "Batch Package",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        
+        if (result != MessageBoxResult.Yes) return;
+        
+        // Disable batch buttons during operation
+        BatchPackageButton.IsEnabled = false;
+        BatchClearButton.IsEnabled = false;
+        
+        var successCount = 0;
+        var failCount = 0;
+        
+        try
+        {
+            for (int i = 0; i < selectedGames.Count; i++)
+            {
+                var game = selectedGames[i];
+                StatusText.Text = $"📦 Packaging {i + 1}/{selectedGames.Count}: {game.Name}";
+                
+                try
+                {
+                    var mode = _settingsService.Settings.DefaultPackageMode;
+                    await CreatePackageAsync(game, mode);
+                    successCount++;
+                    game.IsSelected = false; // Deselect after success
+                }
+                catch (Exception ex)
+                {
+                    LogService.Instance.Error($"Batch package failed for {game.Name}", ex, "Batch");
+                    failCount++;
+                }
+            }
+            
+            // Show summary
+            if (failCount == 0)
+            {
+                ToastService.Instance.ShowSuccess(
+                    "Batch Complete",
+                    $"Successfully packaged {successCount} game{(successCount > 1 ? "s" : "")}."
+                );
+            }
+            else
+            {
+                ToastService.Instance.ShowWarning(
+                    "Batch Complete",
+                    $"Packaged {successCount}, failed {failCount}. Check logs for details."
+                );
+            }
+            
+            StatusText.Text = $"✓ Batch packaging complete: {successCount} succeeded, {failCount} failed";
+        }
+        finally
+        {
+            BatchPackageButton.IsEnabled = true;
+            BatchClearButton.IsEnabled = true;
+            UpdateGamesList(_allGames);
+            UpdateBatchActionBar();
+        }
+    }
+    
+    private async void BatchSendToPeer_Click(object sender, RoutedEventArgs e)
+    {
+        var selectedGames = _allGames.Where(g => g.IsSelected && g.IsPackaged && !string.IsNullOrEmpty(g.PackagePath)).ToList();
+        
+        if (selectedGames.Count == 0)
+        {
+            ToastService.Instance.ShowWarning("No Packages Selected", "Please select packaged games to send.");
+            return;
+        }
+        
+        // Get available peers
+        var peers = _lanDiscoveryService.GetPeers();
+        if (peers.Count == 0)
+        {
+            ToastService.Instance.ShowWarning("No Peers Found", "No other SteamRoll instances found on your network.");
+            return;
+        }
+        
+        // Show peer selection dialog
+        PeerInfo? selectedPeer;
+        if (peers.Count == 1)
+        {
+            selectedPeer = peers.First();
+        }
+        else
+        {
+            var dialog = new PeerSelectionDialog(peers);
+            dialog.Owner = this;
+            if (dialog.ShowDialog() != true || dialog.SelectedPeer == null)
+            {
+                return;
+            }
+            selectedPeer = dialog.SelectedPeer;
+        }
+        
+        // Confirm transfer
+        var totalSize = selectedGames.Sum(g => g.SizeOnDisk);
+        var confirm = MessageBox.Show(
+            $"Send {selectedGames.Count} package{(selectedGames.Count > 1 ? "s" : "")} to {selectedPeer.HostName}?\n\n" +
+            $"Total size: ~{totalSize / (1024 * 1024 * 1024.0):F1} GB",
+            "Confirm Batch Transfer",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question
+        );
+        
+        if (confirm != MessageBoxResult.Yes) return;
+        
+        // Disable buttons during transfer
+        BatchSendBtn.IsEnabled = false;
+        
+        var successCount = 0;
+        var failCount = 0;
+        
+        try
+        {
+            for (int i = 0; i < selectedGames.Count; i++)
+            {
+                var game = selectedGames[i];
+                StatusText.Text = $"📤 Sending {i + 1}/{selectedGames.Count}: {game.Name} to {selectedPeer.HostName}...";
+                
+                try
+                {
+                    var success = await _transferService.SendPackageAsync(
+                        selectedPeer.IpAddress,
+                        selectedPeer.TransferPort,
+                        game.PackagePath!
+                    );
+                    
+                    if (success)
+                    {
+                        successCount++;
+                        game.IsSelected = false;
+                    }
+                    else
+                    {
+                        failCount++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogService.Instance.Error($"Batch transfer failed for {game.Name}", ex, "BatchTransfer");
+                    failCount++;
+                }
+            }
+            
+            // Show summary
+            if (failCount == 0)
+            {
+                ToastService.Instance.ShowSuccess(
+                    "Batch Transfer Complete",
+                    $"Successfully sent {successCount} package{(successCount > 1 ? "s" : "")} to {selectedPeer.HostName}."
+                );
+            }
+            else
+            {
+                ToastService.Instance.ShowWarning(
+                    "Batch Transfer Complete",
+                    $"Sent {successCount}, failed {failCount}. Check logs for details."
+                );
+            }
+            
+            StatusText.Text = $"✓ Batch transfer complete: {successCount} sent, {failCount} failed";
+        }
+        finally
+        {
+            BatchSendBtn.IsEnabled = true;
+            UpdateGamesList(_allGames);
+            UpdateBatchActionBar();
+        }
+    }
+    
+    // ============================================
+    // Context Menu Handlers
+    // ============================================
+    
+    private InstalledGame? GetGameFromContextMenu(object sender)
+    {
+        if (sender is MenuItem menuItem && 
+            menuItem.Parent is ContextMenu contextMenu && 
+            contextMenu.PlacementTarget is FrameworkElement element &&
+            element.DataContext is InstalledGame game)
+        {
+            return game;
+        }
+        return null;
+    }
+    
+    private void ContextMenu_Package_Click(object sender, RoutedEventArgs e)
+    {
+        var game = GetGameFromContextMenu(sender);
+        if (game == null) return;
+        
+        if (game.IsPackaged && !string.IsNullOrEmpty(game.PackagePath))
+        {
+            try { Process.Start("explorer.exe", game.PackagePath); } catch { }
+        }
+        else
+        {
+            // Show toast indicating they need to click the Package button
+            ToastService.Instance.ShowInfo("Package Game", $"Use the Package button on the game card to create a package for {game.Name}");
+        }
+    }
+    
+
+    
+    private void ContextMenu_SendToPeer_Click(object sender, RoutedEventArgs e)
+    {
+        var game = GetGameFromContextMenu(sender);
+        if (game?.IsPackaged == true)
+        {
+            ToastService.Instance.ShowInfo("Send to Peer", $"Use the 'Send to Peer' button on the game card to transfer {game.Name}");
+        }
+    }
+    
+    private void ContextMenu_OpenInstallFolder_Click(object sender, RoutedEventArgs e)
+    {
+        var game = GetGameFromContextMenu(sender);
+        if (game != null)
+        {
+            try { Process.Start("explorer.exe", game.InstallDir); } catch { }
+        }
+    }
+    
+    private void ContextMenu_ViewDetails_Click(object sender, RoutedEventArgs e)
+    {
+        var game = GetGameFromContextMenu(sender);
+        if (game != null)
+        {
+            // Show game info in a toast for now - full details view can be added later
+            var info = $"AppID: {game.AppId}\nSize: {game.FormattedSize}\nInstalled: {game.InstallDir}";
+            ToastService.Instance.ShowInfo(game.Name, info);
+        }
+    }
+    
+    private void ContextMenu_OpenSteamStore_Click(object sender, RoutedEventArgs e)
+    {
+        var game = GetGameFromContextMenu(sender);
+        if (game != null)
+        {
+            var url = $"https://store.steampowered.com/app/{game.AppId}";
+            try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
+        }
+    }
+    
+    // Per-game Goldberg configuration storage
+    private readonly Dictionary<int, GoldbergConfig> _gameGoldbergConfigs = new();
+    
+    private void ContextMenu_AdvancedConfig_Click(object sender, RoutedEventArgs e)
+    {
+        var game = GetGameFromContextMenu(sender);
+        if (game == null) return;
+        
+        // Get existing config or create new one with defaults
+        _gameGoldbergConfigs.TryGetValue(game.AppId, out var existingConfig);
+        
+        var dialog = new GoldbergConfigDialog(existingConfig)
+        {
+            Owner = this
+        };
+        
+        if (dialog.ShowDialog() == true && dialog.Config != null)
+        {
+            _gameGoldbergConfigs[game.AppId] = dialog.Config;
+            ToastService.Instance.ShowSuccess("Config Saved", $"Goldberg settings saved for {game.Name}");
+        }
+    }
+    
+
+    
+    // ============================================
+    // Keyboard Shortcuts
+    // ============================================
+    
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        
+        // Don't handle if user is typing in a text box
+        if (e.OriginalSource is TextBox) return;
+        
+        // Ctrl+R: Refresh library
+        if (e.Key == Key.R && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            RefreshButton_Click(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        // Ctrl+F: Focus search box
+        else if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            SearchBox.Focus();
+            SearchBox.SelectAll();
+            e.Handled = true;
+        }
+        // Ctrl+S: Open settings
+        else if (e.Key == Key.S && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            SettingsButton_Click(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        // Escape: Cancel current operation (existing behavior)
+        else if (e.Key == Key.Escape)
+        {
+            _currentOperationCts?.Cancel();
+            e.Handled = true;
+        }
+    }
+}
+
