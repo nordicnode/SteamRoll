@@ -47,6 +47,19 @@ public class PackageBuilder
         var packageDir = System.IO.Path.Combine(outputPath, packageName);
         bool packageStarted = false;
 
+        // Ensure output directory is writable
+        try
+        {
+             if (!Directory.Exists(outputPath)) Directory.CreateDirectory(outputPath);
+             var testFile = Path.Combine(outputPath, Path.GetRandomFileName());
+             using (File.Create(testFile)) { }
+             File.Delete(testFile);
+        }
+        catch (Exception ex)
+        {
+             throw new UnauthorizedAccessException($"Output path is not writable: {outputPath}. {ex.Message}");
+        }
+
         // Check available disk space
         try
         {
@@ -105,7 +118,7 @@ public class PackageBuilder
                 SavePackageState(state);
                 
                 ReportProgress("Copying game files...", 10);
-                await CopyDirectoryAsync(game.FullPath, packageDir, ct);
+                await CopyDirectoryAsync(game.FullPath, packageDir, options.ExcludedPaths, ct);
                 
                 // Checkpoint
                 SavePackageState(state);
@@ -226,7 +239,7 @@ public class PackageBuilder
                 state.CurrentStep = PackagingStep.CreatingLauncher;
                 SavePackageState(state);
                 
-                CreateLauncher(packageDir, game);
+                CreateLauncher(packageDir, game, options.LauncherArguments);
                 
                 // Checkpoint
                 SavePackageState(state);
@@ -243,7 +256,7 @@ public class PackageBuilder
                 SavePackageState(state);
                 
                 ReportProgress("Creating ZIP archive...", 95);
-                var zipPath = await CreateZipArchiveAsync(packageDir, ct);
+                var zipPath = await CreateZipArchiveAsync(packageDir, options.ZipCompressionLevel, ct);
                 
                 // Checkpoint
                 SavePackageState(state);
@@ -318,7 +331,7 @@ public class PackageBuilder
     /// Creates a ZIP archive of the package directory for easy sharing with progress tracking.
     /// Optionally deletes the source folder after archiving.
     /// </summary>
-    private async Task<string> CreateZipArchiveAsync(string packageDir, CancellationToken ct = default, bool deleteSourceFolder = true)
+    private async Task<string> CreateZipArchiveAsync(string packageDir, CompressionLevel compressionLevel = CompressionLevel.Optimal, CancellationToken ct = default, bool deleteSourceFolder = true)
     {
         var folderName = System.IO.Path.GetFileName(packageDir);
         var parentDir = System.IO.Path.GetDirectoryName(packageDir) ?? packageDir;
@@ -366,7 +379,7 @@ public class PackageBuilder
                 // ZIP spec requires forward slashes
                 var entryName = Path.Combine(folderName, relativePath).Replace("\\", "/");
 
-                var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
+                var entry = archive.CreateEntry(entryName, compressionLevel);
 
                 // Set the LastWriteTime to preserve timestamp
                 entry.LastWriteTime = File.GetLastWriteTime(file);
@@ -408,7 +421,7 @@ public class PackageBuilder
     /// </summary>
     private List<string> DetectGameInterfaces(string gameDir)
     {
-        var interfaces = new List<string>();
+        var interfaces = new System.Collections.Concurrent.ConcurrentBag<string>();
         
         // Look for original steam_api DLLs
         var steamApiPaths = new[]
@@ -417,20 +430,18 @@ public class PackageBuilder
             Directory.GetFiles(gameDir, "steam_api64.dll", SearchOption.AllDirectories)
         };
 
-        foreach (var paths in steamApiPaths)
-        {
-            foreach (var path in paths)
-            {
-                var detected = _goldbergService.DetectInterfaces(path);
-                foreach (var iface in detected)
-                {
-                    if (!interfaces.Contains(iface))
-                        interfaces.Add(iface);
-                }
-            }
-        }
+        var allPaths = steamApiPaths.SelectMany(p => p).ToList();
 
-        return interfaces;
+        Parallel.ForEach(allPaths, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, (path) =>
+        {
+            var detected = _goldbergService.DetectInterfaces(path);
+            foreach (var iface in detected)
+            {
+                interfaces.Add(iface);
+            }
+        });
+
+        return interfaces.Distinct().ToList();
     }
 
     /// <summary>
@@ -591,29 +602,39 @@ public class PackageBuilder
     /// </summary>
     private Dictionary<string, string> GenerateFileHashes(string packageDir)
     {
-        var hashes = new Dictionary<string, string>();
+        var hashes = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
         var extensions = new[] { ".exe", ".dll" };
         
         try
         {
-            foreach (var file in Directory.EnumerateFiles(packageDir, "*.*", SearchOption.AllDirectories))
+            var files = Directory.EnumerateFiles(packageDir, "*.*", SearchOption.AllDirectories);
+
+            Parallel.ForEach(files, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, (file) =>
             {
                 var ext = System.IO.Path.GetExtension(file).ToLowerInvariant();
-                if (!extensions.Contains(ext)) continue;
-                
-                var relativePath = System.IO.Path.GetRelativePath(packageDir, file);
-                using var sha256 = System.Security.Cryptography.SHA256.Create();
-                using var stream = File.OpenRead(file);
-                var hashBytes = sha256.ComputeHash(stream);
-                hashes[relativePath] = Convert.ToHexString(hashBytes).ToLowerInvariant();
-            }
+                if (extensions.Contains(ext))
+                {
+                    var relativePath = System.IO.Path.GetRelativePath(packageDir, file);
+                    try
+                    {
+                        using var sha256 = System.Security.Cryptography.SHA256.Create();
+                        using var stream = File.OpenRead(file);
+                        var hashBytes = sha256.ComputeHash(stream);
+                        hashes[relativePath] = Convert.ToHexString(hashBytes).ToLowerInvariant();
+                    }
+                    catch (Exception ex)
+                    {
+                         LogService.Instance.Warning($"Error generating hash for {file}: {ex.Message}", "PackageBuilder");
+                    }
+                }
+            });
         }
         catch (Exception ex)
         {
             LogService.Instance.Warning($"Error generating file hashes: {ex.Message}", "PackageBuilder");
         }
         
-        return hashes;
+        return new Dictionary<string, string>(hashes);
     }
     
     /// <summary>
@@ -705,7 +726,7 @@ public class PackageBuilder
     /// <summary>
     /// Creates a launcher batch file.
     /// </summary>
-    private void CreateLauncher(string packageDir, InstalledGame game)
+    private void CreateLauncher(string packageDir, InstalledGame game, string? customArgs = null)
     {
         // Find likely game executables
         var exeFiles = Directory.GetFiles(packageDir, "*.exe", SearchOption.AllDirectories)
@@ -743,18 +764,21 @@ public class PackageBuilder
                     sourceExePath = "hl2.exe";
                 }
                 
-                CreateSourceEngineLauncher(packageDir, game.Name, sourceExePath, sourceGameInfo.Value);
+                CreateSourceEngineLauncher(packageDir, game.Name, sourceExePath, sourceGameInfo.Value, customArgs);
             }
             else
             {
                 // Standard launcher
                 var relativeDir = System.IO.Path.GetRelativePath(packageDir, exeDir);
                 var cdPath = relativeDir == "." ? "" : relativeDir;
+
+                var args = !string.IsNullOrWhiteSpace(customArgs) ? $" {customArgs}" : "";
+
                 var launcherContent = $"""
                     @echo off
                     title {game.Name}
                     cd /d "%~dp0{cdPath}"
-                    start "" "{exeName}"
+                    start "" "{exeName}"{args}
                     """;
                 
                 File.WriteAllText(Path.Combine(packageDir, "LAUNCH.bat"), launcherContent);
@@ -821,7 +845,7 @@ public class PackageBuilder
     /// Creates a launcher specifically for Source engine games.
     /// Source engine requires the working directory to be set correctly and -game to point to the content folder.
     /// </summary>
-    private void CreateSourceEngineLauncher(string packageDir, string gameName, string relativeExePath, (string ContentFolder, string ContentFolderRelativeToRoot) sourceInfo)
+    private void CreateSourceEngineLauncher(string packageDir, string gameName, string relativeExePath, (string ContentFolder, string ContentFolderRelativeToRoot) sourceInfo, string? customArgs = null)
     {
         // For Source engine:
         // 1. We need to run from the package root (where both bin/ and the content folder are)
@@ -831,6 +855,8 @@ public class PackageBuilder
         // The key insight is that Source engine looks for -game folder relative to the current working directory,
         // NOT relative to the executable location.
         
+        var args = !string.IsNullOrWhiteSpace(customArgs) ? $" {customArgs}" : "";
+
         var launcherContent = $"""
             @echo off
             title {gameName}
@@ -839,7 +865,7 @@ public class PackageBuilder
             cd /d "%~dp0"
             
             rem Launch game with -game pointing to content folder: {sourceInfo.ContentFolder}
-            start "" "{relativeExePath}" -game "{sourceInfo.ContentFolderRelativeToRoot}"
+            start "" "{relativeExePath}" -game "{sourceInfo.ContentFolderRelativeToRoot}"{args}
             """;
         
         File.WriteAllText(Path.Combine(packageDir, "LAUNCH.bat"), launcherContent);
@@ -850,7 +876,7 @@ public class PackageBuilder
     /// <summary>
     /// Copies a directory recursively with progress reporting using parallelism. Skips files that already exist with matching size/timestamp.
     /// </summary>
-    private async Task CopyDirectoryAsync(string sourceDir, string destDir, CancellationToken ct = default)
+    private async Task CopyDirectoryAsync(string sourceDir, string destDir, List<string>? excludedPaths = null, CancellationToken ct = default)
     {
         await Task.Run(() =>
         {
@@ -868,9 +894,33 @@ public class PackageBuilder
                 CancellationToken = ct
             };
 
+            // Prepare exclude patterns
+            var excludePatterns = excludedPaths?.Select(p =>
+            {
+                // Normalize path separators
+                return p.Replace('/', '\\').Trim('\\');
+            }).ToList() ?? new List<string>();
+
             Parallel.ForEach(allFiles, parallelOptions, (file) =>
             {
                 var relativePath = System.IO.Path.GetRelativePath(sourceDir, file.FullName);
+
+                // Check exclusions
+                if (excludePatterns.Any(pattern =>
+                {
+                    // Basic wildcard support: * at end matches any subpath
+                    if (pattern.EndsWith("*"))
+                    {
+                        var basePattern = pattern.TrimEnd('*');
+                        return relativePath.StartsWith(basePattern, StringComparison.OrdinalIgnoreCase);
+                    }
+                    return relativePath.Equals(pattern, StringComparison.OrdinalIgnoreCase);
+                }))
+                {
+                    Interlocked.Increment(ref copiedFiles);
+                    return;
+                }
+
                 var destPath = System.IO.Path.Combine(destDir, relativePath);
 
                 Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
@@ -891,21 +941,27 @@ public class PackageBuilder
                 {
                     // CopyTo is not thread safe if two threads try to write to same file, but we are writing to unique paths
                     // However, we need to handle potential IO exceptions for file access
-                    try
+                    int retries = 0;
+                    const int maxRetries = 3;
+                    while (true)
                     {
-                        file.CopyTo(destPath, overwrite: true);
-                    }
-                    catch (IOException ioEx)
-                    {
-                        LogService.Instance.Warning($"Retry copy for {file.Name}: {ioEx.Message}", "PackageBuilder");
-                        // Simple retry logic could be added here
-                        Thread.Sleep(100);
-                        try { file.CopyTo(destPath, overwrite: true); }
-                        catch (Exception retryEx)
+                        try
                         {
-                            LogService.Instance.Error($"Failed to copy {file.Name} after retry: {retryEx.Message}", retryEx, "PackageBuilder");
-                            // Re-throw to ensure package failure - a partial package is worse than a failed one
-                            throw;
+                            file.CopyTo(destPath, overwrite: true);
+                            break;
+                        }
+                        catch (IOException ioEx)
+                        {
+                            retries++;
+                            if (retries > maxRetries)
+                            {
+                                LogService.Instance.Error($"Failed to copy {file.Name} after {maxRetries} retries: {ioEx.Message}", ioEx, "PackageBuilder");
+                                throw;
+                            }
+
+                            LogService.Instance.Warning($"Retry copy {retries}/{maxRetries} for {file.Name}: {ioEx.Message}", "PackageBuilder");
+                            // Exponential backoff: 100ms, 200ms, 400ms...
+                            Thread.Sleep(100 * (int)Math.Pow(2, retries - 1));
                         }
                     }
                 }
@@ -1210,6 +1266,11 @@ public class PackageOptions
     public bool Compress { get; set; } = false;
     
     /// <summary>
+    /// Compression level for the zip archive.
+    /// </summary>
+    public CompressionLevel ZipCompressionLevel { get; set; } = CompressionLevel.Optimal;
+
+    /// <summary>
     /// The emulation mode to use for the package.
     /// </summary>
     public PackageMode Mode { get; set; } = PackageMode.Goldberg;
@@ -1218,6 +1279,17 @@ public class PackageOptions
     /// User-provided notes about this package.
     /// </summary>
     public string? Notes { get; set; }
+
+    /// <summary>
+    /// Custom arguments to pass to the game executable in the launcher.
+    /// </summary>
+    public string? LauncherArguments { get; set; }
+
+    /// <summary>
+    /// List of file paths (relative to game root) to exclude from the package.
+    /// Supports basic wildcards (*).
+    /// </summary>
+    public List<string> ExcludedPaths { get; set; } = new();
 
     /// <summary>
     /// Tags for organizing packages.
