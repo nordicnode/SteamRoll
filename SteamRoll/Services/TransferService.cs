@@ -302,6 +302,23 @@ public class TransferService : IDisposable
 
             foreach (var fileInfo in fileInfos)
             {
+                // Validate path to prevent directory traversal
+                if (!IsPathSafe(fileInfo.RelativePath))
+                {
+                    LogService.Instance.Warning($"Blocked potentially malicious file path: {fileInfo.RelativePath}", "TransferService");
+
+                    // Consume bytes to keep stream in sync but don't write to disk
+                    long toSkip = fileInfo.Size;
+                    while (toSkip > 0)
+                    {
+                        var toRead = (int)Math.Min(toSkip, buffer.Length);
+                        var bytesRead = await stream.ReadAsync(buffer.AsMemory(0, toRead), ct);
+                        if (bytesRead == 0) break;
+                        toSkip -= bytesRead;
+                    }
+                    continue;
+                }
+
                 // Check if this file was already completed in a previous transfer attempt
                 if (completedFiles.Contains(fileInfo.RelativePath))
                 {
@@ -329,6 +346,22 @@ public class TransferService : IDisposable
                 }
                 
                 var fullPath = System.IO.Path.Combine(destPath, fileInfo.RelativePath);
+                // Ensure the final path is actually within destPath (double check)
+                if (!Path.GetFullPath(fullPath).StartsWith(Path.GetFullPath(destPath), StringComparison.OrdinalIgnoreCase))
+                {
+                    LogService.Instance.Warning($"Blocked path traversal attempt: {fileInfo.RelativePath} -> {fullPath}", "TransferService");
+                    // Consume bytes
+                     long toSkip = fileInfo.Size;
+                    while (toSkip > 0)
+                    {
+                        var toRead = (int)Math.Min(toSkip, buffer.Length);
+                        var bytesRead = await stream.ReadAsync(buffer.AsMemory(0, toRead), ct);
+                        if (bytesRead == 0) break;
+                        toSkip -= bytesRead;
+                    }
+                    continue;
+                }
+
                 var dir = System.IO.Path.GetDirectoryName(fullPath);
                 if (!string.IsNullOrEmpty(dir))
                     Directory.CreateDirectory(dir);
@@ -464,6 +497,33 @@ public class TransferService : IDisposable
 
         var json = Encoding.UTF8.GetString(data);
         return JsonSerializer.Deserialize<T>(json);
+    }
+
+    private static bool IsPathSafe(string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath)) return false;
+
+        // Prevent path traversal explicitly
+        // We can't just check for ".." because valid filenames might have it (e.g. "My..File.txt")
+        // But we want to block "..\foo" or "../foo" or "foo/../bar"
+        if (relativePath.StartsWith(".." + Path.DirectorySeparatorChar) ||
+            relativePath.StartsWith(".." + Path.AltDirectorySeparatorChar) ||
+            relativePath.Contains(Path.DirectorySeparatorChar + ".." + Path.DirectorySeparatorChar) ||
+            relativePath.Contains(Path.AltDirectorySeparatorChar + ".." + Path.AltDirectorySeparatorChar) ||
+            relativePath.EndsWith(Path.DirectorySeparatorChar + "..") ||
+            relativePath.EndsWith(Path.AltDirectorySeparatorChar + "..") ||
+            relativePath == "..")
+        {
+            return false;
+        }
+
+        if (Path.IsPathRooted(relativePath)) return false;
+
+        // Check for invalid chars
+        var invalidChars = Path.GetInvalidFileNameChars().Where(c => c != Path.DirectorySeparatorChar && c != Path.AltDirectorySeparatorChar).ToArray();
+        if (relativePath.IndexOfAny(invalidChars) >= 0) return false;
+
+        return true;
     }
 
     private static async Task ReadExactlyAsync(NetworkStream stream, byte[] buffer, CancellationToken ct)
