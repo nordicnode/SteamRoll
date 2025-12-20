@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -9,6 +9,7 @@
     <NoWarn>CS8602</NoWarn>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
   <ItemGroup>
