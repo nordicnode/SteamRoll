@@ -291,8 +291,8 @@ public class PackageBuilder
         }
         catch (Exception cleanupEx)
         {
-            // Don't fail if cleanup fails - just log it
-            LogService.Instance.Warning($"Failed to clean up package directory: {cleanupEx.Message}", "PackageBuilder");
+            // Don't fail if cleanup fails - just log it but include stack trace for debugging
+            LogService.Instance.Error($"Failed to clean up package directory: {cleanupEx.Message}", cleanupEx, "PackageBuilder");
         }
     }
     

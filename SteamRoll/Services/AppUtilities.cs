@@ -108,6 +108,30 @@ public static class AppConstants
     /// Maximum number of entries in the in-memory Steam Store cache.
     /// </summary>
     public const int MAX_STORE_CACHE_ENTRIES = 500;
+
+    // ============================================
+    // External Resources
+    // ============================================
+
+    /// <summary>
+    /// Default URL for Goldberg Emulator GitLab releases API.
+    /// </summary>
+    public const string DEFAULT_GOLDBERG_GITLAB_URL = "https://gitlab.com/api/v4/projects/Mr_Goldberg%2Fgoldberg_emulator/releases";
+
+    /// <summary>
+    /// Default URL for Goldberg Emulator GitHub fork releases API (gbe_fork).
+    /// </summary>
+    public const string DEFAULT_GOLDBERG_GITHUB_URL = "https://api.github.com/repos/Detanup01/gbe_fork/releases/latest";
+
+    /// <summary>
+    /// Default URL for CreamAPI GitHub releases API.
+    /// </summary>
+    public const string DEFAULT_CREAMAPI_GITHUB_URL = "https://api.github.com/repos/deadmau5v/CreamAPI/releases/latest";
+
+    /// <summary>
+    /// Default fallback URL for CreamAPI download.
+    /// </summary>
+    public const string DEFAULT_CREAMAPI_FALLBACK_URL = "https://github.com/deadmau5v/CreamAPI/releases/download/2024.12.08/CreamAPI.zip";
 }
 
 

@@ -212,5 +212,30 @@ public class AppSettings
     /// <summary>
     /// Fallback URL for CreamAPI if GitHub API fails.
     /// </summary>
-    public string CreamApiFallbackUrl { get; set; } = "https://github.com/deadmau5v/CreamAPI/releases/download/2024.12.08/CreamAPI.zip";
+    public string CreamApiFallbackUrl { get; set; } = AppConstants.DEFAULT_CREAMAPI_FALLBACK_URL;
+
+    /// <summary>
+    /// Custom URL for Goldberg Emulator GitLab releases API.
+    /// </summary>
+    public string GoldbergGitLabUrl { get; set; } = AppConstants.DEFAULT_GOLDBERG_GITLAB_URL;
+
+    /// <summary>
+    /// Custom URL for Goldberg Emulator GitHub fork releases API.
+    /// </summary>
+    public string GoldbergGitHubUrl { get; set; } = AppConstants.DEFAULT_GOLDBERG_GITHUB_URL;
+
+    /// <summary>
+    /// Custom path for local Goldberg Emulator files (overrides download).
+    /// </summary>
+    public string CustomGoldbergPath { get; set; } = "";
+
+    /// <summary>
+    /// Custom path for local CreamAPI files (overrides download).
+    /// </summary>
+    public string CustomCreamApiPath { get; set; } = "";
+
+    /// <summary>
+    /// Transfer speed limit in bytes per second (0 = unlimited).
+    /// </summary>
+    public long TransferSpeedLimit { get; set; } = 0;
 }

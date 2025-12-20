@@ -21,6 +21,7 @@ public class TransferService : IDisposable
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private string _receiveBasePath;
+    private readonly SettingsService? _settingsService;
 
     public event EventHandler<TransferProgress>? ProgressChanged;
     public event EventHandler<TransferResult>? TransferComplete;
@@ -34,9 +35,10 @@ public class TransferService : IDisposable
     public bool IsListening { get; private set; }
     public int Port { get; private set; }
 
-    public TransferService(string receiveBasePath)
+    public TransferService(string receiveBasePath, SettingsService? settingsService = null)
     {
         _receiveBasePath = receiveBasePath;
+        _settingsService = settingsService;
         Port = DEFAULT_PORT;
     }
     
@@ -147,6 +149,7 @@ public class TransferService : IDisposable
             // Send files
             long sentBytes = 0;
             var buffer = new byte[BUFFER_SIZE];
+            var limiter = new BandwidthLimiter(_settingsService?.Settings.TransferSpeedLimit ?? 0);
 
             foreach (var fileInfo in fileInfos)
             {
@@ -156,6 +159,7 @@ public class TransferService : IDisposable
                 int bytesRead;
                 while ((bytesRead = await fileStream.ReadAsync(buffer, ct)) > 0)
                 {
+                    await limiter.WaitAsync(bytesRead, ct);
                     await stream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
                     sentBytes += bytesRead;
 
@@ -508,6 +512,59 @@ public class TransferService : IDisposable
     {
         StopListening();
         _cts?.Dispose();
+    }
+}
+
+/// <summary>
+/// Simple token bucket bandwidth limiter.
+/// </summary>
+public class BandwidthLimiter
+{
+    private readonly long _bytesPerSecond;
+    private double _tokens;
+    private DateTime _lastUpdate;
+    private const double MAX_TOKENS_MULTIPLIER = 1.0; // Max burst = 1 second worth
+
+    public BandwidthLimiter(long bytesPerSecond)
+    {
+        _bytesPerSecond = bytesPerSecond;
+        _tokens = bytesPerSecond; // Start full
+        _lastUpdate = DateTime.UtcNow;
+    }
+
+    public async Task WaitAsync(int bytes, CancellationToken ct)
+    {
+        if (_bytesPerSecond <= 0) return; // No limit
+
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var now = DateTime.UtcNow;
+            var elapsed = (now - _lastUpdate).TotalSeconds;
+            _lastUpdate = now;
+
+            // Refill tokens
+            _tokens += elapsed * _bytesPerSecond;
+            var maxTokens = _bytesPerSecond * MAX_TOKENS_MULTIPLIER;
+            if (_tokens > maxTokens) _tokens = maxTokens;
+
+            if (_tokens >= bytes)
+            {
+                _tokens -= bytes;
+                return;
+            }
+
+            // Not enough tokens, wait
+            var deficit = bytes - _tokens;
+            var waitTimeSeconds = deficit / _bytesPerSecond;
+            var waitTimeMs = (int)(waitTimeSeconds * 1000);
+
+            if (waitTimeMs > 0)
+            {
+                await Task.Delay(waitTimeMs, ct);
+            }
+        }
     }
 }
 
