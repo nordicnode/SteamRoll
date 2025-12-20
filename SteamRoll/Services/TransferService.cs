@@ -517,6 +517,10 @@ public class TransferService : IDisposable
             return false;
         }
 
+        // Also check for leading slash which might be interpreted as root
+        if (relativePath.StartsWith("/") || relativePath.StartsWith("\\"))
+            return false;
+
         if (Path.IsPathRooted(relativePath)) return false;
 
         // Check for invalid chars
