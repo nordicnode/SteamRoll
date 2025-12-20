@@ -294,6 +294,17 @@
                             <TextBlock Text="Goldberg is recommended for most games. CreamAPI is useful when Goldberg doesn't work." Style="{DynamicResource SettingDescription}"/>
                             
                             <CheckBox x:Name="AutoAnalyzeCheck" Content="Automatically analyze games on scan" Margin="0,15,0,0" Style="{DynamicResource SettingsCheckBoxStyle}"/>
+
+                            <TextBlock Text="Goldberg Version" Style="{DynamicResource SettingLabel}" Margin="0,15,0,5"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <ComboBox x:Name="GoldbergVersionCombo" Margin="0,0,8,0" Style="{DynamicResource SettingsComboBoxStyle}"/>
+                                <Button Grid.Column="1" x:Name="DownloadGoldbergBtn" Content="⬇️ Download" Click="DownloadGoldberg_Click" Style="{DynamicResource SecondaryButton}"/>
+                            </Grid>
+                            <TextBlock x:Name="CurrentGoldbergVersionText" Text="Current: Unknown" Style="{DynamicResource SettingDescription}"/>
                         </StackPanel>
                     </Border>
 

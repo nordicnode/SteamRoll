@@ -46,6 +46,24 @@ public class PackageBuilder
         var packageName = SanitizeFileName(game.Name);
         var packageDir = System.IO.Path.Combine(outputPath, packageName);
         bool packageStarted = false;
+
+        // Check available disk space
+        try
+        {
+            var driveInfo = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(outputPath)) ?? outputPath);
+            // Add 200MB safety buffer
+            var requiredSpace = game.SizeOnDisk + (200 * 1024 * 1024);
+
+            if (driveInfo.AvailableFreeSpace < requiredSpace)
+            {
+                throw new IOException($"Insufficient disk space. Required: {FormatUtils.FormatBytes(requiredSpace)}, Available: {FormatUtils.FormatBytes(driveInfo.AvailableFreeSpace)}");
+            }
+        }
+        catch (ArgumentException)
+        {
+            // Path might be invalid or network path that DriveInfo doesn't like, proceed with caution
+            LogService.Instance.Warning($"Could not check disk space for {outputPath}", "PackageBuilder");
+        }
         
         // Initialize or use existing state
         var state = resumeState ?? new PackageState
@@ -1031,6 +1049,113 @@ public class PackageBuilder
     }
 
     private static string SanitizeFileName(string name) => FormatUtils.SanitizeFileName(name);
+
+    /// <summary>
+    /// Imports a SteamRoll package from a ZIP file.
+    /// </summary>
+    /// <param name="zipPath">Path to the zip file.</param>
+    /// <param name="destinationRoot">The root directory to import to (e.g. Settings.OutputPath).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The path to the imported package directory.</returns>
+    public async Task<string> ImportPackageAsync(string zipPath, string destinationRoot, CancellationToken ct = default)
+    {
+        if (!File.Exists(zipPath))
+            throw new FileNotFoundException("Package file not found", zipPath);
+
+        return await Task.Run(async () =>
+        {
+            using var archive = ZipFile.OpenRead(zipPath);
+
+            // Validate package
+            // Look for steamroll.json or LAUNCH.bat to confirm it's a game package
+            // Also need to determine the root folder name inside the zip to avoid double nesting
+
+            var rootEntry = archive.Entries.OrderBy(e => e.FullName.Length).FirstOrDefault();
+            if (rootEntry == null) throw new InvalidDataException("Empty archive");
+
+            // Heuristic: Check if the zip has a single top-level directory
+            // or if it's a flat list of files.
+            // SteamRoll packages created by us usually have "GameName/..." structure.
+
+            var uniqueRootFolders = archive.Entries
+                .Where(e => !string.IsNullOrEmpty(e.FullName) && e.FullName.Contains('/'))
+                .Select(e => e.FullName.Split('/')[0])
+                .Distinct()
+                .ToList();
+
+            string targetDirName;
+
+            if (uniqueRootFolders.Count == 1)
+            {
+                // Single root folder in zip - use that name but ensure uniqueness
+                targetDirName = uniqueRootFolders[0];
+            }
+            else
+            {
+                // Multiple roots or flat files - use zip name
+                targetDirName = Path.GetFileNameWithoutExtension(zipPath);
+            }
+
+            // Ensure unique destination path
+            var destPath = Path.Combine(destinationRoot, targetDirName);
+            int counter = 1;
+            while (Directory.Exists(destPath))
+            {
+                destPath = Path.Combine(destinationRoot, $"{targetDirName} ({counter++})");
+            }
+
+            Directory.CreateDirectory(destPath);
+            LogService.Instance.Info($"Importing package to {destPath}", "PackageBuilder");
+
+            // Extract
+            // If we detected a single root folder, we might want to strip it if we are creating the folder ourselves?
+            // SteamRoll ZIPs: Created with "GameName/" as root.
+            // If we just ExtractToDirectory, we get Dest/GameName/...
+            // But we calculated destPath as Root/GameName.
+            // So if we extract to destinationRoot, we get Root/GameName... which is correct.
+            // BUT if the zip name doesn't match the internal folder name, we might have issues if we want to rename it.
+            // Let's extract to the specific destPath we created, but handle the internal structure.
+
+            if (uniqueRootFolders.Count == 1)
+            {
+                // Zip has "GameName/file.txt"
+                // destPath is ".../GameName" (or ".../GameName (1)")
+
+                // If we extract to destinationRoot, we rely on the zip's internal folder name.
+                // If we want to support renaming (e.g. collision), we need to extract contents OF the root folder INTO destPath.
+
+                foreach (var entry in archive.Entries)
+                {
+                    if (string.IsNullOrEmpty(entry.Name) && entry.FullName.EndsWith("/")) continue; // Skip directories
+
+                    // Remove first segment
+                    var parts = entry.FullName.Split('/', 2);
+                    if (parts.Length > 1)
+                    {
+                        var relativePath = parts[1];
+                        var fullOutputPath = Path.Combine(destPath, relativePath);
+
+                        Directory.CreateDirectory(Path.GetDirectoryName(fullOutputPath)!);
+                        entry.ExtractToFile(fullOutputPath, true);
+                    }
+                }
+            }
+            else
+            {
+                // Flat structure or messy - just extract everything into destPath
+                archive.ExtractToDirectory(destPath);
+            }
+
+            // Post-import validation
+            if (!File.Exists(Path.Combine(destPath, "LAUNCH.bat")) &&
+                !File.Exists(Path.Combine(destPath, "steamroll.json")))
+            {
+                LogService.Instance.Warning("Imported package might not be valid (missing LAUNCH.bat or steamroll.json)", "PackageBuilder");
+            }
+
+            return destPath;
+        }, ct);
+    }
 
     /// <summary>
     /// Fetches DLC information and generates unlock configuration.

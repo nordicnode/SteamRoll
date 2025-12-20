@@ -140,6 +140,55 @@ public class GoldbergService : IDisposable
         }
         return null;
     }
+
+    /// <summary>
+    /// Gets available versions from GitHub releases.
+    /// </summary>
+    public async Task<List<string>> GetAvailableVersionsAsync()
+    {
+        var versions = new List<string>();
+        try
+        {
+            var apiUrl = _settingsService?.Settings.GoldbergGitHubUrl ?? AppConstants.DEFAULT_GOLDBERG_GITHUB_URL;
+            // The default URL might be /releases/latest, we want /releases for list
+            if (apiUrl.EndsWith("/latest"))
+                apiUrl = apiUrl.Substring(0, apiUrl.Length - 7);
+
+            var response = await HttpRetryHelper.ExecuteWithRetryAsync(
+                () => _httpClient.GetStringAsync(apiUrl),
+                "GitHub Releases API",
+                maxRetries: 2);
+
+            using var doc = JsonDocument.Parse(response);
+            var root = doc.RootElement;
+
+            // Handle both single object (latest) or array (list)
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var release in root.EnumerateArray())
+                {
+                    if (release.TryGetProperty("tag_name", out var tagProp))
+                    {
+                        var tag = tagProp.GetString()?.TrimStart('v');
+                        if (!string.IsNullOrEmpty(tag)) versions.Add(tag);
+                    }
+                }
+            }
+            else if (root.ValueKind == JsonValueKind.Object)
+            {
+                if (root.TryGetProperty("tag_name", out var tagProp))
+                {
+                    var tag = tagProp.GetString()?.TrimStart('v');
+                    if (!string.IsNullOrEmpty(tag)) versions.Add(tag);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Warning($"Failed to fetch available versions: {ex.Message}", "GoldbergService");
+        }
+        return versions;
+    }
     
     /// <summary>
     /// Cleans up a version string like "release-2025_11_27" to "2025.11.27".
@@ -166,19 +215,22 @@ public class GoldbergService : IDisposable
     /// Downloads and extracts Goldberg Emulator automatically.
     /// </summary>
     /// <returns>True if successful, false otherwise.</returns>
-    public async Task<bool> DownloadGoldbergAsync()
+    public async Task<bool> DownloadGoldbergAsync(string? specificVersion = null)
     {
         try
         {
             ReportProgress("Checking for Goldberg releases...", 5);
+
+            string? downloadUrl = null;
+            string? version = null;
             
             // Try GitHub fork first (actively maintained with newer Steam SDK support)
             LogService.Instance.Debug("Attempting to fetch from GitHub (gbe_fork)...", "GoldbergService");
-            var (downloadUrl, version) = await GetGitHubReleaseInfoAsync();
+            (downloadUrl, version) = await GetGitHubReleaseInfoAsync(specificVersion);
             
-            if (string.IsNullOrEmpty(downloadUrl))
+            if (string.IsNullOrEmpty(downloadUrl) && string.IsNullOrEmpty(specificVersion))
             {
-                // Fallback to original GitLab
+                // Fallback to original GitLab (only if no specific version requested, as GitLab structure is harder to query for old versions)
                 LogService.Instance.Warning("GitHub failed, trying original GitLab...", "GoldbergService");
                 (downloadUrl, version) = await GetGitLabReleaseInfoAsync();
             }
@@ -268,12 +320,37 @@ public class GoldbergService : IDisposable
     /// <summary>
     /// Gets download URL and version from GitHub releases API.
     /// </summary>
-    private async Task<(string? url, string? version)> GetGitHubReleaseInfoAsync()
+    private async Task<(string? url, string? version)> GetGitHubReleaseInfoAsync(string? specificVersion = null)
     {
         try
         {
-            LogService.Instance.Debug("Fetching GitHub releases...", "GoldbergService");
+            LogService.Instance.Debug($"Fetching GitHub releases{(specificVersion != null ? $" for version {specificVersion}" : "")}...", "GoldbergService");
             var apiUrl = _settingsService?.Settings.GoldbergGitHubUrl ?? AppConstants.DEFAULT_GOLDBERG_GITHUB_URL;
+
+            // If requesting a specific version, getting the whole list is better if using the /latest endpoint
+            // Or if using standard github api: /releases/tags/{tag}
+            if (!string.IsNullOrEmpty(specificVersion))
+            {
+                // Adjust URL to get specific tag if default is 'latest'
+                // Assume standard GitHub API structure: .../releases/latest -> .../releases/tags/v{version}
+                if (apiUrl.EndsWith("/latest"))
+                {
+                    apiUrl = apiUrl.Replace("/latest", $"/tags/v{specificVersion}");
+                }
+                else
+                {
+                     // Try to fetch all releases and find the right one
+                     if (apiUrl.EndsWith("/releases"))
+                     {
+                        // apiUrl is fine
+                     }
+                     else
+                     {
+                        // Fallback logic for custom URLs not handled here, assume standard API usage
+                     }
+                }
+            }
+
             var response = await HttpRetryHelper.ExecuteWithRetryAsync(
                 () => _httpClient.GetStringAsync(apiUrl),
                 "GitHub Releases API",
@@ -281,12 +358,41 @@ public class GoldbergService : IDisposable
             using var doc = JsonDocument.Parse(response);
             var root = doc.RootElement;
             
+            // If we got a list (when fetching all releases to find specific one)
+            JsonElement releaseElement = root;
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                if (!string.IsNullOrEmpty(specificVersion))
+                {
+                     // Find the specific version
+                     bool found = false;
+                     foreach (var item in root.EnumerateArray())
+                     {
+                         if (item.TryGetProperty("tag_name", out var t) && (t.GetString() == specificVersion || t.GetString() == $"v{specificVersion}"))
+                         {
+                             releaseElement = item;
+                             found = true;
+                             break;
+                         }
+                     }
+                     if (!found) return (null, null);
+                }
+                else
+                {
+                    // Use first (latest)
+                    if (root.GetArrayLength() > 0)
+                        releaseElement = root[0];
+                    else
+                        return (null, null);
+                }
+            }
+
             // Get the version tag
-            var version = root.TryGetProperty("tag_name", out var tagProp) 
+            var version = releaseElement.TryGetProperty("tag_name", out var tagProp)
                 ? tagProp.GetString()?.TrimStart('v') 
                 : null;
 
-            if (root.TryGetProperty("assets", out var assets))
+            if (releaseElement.TryGetProperty("assets", out var assets))
             {
                 // Priority 1: Look for Windows release build (emu-win-release.7z or similar)
                 foreach (var asset in assets.EnumerateArray())
