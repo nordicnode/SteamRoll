@@ -17,13 +17,8 @@ public class GoldbergService : IDisposable
 {
     private readonly string _goldbergPath;
     private readonly HttpClient _httpClient;
+    private readonly SettingsService? _settingsService;
     private bool _disposed;
-    
-    // Updated Goldberg fork with newer Steam SDK support (actively maintained)
-    private const string GITHUB_RELEASES_API = "https://api.github.com/repos/Detanup01/gbe_fork/releases/latest";
-    
-    // Original GitLab as fallback
-    private const string GITLAB_RELEASES_API = "https://gitlab.com/api/v4/projects/Mr_Goldberg%2Fgoldberg_emulator/releases";
     
     // Precompiled regex patterns for Steam interface detection (performance optimization)
     private static readonly Regex[] InterfacePatterns = new[]
@@ -66,12 +61,14 @@ public class GoldbergService : IDisposable
     /// <summary>
     /// Gets the path to the Goldberg installation directory.
     /// </summary>
-    public string GoldbergPath => _goldbergPath;
+    public string GoldbergPath => GetEffectiveGoldbergPath();
 
 
-    public GoldbergService()
+    public GoldbergService(SettingsService? settingsService = null)
     {
-        // Store Goldberg files in AppData
+        _settingsService = settingsService;
+
+        // Default Goldberg path
         _goldbergPath = System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "SteamRoll",
@@ -83,30 +80,44 @@ public class GoldbergService : IDisposable
         _httpClient.Timeout = TimeSpan.FromMinutes(5);
     }
 
+    private string GetEffectiveGoldbergPath()
+    {
+        if (_settingsService != null && !string.IsNullOrEmpty(_settingsService.Settings.CustomGoldbergPath))
+        {
+            return _settingsService.Settings.CustomGoldbergPath;
+        }
+        return _goldbergPath;
+    }
+
     /// <summary>
     /// Checks if Goldberg DLLs are available locally.
     /// </summary>
     public bool IsGoldbergAvailable()
     {
-        if (!Directory.Exists(_goldbergPath))
+        var path = GetEffectiveGoldbergPath();
+        if (!Directory.Exists(path))
             return false;
 
         // Check for both 32-bit and 64-bit DLLs
-        return File.Exists(Path.Combine(_goldbergPath, "steam_api.dll")) &&
-               File.Exists(Path.Combine(_goldbergPath, "steam_api64.dll"));
+        return File.Exists(Path.Combine(path, "steam_api.dll")) &&
+               File.Exists(Path.Combine(path, "steam_api64.dll"));
     }
 
     /// <summary>
     /// Gets the path where Goldberg files are stored.
     /// </summary>
-    public string GetGoldbergPath() => _goldbergPath;
+    public string GetGoldbergPath() => GetEffectiveGoldbergPath();
 
     /// <summary>
     /// Initializes the Goldberg directory.
     /// </summary>
     public void InitializeGoldbergDirectory()
     {
-        Directory.CreateDirectory(_goldbergPath);
+        // Only create default directory if custom path is not used
+        if (GetEffectiveGoldbergPath() == _goldbergPath)
+        {
+            Directory.CreateDirectory(_goldbergPath);
+        }
     }
 
     /// <summary>
@@ -116,7 +127,7 @@ public class GoldbergService : IDisposable
     {
         try
         {
-            var versionPath = System.IO.Path.Combine(_goldbergPath, "version.txt");
+            var versionPath = System.IO.Path.Combine(GetEffectiveGoldbergPath(), "version.txt");
             if (File.Exists(versionPath))
             {
                 var rawVersion = File.ReadAllText(versionPath).Trim();
@@ -262,8 +273,9 @@ public class GoldbergService : IDisposable
         try
         {
             LogService.Instance.Debug("Fetching GitHub releases...", "GoldbergService");
+            var apiUrl = _settingsService?.Settings.GoldbergGitHubUrl ?? AppConstants.DEFAULT_GOLDBERG_GITHUB_URL;
             var response = await HttpRetryHelper.ExecuteWithRetryAsync(
-                () => _httpClient.GetStringAsync(GITHUB_RELEASES_API),
+                () => _httpClient.GetStringAsync(apiUrl),
                 "GitHub Releases API",
                 maxRetries: 2);
             using var doc = JsonDocument.Parse(response);
@@ -327,8 +339,9 @@ public class GoldbergService : IDisposable
         try
         {
             LogService.Instance.Debug("Fetching GitLab releases...", "GoldbergService");
+            var apiUrl = _settingsService?.Settings.GoldbergGitLabUrl ?? AppConstants.DEFAULT_GOLDBERG_GITLAB_URL;
             var response = await HttpRetryHelper.ExecuteWithRetryAsync(
-                () => _httpClient.GetStringAsync(GITLAB_RELEASES_API),
+                () => _httpClient.GetStringAsync(apiUrl),
                 "GitLab Releases API",
                 maxRetries: 2);
             using var doc = JsonDocument.Parse(response);
@@ -480,14 +493,15 @@ public class GoldbergService : IDisposable
         try
         {
             var replacedCount = 0;
+            var goldbergPath = GetEffectiveGoldbergPath();
             
             foreach (var originalDll in FindSteamApiDlls(gameDir))
             {
                 var fileName = System.IO.Path.GetFileName(originalDll).ToLowerInvariant();
                 var goldbergDll = fileName switch
                 {
-                    "steam_api.dll" => System.IO.Path.Combine(_goldbergPath, "steam_api.dll"),
-                    "steam_api64.dll" => System.IO.Path.Combine(_goldbergPath, "steam_api64.dll"),
+                    "steam_api.dll" => System.IO.Path.Combine(goldbergPath, "steam_api.dll"),
+                    "steam_api64.dll" => System.IO.Path.Combine(goldbergPath, "steam_api64.dll"),
                     _ => null
                 };
 

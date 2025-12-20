@@ -14,10 +14,6 @@ namespace SteamRoll.Services;
 /// </summary>
 public class CreamApiService : IDisposable
 {
-    // GitHub API for dynamic release fetching
-    private const string GITHUB_RELEASES_API = "https://api.github.com/repos/deadmau5v/CreamAPI/releases/latest";
-    // Fallback to hardcoded URL if API fails
-    private const string CREAMAPI_FALLBACK_URL = "https://github.com/deadmau5v/CreamAPI/releases/download/2024.12.08/CreamAPI.zip";
     private const string CREAMAPI_FOLDER = "CreamAPI";
     
     private readonly string _creamApiPath;
@@ -43,13 +39,23 @@ public class CreamApiService : IDisposable
     
 
 
+    private string GetEffectiveCreamApiPath()
+    {
+        if (_settingsService != null && !string.IsNullOrEmpty(_settingsService.Settings.CustomCreamApiPath))
+        {
+            return _settingsService.Settings.CustomCreamApiPath;
+        }
+        return _creamApiPath;
+    }
+
     /// <summary>
     /// Checks if CreamAPI files are available locally.
     /// </summary>
     public bool IsCreamApiAvailable()
     {
-        return File.Exists(Path.Combine(_creamApiPath, "steam_api.dll")) ||
-               File.Exists(Path.Combine(_creamApiPath, "steam_api64.dll"));
+        var path = GetEffectiveCreamApiPath();
+        return File.Exists(Path.Combine(path, "steam_api.dll")) ||
+               File.Exists(Path.Combine(path, "steam_api64.dll"));
     }
 
     /// <summary>
@@ -59,7 +65,7 @@ public class CreamApiService : IDisposable
     {
         try
         {
-            var versionPath = System.IO.Path.Combine(_creamApiPath, "version.txt");
+            var versionPath = System.IO.Path.Combine(GetEffectiveCreamApiPath(), "version.txt");
             if (File.Exists(versionPath))
             {
                 return File.ReadAllText(versionPath).Trim();
@@ -81,7 +87,8 @@ public class CreamApiService : IDisposable
         {
             LogService.Instance.Info("Fetching latest CreamAPI release from GitHub...", "CreamAPI");
             
-            var response = await _httpClient.GetStringAsync(GITHUB_RELEASES_API);
+            var apiUrl = AppConstants.DEFAULT_CREAMAPI_GITHUB_URL;
+            var response = await _httpClient.GetStringAsync(apiUrl);
             using var doc = JsonDocument.Parse(response);
             var release = doc.RootElement;
             
@@ -142,7 +149,7 @@ public class CreamApiService : IDisposable
             
             // Try to get latest release from GitHub
             var releaseInfo = await GetLatestReleaseAsync();
-            var fallbackUrl = _settingsService?.Settings.CreamApiFallbackUrl ?? CREAMAPI_FALLBACK_URL;
+            var fallbackUrl = _settingsService?.Settings.CreamApiFallbackUrl ?? AppConstants.DEFAULT_CREAMAPI_FALLBACK_URL;
             var downloadUrl = releaseInfo?.Url ?? fallbackUrl;
             var expectedSha256 = releaseInfo?.Sha256;
             
@@ -303,6 +310,8 @@ public class CreamApiService : IDisposable
 
     private void ApplyCreamApiToLocation(string location, int appId, List<int> dlcList, string gameName)
     {
+        var creamApiPath = GetEffectiveCreamApiPath();
+
         // Backup and replace steam_api.dll
         var api32Path = System.IO.Path.Combine(location, "steam_api.dll");
         var api64Path = System.IO.Path.Combine(location, "steam_api64.dll");
@@ -313,7 +322,7 @@ public class CreamApiService : IDisposable
             if (!File.Exists(backupPath))
                 File.Move(api32Path, backupPath);
             
-            var creamApi32 = System.IO.Path.Combine(_creamApiPath, "steam_api.dll");
+            var creamApi32 = System.IO.Path.Combine(creamApiPath, "steam_api.dll");
             if (File.Exists(creamApi32))
                 File.Copy(creamApi32, api32Path, true);
         }
@@ -324,7 +333,7 @@ public class CreamApiService : IDisposable
             if (!File.Exists(backupPath))
                 File.Move(api64Path, backupPath);
             
-            var creamApi64 = System.IO.Path.Combine(_creamApiPath, "steam_api64.dll");
+            var creamApi64 = System.IO.Path.Combine(creamApiPath, "steam_api64.dll");
             if (File.Exists(creamApi64))
                 File.Copy(creamApi64, api64Path, true);
         }
