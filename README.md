@@ -1,5 +1,8 @@
 # 🎮 SteamRoll
 
+![SteamRoll Logo](SteamRoll/logo.png)
+
+
 **SteamRoll** is a tool designed for households to easily share and play their Steam libraries across local computers without the restrictions of Steam Family Sharing or requiring multiple accounts to be online.
 
 It creates portable, LAN-ready game packages by automatically applying compatibility layers (Goldberg Emulator / CreamAPI) and provides a high-speed peer-to-peer transfer system to move games between PCs.
