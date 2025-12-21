@@ -216,6 +216,75 @@ public partial class GameDetailsWindow : Window
         }
     }
 
+    private async void Diagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_game.IsPackaged || string.IsNullOrEmpty(_game.PackagePath)) return;
+
+        DiagnosticsBtn.IsEnabled = false;
+        DiagnosticsBtn.Content = "⏳ Scanning...";
+
+        try
+        {
+            var report = await DiagnosticService.Instance.AnalyzePackageAsync(_game.PackagePath);
+
+            // Format report for display
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"Health Report for {_game.Name}");
+            sb.AppendLine($"Status: {report.StatusSummary}");
+            sb.AppendLine("----------------------------------------");
+            sb.AppendLine($"Main Executable: {report.MainExecutable}");
+            sb.AppendLine($"Architecture: {report.Architecture}");
+            sb.AppendLine();
+
+            if (report.Issues.Count == 0)
+            {
+                sb.AppendLine("No issues detected! The package is healthy.");
+            }
+            else
+            {
+                sb.AppendLine($"Issues Found ({report.Issues.Count}):");
+                foreach (var issue in report.Issues)
+                {
+                    var icon = issue.Severity switch
+                    {
+                        IssueSeverity.Error => "❌",
+                        IssueSeverity.Warning => "⚠️",
+                        _ => "ℹ️"
+                    };
+                    sb.AppendLine($"{icon} [{issue.Severity}] {issue.Title}");
+                    sb.AppendLine($"   {issue.Description}");
+                    if (issue.CanFix && !string.IsNullOrEmpty(issue.FixAction))
+                    {
+                         sb.AppendLine($"   💡 Fix available: {issue.FixAction}");
+                    }
+                    sb.AppendLine();
+                }
+            }
+
+            Dispatcher.Invoke(() =>
+            {
+                DiagnosticsBtn.IsEnabled = true;
+                DiagnosticsBtn.Content = "🩺 Health";
+
+                // Using standard message box for now - could be a custom dialog later
+                var icon = report.ErrorCount > 0 ? MessageBoxImage.Error :
+                           report.WarningCount > 0 ? MessageBoxImage.Warning :
+                           MessageBoxImage.Information;
+
+                MessageBox.Show(sb.ToString(), "Package Health Report", MessageBoxButton.OK, icon);
+            });
+        }
+        catch (Exception ex)
+        {
+             Dispatcher.Invoke(() =>
+             {
+                 DiagnosticsBtn.IsEnabled = true;
+                 DiagnosticsBtn.Content = "🩺 Health";
+                 MessageBox.Show($"Diagnostic failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+             });
+        }
+    }
+
     private void Verify_Click(object sender, RoutedEventArgs e)
     {
         if (!_game.IsPackaged || string.IsNullOrEmpty(_game.PackagePath)) return;
