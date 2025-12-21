@@ -3,1299 +3,667 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:sys="clr-namespace:System;assembly=mscorlib"
+        xmlns:local="clr-namespace:SteamRoll"
         xmlns:controls="clr-namespace:SteamRoll.Controls"
+        xmlns:models="clr-namespace:SteamRoll.Models"
         mc:Ignorable="d"
-        Title="SteamRoll - LAN Game Sharing" 
-        Height="800" Width="1400"
-        MinHeight="650" MinWidth="1000"
+        Title="SteamRoll" Height="900" Width="1400"
         WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BackgroundDarkBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}"
+        FontFamily="Segoe UI"
         WindowStyle="None"
         AllowsTransparency="True"
-        Background="Transparent"
-        UseLayoutRounding="True"
-        SnapsToDevicePixels="True"
-        TextOptions.TextFormattingMode="Display"
-        TextOptions.TextRenderingMode="ClearType"
-        RenderOptions.BitmapScalingMode="HighQuality">
+        ResizeMode="CanResizeWithGrip">
 
     <WindowChrome.WindowChrome>
-        <WindowChrome CaptionHeight="0" ResizeBorderThickness="8" CornerRadius="0" GlassFrameThickness="0"/>
+        <WindowChrome CaptionHeight="40"
+                      ResizeBorderThickness="5"
+                      GlassFrameThickness="0"
+                      CornerRadius="0"/>
     </WindowChrome.WindowChrome>
-    
-    <!-- Window Resources: Extracted styles to avoid BAML loading issues in single-file publish -->
-    <Window.Resources>
-        <!-- Value Converters -->
-        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
-        <controls:BooleanToHeartConverter x:Key="BooleanToHeartConverter"/>
 
-        <!-- Header Image Border Style with hover opacity -->
+    <Window.Resources>
+        <!-- Boolean to Visibility Converters -->
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <controls:BooleanToVisibilityInverseConverter x:Key="BoolToVisInverse"/>
+        <controls:NullToVisibilityConverter x:Key="NullToVis"/>
+        <controls:BooleanToHeartConverter x:Key="BoolToHeart"/>
+        <controls:BooleanToHeartColorConverter x:Key="BoolToHeartColor"/>
+
+        <!-- Header Image Border Style -->
         <Style x:Key="HeaderImageBorderStyle" TargetType="Border">
-            <Setter Property="Opacity" Value="0.85"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Opacity" Value="1"/>
-                </Trigger>
-            </Style.Triggers>
+            <Setter Property="CornerRadius" Value="12,12,0,0"/>
+            <Setter Property="ClipToBounds" Value="True"/>
+            <Setter Property="Height" Value="140"/>
+            <Setter Property="Background" Value="#0D1117"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}"/>
         </Style>
 
-        <!-- Favorite Toggle Style -->
-        <Style x:Key="FavoriteToggleStyle" TargetType="ToggleButton">
+        <!-- Status Badge Text Style -->
+        <Style x:Key="StatusBadgeText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="6,2"/>
+        </Style>
+
+        <!-- Primary Toggle Button Style -->
+        <Style x:Key="PrimaryToggleStyle" TargetType="ToggleButton">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
-                 <Setter.Value>
+                <Setter.Value>
                     <ControlTemplate TargetType="ToggleButton">
-                        <Border Background="{TemplateBinding Background}">
+                        <Border x:Name="border" Background="{TemplateBinding Background}"
+                                CornerRadius="6" BorderThickness="{TemplateBinding BorderThickness}"
+                                BorderBrush="{TemplateBinding BorderBrush}" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{StaticResource AccentPrimaryBrush}"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="{StaticResource AccentPrimaryBrush}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#21262D"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#1F6FEB"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
-        
-        <!-- Selection Checkbox Style -->
-        <Style x:Key="SelectionCheckboxStyle" TargetType="CheckBox">
-            <Setter Property="Opacity" Value="0.6"/>
+
+        <!-- Navigation Tab Button Style -->
+        <Style x:Key="NavTabStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Margin" Value="0,0,4,0"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Style.Triggers>
-                <Trigger Property="IsChecked" Value="True">
-                    <Setter Property="Opacity" Value="1"/>
-                </Trigger>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Opacity" Value="1"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-        
-        <!-- Compatibility Dot Style -->
-        <Style x:Key="CompatDotStyle" TargetType="Ellipse">
-            <Setter Property="Fill" Value="#6E7681"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsPackageable}" Value="True">
-                    <Setter Property="Fill" Value="#3FB950"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding PrimaryDrm}" Value="Denuvo">
-                    <Setter Property="Fill" Value="#F85149"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        
-        <!-- DRM Type TextBlock Style -->
-        <Style x:Key="DrmTypeTextStyle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}"/>
-            <Setter Property="Text" Value="{Binding PrimaryDrm}"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding PrimaryDrm}" Value="SteamStub">
-                    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding PrimaryDrm}" Value="Denuvo">
-                    <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        
-        <!-- DLC Badge Border Style -->
-        <Style x:Key="DlcBadgeBorderStyle" TargetType="Border">
-            <Setter Property="Background">
-                <Setter.Value>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                        <GradientStop Color="#3A2A5C" Offset="0"/>
-                        <GradientStop Color="#4A2A4C" Offset="1"/>
-                    </LinearGradientBrush>
-                </Setter.Value>
-            </Setter>
-            <Setter Property="Visibility" Value="Collapsed"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding HasDlc}" Value="True">
-                    <Setter Property="Visibility" Value="Visible"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        
-        <!-- Packaged Badge Border Style -->
-        <Style x:Key="PackagedBadgeBorderStyle" TargetType="Border">
-            <Setter Property="Background" Value="#1A3A2E"/>
-            <Setter Property="Visibility" Value="Collapsed"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsPackaged}" Value="True">
-                    <Setter Property="Visibility" Value="Visible"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding IsReceivedPackage}" Value="True">
-                    <Setter Property="Background" Value="#1A2A3A"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        
-        <!-- Packaged Icon TextBlock Style -->
-        <Style x:Key="PackagedIconTextStyle" TargetType="TextBlock">
-            <Setter Property="Text" Value="✓"/>
-            <Setter Property="Foreground" Value="#3FB950"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsReceivedPackage}" Value="True">
-                    <Setter Property="Text" Value="📥"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        
-        <!-- Packaged Label TextBlock Style -->
-        <Style x:Key="PackagedLabelTextStyle" TargetType="TextBlock">
-            <Setter Property="Text" Value="Packaged"/>
-            <Setter Property="Foreground" Value="#3FB950"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsReceivedPackage}" Value="True">
-                    <Setter Property="Text" Value="Received"/>
-                    <Setter Property="Foreground" Value="#58A6FF"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        
-        <!-- Update Badge Border Style -->
-        <Style x:Key="UpdateBadgeBorderStyle" TargetType="Border">
-            <Setter Property="Background" Value="#3E2C1A"/>
-            <Setter Property="Visibility" Value="Collapsed"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding UpdateAvailable}" Value="True">
-                    <Setter Property="Visibility" Value="Visible"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        
-        <!-- Ready Badge Border Style -->
-        <Style x:Key="ReadyBadgeBorderStyle" TargetType="Border">
-            <Setter Property="Visibility" Value="Collapsed"/>
-            <Setter Property="Background" Value="#1A3326"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsPackageable}" Value="True">
-                    <Setter Property="Visibility" Value="Visible"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        
-        <!-- Package Button Style -->
-        <Style x:Key="PackageButtonStyle" TargetType="Button">
-            <Setter Property="Background">
-                <Setter.Value>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                        <GradientStop Color="#238636" Offset="0"/>
-                        <GradientStop Color="#2EA043" Offset="1"/>
-                    </LinearGradientBrush>
-                </Setter.Value>
-            </Setter>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" 
-                                CornerRadius="6" 
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                <Setter TargetName="border" Property="Background" Value="#21262D"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Context Menu Style -->
+        <Style TargetType="ContextMenu">
+            <Setter Property="Background" Value="{StaticResource BackgroundLightBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="HasDropShadow" Value="True"/>
+            <Setter Property="Padding" Value="4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
                         </Border>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
-            <Style.Triggers>
-                <!-- Open Package mode: teal/cyan color -->
-                <DataTrigger Binding="{Binding IsPackaged}" Value="True">
-                    <Setter Property="Background">
-                        <Setter.Value>
-                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                                <GradientStop Color="#0D9488" Offset="0"/>
-                                <GradientStop Color="#14B8A6" Offset="1"/>
-                            </LinearGradientBrush>
-                        </Setter.Value>
-                    </Setter>
-                </DataTrigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Opacity" Value="0.5"/>
-                </Trigger>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Opacity" Value="0.9"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-        
-        <!-- Button Icon TextBlock Style -->
-        <Style x:Key="ButtonIconTextStyle" TargetType="TextBlock">
-            <Setter Property="Text" Value="📦 "/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsPackaged}" Value="True">
-                    <Setter Property="Text" Value="📂 "/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        
-        <!-- Button Label TextBlock Style -->
-        <Style x:Key="ButtonLabelTextStyle" TargetType="TextBlock">
-            <Setter Property="Text" Value="Create Package"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsPackaged}" Value="True">
-                    <Setter Property="Text" Value="Open Package"/>
-                </DataTrigger>
-            </Style.Triggers>
         </Style>
 
-        <!-- Skeleton Card Style -->
-        <Style x:Key="SkeletonCardStyle" TargetType="Border">
-            <Setter Property="Background" Value="#21262D"/>
-            <Setter Property="CornerRadius" Value="10"/>
-            <Setter Property="Height" Value="240"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="#30363D"/>
-            <Setter Property="Opacity" Value="0.5"/>
+        <Style TargetType="MenuItem">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="Border" Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="24"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <ContentPresenter Grid.Column="0" ContentSource="Icon" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <ContentPresenter Grid.Column="1" ContentSource="Header" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}" Foreground="{StaticResource TextSecondaryBrush}" Margin="16,0,0,0" VerticalAlignment="Center" FontSize="11"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource AccentPrimaryBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
+
+        <!-- Redesigned Game Card Template -->
+        <DataTemplate x:Key="GameCardTemplate" DataType="{x:Type models:InstalledGame}">
+            <Border Style="{DynamicResource GameCard}" Width="260" Height="380" Tag="{Binding}" MouseLeftButtonDown="GameCard_Click">
+                <Border.InputBindings>
+                    <MouseBinding MouseAction="LeftDoubleClick" Command="{Binding PackageCommand}"/>
+                </Border.InputBindings>
+                <Border.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Package Game" Click="ContextMenu_Package_Click" Icon="📦" Visibility="{Binding IsPackaged, Converter={StaticResource BoolToVisInverse}}"/>
+                        <MenuItem Header="Update Package" Click="ContextMenu_Package_Click" Icon="🔄" Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}"/>
+                        <MenuItem Header="Open Package Folder" Click="ContextMenu_Package_Click" Icon="📂" Visibility="{Binding IsPackaged, Converter={StaticResource BoolToVis}}"/>
+                        <MenuItem Header="Delete Package" Click="ContextMenu_DeletePackage_Click" Icon="🗑️" Visibility="{Binding IsPackaged, Converter={StaticResource BoolToVis}}"/>
+                        <Separator/>
+                        <MenuItem Header="Send to Peer..." Click="ContextMenu_SendToPeer_Click" Icon="📤" IsEnabled="{Binding IsPackaged}"/>
+                        <MenuItem Header="Sync Saves..." Click="ContextMenu_SyncSaves_Click" Icon="💾" IsEnabled="{Binding IsPackaged}"/>
+                        <MenuItem Header="Backup Saves" Click="ContextMenu_BackupSave_Click" Icon="📥" IsEnabled="{Binding IsPackaged}"/>
+                        <Separator/>
+                        <MenuItem Header="Verify Integrity" Click="ContextMenu_VerifyIntegrity_Click" Icon="🛡️" IsEnabled="{Binding IsPackaged}"/>
+                        <MenuItem Header="Advanced Config..." Click="ContextMenu_AdvancedConfig_Click" Icon="⚙️"/>
+                        <Separator/>
+                        <MenuItem Header="Open Install Folder" Click="ContextMenu_OpenInstallFolder_Click" Icon="📁"/>
+                        <MenuItem Header="View on Steam Store" Click="ContextMenu_OpenSteamStore_Click" Icon="🌐"/>
+                        <MenuItem Header="Toggle Favorite" Click="ContextMenu_Favorite_Click" Icon="⭐"/>
+                    </ContextMenu>
+                </Border.ContextMenu>
+
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/> <!-- Image -->
+                        <RowDefinition Height="*"/>    <!-- Content -->
+                        <RowDefinition Height="Auto"/> <!-- Actions -->
+                    </Grid.RowDefinitions>
+
+                    <!-- Header Image -->
+                    <Border Grid.Row="0" Style="{StaticResource HeaderImageBorderStyle}">
+                        <Grid>
+                            <Image Source="{Binding HeaderImageUrl}" Stretch="UniformToFill"/>
+                            <!-- Gradient Overlay -->
+                            <Border Background="{StaticResource HeaderGradient}" Opacity="0.1"/>
+
+                            <!-- Badges Overlay (Top Right) -->
+                            <StackPanel Orientation="Vertical" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8">
+                                <!-- Favorite Badge -->
+                                <Border Background="#CCF778BA" CornerRadius="4" Padding="6,2" Margin="0,0,0,4"
+                                        Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock Text="⭐" FontSize="10" Foreground="White" FontWeight="Bold"/>
+                                </Border>
+                            </StackPanel>
+
+                            <!-- Selection Checkbox (Top Left) -->
+                            <CheckBox IsChecked="{Binding IsSelected}"
+                                      VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8"
+                                      Style="{StaticResource {x:Type CheckBox}}">
+                                <CheckBox.LayoutTransform>
+                                    <ScaleTransform ScaleX="1.2" ScaleY="1.2"/>
+                                </CheckBox.LayoutTransform>
+                            </CheckBox>
+
+                            <!-- Status Badge (Bottom Left of Image) -->
+                            <Border VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="8"
+                                    CornerRadius="4" Padding="8,4">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="#CC1F2937"/>
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsPackaged}" Value="True">
+                                                <Setter Property="Background" Value="#CC238636"/>
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding UpdateAvailable}" Value="True">
+                                                <Setter Property="Background" Value="#CCD29922"/>
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock FontWeight="Bold" FontSize="11" Foreground="White">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="INSTALLED"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsPackaged}" Value="True">
+                                                    <Setter Property="Text" Value="PACKAGED"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding UpdateAvailable}" Value="True">
+                                                    <Setter Property="Text" Value="UPDATE AVAILABLE"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Border>
+                        </Grid>
+                    </Border>
+
+                    <!-- Content -->
+                    <StackPanel Grid.Row="1" Margin="12,12,12,4">
+                        <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="15" TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding Name}" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,6"/>
+
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding FormattedSize}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"/>
+
+                            <!-- Metacritic/Review Score Mini-Badge -->
+                            <Border Grid.Column="1" CornerRadius="3" Background="#21262D" Padding="4,1"
+                                    Visibility="{Binding MetacriticScore, Converter={StaticResource NullToVis}}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="M" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,4,0"/>
+                                    <TextBlock Text="{Binding MetacriticScore}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource AccentPrimaryBrush}"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <!-- Tags / Info -->
+                        <WrapPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <!-- DLC Badge -->
+                            <Border Background="#1A1F26" CornerRadius="4" Padding="6,2" Margin="0,0,6,6"
+                                    Visibility="{Binding HasDlc, Converter={StaticResource BoolToVis}}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="DLC" FontSize="10" Foreground="#A371F7" FontWeight="Bold"/>
+                                    <TextBlock Text="{Binding TotalDlcCount}" Margin="4,0,0,0" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Received Badge -->
+                            <Border Background="#1A2F26" CornerRadius="4" Padding="6,2" Margin="0,0,6,6"
+                                    Visibility="{Binding IsReceivedPackage, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="RECEIVED" FontSize="10" Foreground="#3FB950" FontWeight="Bold"/>
+                            </Border>
+                        </WrapPanel>
+                    </StackPanel>
+
+                    <!-- Actions Footer -->
+                    <Grid Grid.Row="2" Margin="12,0,12,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Primary Action Button -->
+                        <Button Click="PackageButton_Click" Tag="{Binding}" Height="32">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+                                    <Setter Property="Content" Value="Package Game"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsPackaged}" Value="True">
+                                            <Setter Property="Content" Value="Open Folder"/>
+                                            <Setter Property="Background" Value="#21262D"/>
+                                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                            <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}"/>
+                                            <Setter Property="BorderThickness" Value="1"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding UpdateAvailable}" Value="True">
+                                            <Setter Property="Content" Value="Update Package"/>
+                                            <Setter Property="Background" Value="{StaticResource WarningBrush}"/>
+                                            <Setter Property="Foreground" Value="Black"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsPackageable}" Value="False">
+                                            <Setter Property="IsEnabled" Value="False"/>
+                                            <Setter Property="Content" Value="Not Ready"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+
+                        <!-- Send Button (Only if Packaged) -->
+                        <Button Grid.Column="1" Margin="8,0,0,0" Click="SendToPeerButton_Click" Tag="{Binding}"
+                                Style="{StaticResource SecondaryButton}" Padding="8"
+                                ToolTip="Send to Peer"
+                                Visibility="{Binding IsPackaged, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="📤" FontSize="14"/>
+                        </Button>
+
+                        <!-- Favorite Toggle (If NOT Packaged) -->
+                        <ToggleButton Grid.Column="1" Margin="8,0,0,0" Click="FavoriteToggle_Click" Tag="{Binding}"
+                                      IsChecked="{Binding IsFavorite, Mode=TwoWay}"
+                                      Style="{StaticResource PrimaryToggleStyle}" Padding="8"
+                                      ToolTip="Add to Favorites"
+                                      Visibility="{Binding IsPackaged, Converter={StaticResource BoolToVisInverse}}">
+                            <TextBlock Text="{Binding IsFavorite, Converter={StaticResource BoolToHeart}}"
+                                       Foreground="{Binding IsFavorite, Converter={StaticResource BoolToHeartColor}}"
+                                       FontSize="14"/>
+                        </ToggleButton>
+                    </Grid>
+                </Grid>
+            </Border>
+        </DataTemplate>
+        
+        <!-- List View Item Template (Simpler Row) -->
+        <DataTemplate x:Key="GameListItemTemplate" DataType="{x:Type models:InstalledGame}">
+            <Border Background="{StaticResource BackgroundCardBrush}" BorderThickness="0,0,0,1" BorderBrush="{StaticResource BorderSubtleBrush}" Padding="8">
+                <Border.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Package Game" Click="ContextMenu_Package_Click" Icon="📦" Visibility="{Binding IsPackaged, Converter={StaticResource BoolToVisInverse}}"/>
+                        <MenuItem Header="Update Package" Click="ContextMenu_Package_Click" Icon="🔄" Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}"/>
+                        <MenuItem Header="Open Package Folder" Click="ContextMenu_Package_Click" Icon="📂" Visibility="{Binding IsPackaged, Converter={StaticResource BoolToVis}}"/>
+                        <MenuItem Header="Delete Package" Click="ContextMenu_DeletePackage_Click" Icon="🗑️" Visibility="{Binding IsPackaged, Converter={StaticResource BoolToVis}}"/>
+                        <Separator/>
+                        <MenuItem Header="Send to Peer..." Click="ContextMenu_SendToPeer_Click" Icon="📤" IsEnabled="{Binding IsPackaged}"/>
+                        <MenuItem Header="Sync Saves..." Click="ContextMenu_SyncSaves_Click" Icon="💾" IsEnabled="{Binding IsPackaged}"/>
+                        <MenuItem Header="Backup Saves" Click="ContextMenu_BackupSave_Click" Icon="📥" IsEnabled="{Binding IsPackaged}"/>
+                        <Separator/>
+                        <MenuItem Header="Verify Integrity" Click="ContextMenu_VerifyIntegrity_Click" Icon="🛡️" IsEnabled="{Binding IsPackaged}"/>
+                        <MenuItem Header="Advanced Config..." Click="ContextMenu_AdvancedConfig_Click" Icon="⚙️"/>
+                        <Separator/>
+                        <MenuItem Header="Open Install Folder" Click="ContextMenu_OpenInstallFolder_Click" Icon="📁"/>
+                        <MenuItem Header="View on Steam Store" Click="ContextMenu_OpenSteamStore_Click" Icon="🌐"/>
+                        <MenuItem Header="Toggle Favorite" Click="ContextMenu_Favorite_Click" Icon="⭐"/>
+                    </ContextMenu>
+                </Border.ContextMenu>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="32"/> <!-- Icon -->
+                        <ColumnDefinition Width="*"/>  <!-- Name -->
+                        <ColumnDefinition Width="100"/> <!-- Status -->
+                        <ColumnDefinition Width="80"/> <!-- Size -->
+                        <ColumnDefinition Width="120"/> <!-- Actions -->
+                    </Grid.ColumnDefinitions>
+                    
+                    <Image Grid.Column="0" Source="{Binding HeaderImageUrl}" Height="24" Width="24" Stretch="UniformToFill" Margin="0,0,8,0">
+                         <Image.Clip>
+                            <RectangleGeometry Rect="0,0,24,24" RadiusX="4" RadiusY="4"/>
+                         </Image.Clip>
+                    </Image>
+                    
+                    <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" FontWeight="SemiBold"/>
+
+                    <Border Grid.Column="2" Background="#21262D" CornerRadius="4" Padding="8,2" HorizontalAlignment="Center" VerticalAlignment="Center"
+                            Visibility="{Binding IsPackaged, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="Packaged" FontSize="11" Foreground="#3FB950"/>
+                    </Border>
+
+                    <TextBlock Grid.Column="3" Text="{Binding FormattedSize}" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,16,0"/>
+
+                    <StackPanel Grid.Column="4" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Package" Click="PackageButton_Click" Tag="{Binding}" Style="{StaticResource PrimaryButton}" Padding="8,4" FontSize="11"
+                                Visibility="{Binding IsPackaged, Converter={StaticResource BoolToVisInverse}}"/>
+                        <Button Content="Open" Click="PackageButton_Click" Tag="{Binding}" Style="{StaticResource SecondaryButton}" Padding="8,4" FontSize="11"
+                                Visibility="{Binding IsPackaged, Converter={StaticResource BoolToVis}}"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
     </Window.Resources>
 
-    <!-- Window Container with custom chrome -->
-    <Border Background="{DynamicResource BackgroundDarkBrush}" CornerRadius="8" BorderBrush="#3F3F46" BorderThickness="1">
+    <Border Background="{StaticResource BackgroundDarkBrush}" BorderBrush="#30363D" BorderThickness="1">
         <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="36"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/> <!-- Custom Title Bar -->
+                <RowDefinition Height="Auto"/> <!-- Main Toolbar -->
+                <RowDefinition Height="Auto"/> <!-- Stats / Filters Bar -->
+                <RowDefinition Height="*"/>    <!-- Content -->
+                <RowDefinition Height="Auto"/> <!-- Status Footer -->
             </Grid.RowDefinitions>
-            
-            <!-- Custom Title Bar -->
-            <Border Grid.Row="0" Background="#18181B" CornerRadius="8,8,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+
+            <!-- 1. Custom Title Bar -->
+            <Grid Grid.Row="0" Height="40" Background="#0D1117" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Logo / Title -->
+                <StackPanel Orientation="Horizontal" Margin="16,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="🚀" FontSize="16" Margin="0,0,8,0"/>
+                    <TextBlock Text="SteamRoll" FontSize="14" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    <Border Background="#21262D" CornerRadius="4" Padding="6,1" Margin="12,0,0,0">
+                        <TextBlock Text="BETA" FontSize="10" Foreground="{StaticResource AccentPrimaryBrush}" FontWeight="Bold"/>
+                    </Border>
+                </StackPanel>
+
+                <!-- Window Controls -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <Button Click="MinimizeButton_Click" Content="─" Style="{StaticResource SecondaryButton}" BorderThickness="0" Width="46" Height="40" CornerRadius="0"/>
+                    <Button x:Name="MaximizeButton" Click="MaximizeButton_Click" Content="❐" Style="{StaticResource SecondaryButton}" BorderThickness="0" Width="46" Height="40" CornerRadius="0"/>
+                    <Button Click="CloseButton_Click" Content="✕" Style="{StaticResource SecondaryButton}" BorderThickness="0" Width="46" Height="40" CornerRadius="0">
+                        <Button.Triggers>
+                            <EventTrigger RoutedEvent="MouseEnter">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <ColorAnimation Storyboard.TargetProperty="(Button.Background).(SolidColorBrush.Color)" To="#DA3633" Duration="0:0:0.1"/>
+                                        <ColorAnimation Storyboard.TargetProperty="(Button.Foreground).(SolidColorBrush.Color)" To="White" Duration="0:0:0.1"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                            <EventTrigger RoutedEvent="MouseLeave">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <ColorAnimation Storyboard.TargetProperty="(Button.Background).(SolidColorBrush.Color)" To="Transparent" Duration="0:0:0.1"/>
+                                        <ColorAnimation Storyboard.TargetProperty="(Button.Foreground).(SolidColorBrush.Color)" To="{StaticResource TextSecondary}" Duration="0:0:0.1"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                        </Button.Triggers>
+                    </Button>
+                </StackPanel>
+            </Grid>
+
+            <!-- 2. Main Toolbar -->
+            <Border Grid.Row="1" Background="{StaticResource BackgroundMediumBrush}" BorderThickness="0,1,0,0" BorderBrush="{StaticResource BorderSubtleBrush}" Padding="16,12">
                 <Grid>
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0">
-                        <TextBlock Text="🎮" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBlock Text="SteamRoll - LAN Game Sharing" Foreground="#A1A1AA" FontSize="12" VerticalAlignment="Center"/>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/> <!-- Tabs -->
+                        <ColumnDefinition Width="*"/>    <!-- Spacer -->
+                        <ColumnDefinition Width="Auto"/> <!-- Search & Actions -->
+                    </Grid.ColumnDefinitions>
+
+                    <!-- View Tabs -->
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="LibraryTabBtn" Content="Library" Click="LibraryTab_Click" Style="{StaticResource NavTabStyle}" Background="#30363D" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <Button x:Name="PackagesTabBtn" Content="Packages" Click="PackagesTab_Click" Style="{StaticResource NavTabStyle}"/>
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,4,0">
-                        <!-- Minimize Button -->
-                        <Button x:Name="MinimizeButton" Content="─" Width="40" Height="32" Click="MinimizeButton_Click"
-                                Background="Transparent" Foreground="#71717A" BorderThickness="0" FontSize="12" Cursor="Hand">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border x:Name="border" Background="{TemplateBinding Background}">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="border" Property="Background" Value="#27272A"/>
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Button.Template>
+
+                    <!-- Search and Global Actions -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                        <TextBox x:Name="SearchBox" Width="240" Style="{StaticResource SearchBoxStyle}"
+                                 Text="🔍 Search games..." GotFocus="SearchBox_GotFocus" LostFocus="SearchBox_LostFocus" TextChanged="SearchBox_TextChanged"/>
+
+                        <Button Click="RefreshButton_Click" Style="{StaticResource SecondaryButton}" ToolTip="Refresh Library">
+                            <TextBlock Text="🔄"/>
                         </Button>
-                        <!-- Maximize Button -->
-                        <Button x:Name="MaximizeButton" Content="☐" Width="40" Height="32" Click="MaximizeButton_Click"
-                                Background="Transparent" Foreground="#71717A" BorderThickness="0" FontSize="12" Cursor="Hand">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border x:Name="border" Background="{TemplateBinding Background}">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="border" Property="Background" Value="#27272A"/>
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Button.Template>
-                        </Button>
-                        <!-- Close Button -->
-                        <Button x:Name="CloseButtonTitle" Content="✕" Width="40" Height="32" Click="CloseButton_Click"
-                                Background="Transparent" Foreground="#71717A" BorderThickness="0" FontSize="12" Cursor="Hand">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="0,8,0,0">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="border" Property="Background" Value="#EF4444"/>
-                                            <Setter Property="Foreground" Value="White"/>
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Button.Template>
+                        <Button Click="SettingsButton_Click" Style="{StaticResource SecondaryButton}" ToolTip="Settings">
+                            <TextBlock Text="⚙️"/>
                         </Button>
                     </StackPanel>
                 </Grid>
             </Border>
-        
-            <!-- Header with Gradient Accent -->
-            <Border Grid.Row="1" Background="{DynamicResource BackgroundMediumBrush}">
-                <Grid>
-                    <!-- Gradient accent line at top -->
-                    <Border Height="3" VerticalAlignment="Top" Background="{DynamicResource HeaderGradient}"/>
-                
 
-                <Grid Margin="32,20,32,16">
+            <!-- 3. Stats & Filter Bar -->
+            <Border Grid.Row="2" Background="{StaticResource BackgroundMediumBrush}" BorderThickness="0,0,0,1" BorderBrush="{StaticResource BorderSubtleBrush}" Padding="16,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/> <!-- Stats -->
+                        <ColumnDefinition Width="*"/>    <!-- Filter Toggles -->
+                        <ColumnDefinition Width="Auto"/> <!-- Sorting & View Mode -->
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Library Stats -->
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12">
+                            <Run x:Name="TotalGamesText" Text="0" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}"/> Games
+                            <Run Text=" • " Foreground="{StaticResource BorderSubtleBrush}"/>
+                            <Run x:Name="PackageableText" Text="0" FontWeight="Bold" Foreground="{StaticResource SuccessBrush}"/> Ready
+                            <Run Text=" • " Foreground="{StaticResource BorderSubtleBrush}"/>
+                            <Run x:Name="TotalSizeText" Text="0 B" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        </TextBlock>
+
+                        <!-- Network Status Indicator -->
+                        <Border Margin="16,0,0,0" Background="#1A1F26" CornerRadius="4" Padding="8,2" BorderThickness="1" BorderBrush="{StaticResource BorderSubtleBrush}">
+                            <TextBlock x:Name="NetworkStatusText" Text="📡 Offline" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Filters -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6">
+                        <ToggleButton x:Name="FilterReadyBtn" Content="Ready to Package" Click="FilterReady_Click" Style="{StaticResource PrimaryToggleStyle}" FontSize="11"/>
+                        <ToggleButton x:Name="FilterPackagedBtn" Content="Packaged" Click="FilterPackaged_Click" Style="{StaticResource PrimaryToggleStyle}" FontSize="11"/>
+                        <ToggleButton x:Name="FilterDlcBtn" Content="Has DLC" Click="FilterDlc_Click" Style="{StaticResource PrimaryToggleStyle}" FontSize="11"/>
+                        <ToggleButton x:Name="FilterUpdateBtn" Content="Updates" Click="FilterUpdate_Click" Style="{StaticResource PrimaryToggleStyle}" FontSize="11"/>
+                        <ToggleButton x:Name="FilterFavoritesBtn" Content="Favorites" Click="FilterFavorites_Click" Style="{StaticResource PrimaryToggleStyle}" FontSize="11"/>
+                    </StackPanel>
+
+                    <!-- Sorting and View Switcher -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                        <!-- Batch Actions (Contextual) -->
+                        <StackPanel x:Name="BatchActionBar" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,16,0">
+                            <TextBlock x:Name="BatchSelectionText" Text="0 selected" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12"/>
+                            <Button x:Name="BatchPackageButton" Content="Package" Click="BatchPackage_Click" Style="{StaticResource PrimaryButton}" Padding="8,4" FontSize="11"/>
+                            <Button x:Name="BatchSendBtn" Content="Send" Click="BatchSendToPeer_Click" Style="{StaticResource SecondaryButton}" Padding="8,4" FontSize="11" Margin="4,0,0,0"/>
+                            <Button x:Name="BatchClearButton" Content="✕" Click="BatchClear_Click" Style="{StaticResource SecondaryButton}" Padding="6,4" FontSize="11" Margin="4,0,0,0"/>
+                        </StackPanel>
+
+                        <ComboBox x:Name="SortBox" Width="120" Style="{StaticResource DarkComboBox}" SelectionChanged="SortBox_SelectionChanged">
+                            <ComboBoxItem Content="Name (A-Z)" IsSelected="True" Tag="Name"/>
+                            <ComboBoxItem Content="Size (Largest)" Tag="Size"/>
+                            <ComboBoxItem Content="Last Played" Tag="LastPlayed"/>
+                            <ComboBoxItem Content="Review Score" Tag="ReviewScore"/>
+                        </ComboBox>
+                        
+                        <ToggleButton x:Name="ViewModeToggle" Click="ViewModeToggle_Click" Style="{StaticResource PrimaryToggleStyle}" Padding="8" ToolTip="Toggle View">
+                             <TextBlock x:Name="ViewModeIcon" Text="📑" FontSize="14"/>
+                        </ToggleButton>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 4. Content Area -->
+            <Grid Grid.Row="3" Background="{StaticResource BackgroundDarkBrush}">
+                <!-- Loading / Skeleton -->
+                <controls:SkeletonView x:Name="SkeletonView" Visibility="Collapsed" Panel.ZIndex="10"/>
+
+                <!-- Game Details View -->
+                <controls:GameDetailsView x:Name="GameDetailsView" Visibility="Collapsed" Panel.ZIndex="5"/>
+
+                <!-- Grid View -->
+                <ScrollViewer x:Name="GamesGridScroll" Style="{StaticResource {x:Type ScrollViewer}}" Template="{DynamicResource {x:Type ScrollViewer}}">
+                     <ScrollViewer.Resources>
+                        <Style TargetType="ScrollBar" BasedOn="{StaticResource DarkScrollBarStyle}"/>
+                    </ScrollViewer.Resources>
+                    <ItemsControl x:Name="GamesList" ItemTemplate="{StaticResource GameCardTemplate}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel ItemWidth="276" ItemHeight="396" Margin="16"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <!-- List View -->
+                <ListView x:Name="GamesListView" Visibility="Collapsed"
+                          ItemTemplate="{StaticResource GameListItemTemplate}"
+                          Background="Transparent" BorderThickness="0"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                         <ListView.Resources>
+                            <Style TargetType="ScrollBar" BasedOn="{StaticResource DarkScrollBarStyle}"/>
+                        </ListView.Resources>
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListViewItem">
+                                        <Border Background="{TemplateBinding Background}">
+                                            <ContentPresenter/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="#1F2937"/>
+                                            </Trigger>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter Property="Background" Value="#21262D"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                </ListView>
+
+                <!-- Empty State -->
+                <StackPanel x:Name="EmptyStatePanel" Visibility="Collapsed" VerticalAlignment="Center" HorizontalAlignment="Center" Opacity="0.7">
+                    <TextBlock Text="👻" FontSize="48" HorizontalAlignment="Center" Margin="0,0,0,16"/>
+                    <TextBlock x:Name="EmptyStateTitle" Text="No Games Found" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    <TextBlock x:Name="EmptyStateMessage" Text="Try adjusting your filters or search terms." FontSize="14" HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,8,0,0"/>
+                    <Button Content="Clear Filters" Click="ClearSelection_Click" Margin="0,16,0,0" HorizontalAlignment="Center" Style="{StaticResource SecondaryButton}"/>
+                </StackPanel>
+
+                <!-- Action Buttons (Floating, Bottom Right) -->
+                <StackPanel VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="32" Orientation="Horizontal" Spacing="12">
+                     <Button Click="ImportPackageButton_Click" Style="{StaticResource SecondaryButton}" Padding="12,8" Background="#CC161B22" BorderBrush="#30363D">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📥" Margin="0,0,8,0"/>
+                            <TextBlock Text="Import Package"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Click="OpenOutputButton_Click" Style="{StaticResource SecondaryButton}" Padding="12,8" Background="#CC161B22" BorderBrush="#30363D">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📂" Margin="0,0,8,0"/>
+                            <TextBlock Text="Open Output Folder"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Click="BrowsePeerButton_Click" Style="{StaticResource PrimaryButton}" Padding="12,8" Background="#CC238636">
+                         <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="🌐" Margin="0,0,8,0"/>
+                            <TextBlock Text="Browse Peers"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+
+            <!-- 5. Footer / Status Bar -->
+            <Border Grid.Row="4" Background="#090C10" BorderThickness="0,1,0,0" BorderBrush="{StaticResource BorderSubtleBrush}" Padding="12,6">
+                <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                        <!-- Logo -->
-                        <Border Width="48" Height="48" CornerRadius="12" Margin="0,0,16,0">
-                            <Border.Background>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                    <GradientStop Color="#58A6FF" Offset="0"/>
-                                    <GradientStop Color="#A371F7" Offset="1"/>
-                                </LinearGradientBrush>
-                            </Border.Background>
-                            <TextBlock Text="🎮" FontSize="24" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="SteamRoll" FontSize="26" FontWeight="Bold" 
-                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <TextBlock Text="Share your Steam library across your household" FontSize="13"
-                                       Foreground="{DynamicResource TextMutedBrush}" Margin="0,2,0,0"/>
-                        </StackPanel>
-                    </StackPanel>
-                    
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <!-- View Toggle -->
-                        <Border Background="{DynamicResource BackgroundLightBrush}" CornerRadius="6" Margin="0,0,16,0">
-                            <StackPanel Orientation="Horizontal">
-                                <Button x:Name="LibraryTabBtn" 
-                                        Style="{DynamicResource SecondaryButton}" 
-                                        Click="LibraryTab_Click" Padding="12,8">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="📚" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
-                                        <TextBlock Text="Library"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button x:Name="PackagesTabBtn"
-                                        Style="{DynamicResource SecondaryButton}"
-                                        Click="PackagesTab_Click" Padding="12,8">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="📦" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
-                                        <TextBlock Text="Packages"/>
-                                    </StackPanel>
-                                </Button>
-                                <!-- Toggle View Mode -->
-                                <ToggleButton x:Name="ViewModeToggle" Click="ViewModeToggle_Click"
-                                              Background="Transparent" BorderThickness="0" Padding="12,8" Cursor="Hand">
-                                    <ToggleButton.Template>
-                                        <ControlTemplate TargetType="ToggleButton">
-                                            <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="0,6,6,0" Padding="{TemplateBinding Padding}">
-                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            </Border>
-                                            <ControlTemplate.Triggers>
-                                                <Trigger Property="IsChecked" Value="True">
-                                                    <Setter TargetName="border" Property="Background" Value="#30363D"/>
-                                                </Trigger>
-                                                <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter TargetName="border" Property="Background" Value="#21262D"/>
-                                                </Trigger>
-                                            </ControlTemplate.Triggers>
-                                        </ControlTemplate>
-                                    </ToggleButton.Template>
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock x:Name="ViewModeIcon" Text="📑" FontFamily="Segoe UI Emoji" Foreground="White"/>
-                                    </StackPanel>
-                                    <ToggleButton.ToolTip>
-                                        <ToolTip Content="Toggle List View"/>
-                                    </ToggleButton.ToolTip>
-                                </ToggleButton>
-                            </StackPanel>
-                        </Border>
-                        <Button Style="{DynamicResource SecondaryButton}" 
-                                Click="RefreshButton_Click" Margin="0,0,12,0">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="⟳" FontFamily="Segoe UI Emoji" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,6,0"/>
-                                <TextBlock Text="Refresh"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Style="{DynamicResource SecondaryButton}" 
-                                Click="OpenOutputButton_Click" Margin="0,0,12,0">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="📁" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
-                                <TextBlock Text="Open Output"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Style="{DynamicResource SecondaryButton}"
-                                Click="ImportPackageButton_Click" Margin="0,0,12,0">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="📥" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
-                                <TextBlock Text="Import Package"/>
-                            </StackPanel>
-                        </Button>
-                        <ToggleButton x:Name="SelectModeToggle" 
-                                      Click="SelectModeToggle_Click" Margin="0,0,12,0"
-                                      Background="Transparent" Foreground="{DynamicResource TextSecondaryBrush}"
-                                      BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1"
-                                      Padding="14,8" Cursor="Hand">
-                            <ToggleButton.Template>
-                                <ControlTemplate TargetType="ToggleButton">
-                                    <Border x:Name="border" Background="{TemplateBinding Background}" 
-                                            CornerRadius="6" Padding="{TemplateBinding Padding}"
-                                            BorderThickness="{TemplateBinding BorderThickness}"
-                                            BorderBrush="{TemplateBinding BorderBrush}">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsChecked" Value="True">
-                                            <Setter TargetName="border" Property="Background" Value="#238636"/>
-                                            <Setter TargetName="border" Property="BorderBrush" Value="#238636"/>
-                                        </Trigger>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="border" Property="Background" Value="#21262D"/>
-                                            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </ToggleButton.Template>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="☑" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
-                                <TextBlock Text="Select"/>
-                            </StackPanel>
-                        </ToggleButton>
-                        <Button Style="{DynamicResource SecondaryButton}" 
-                                Click="SettingsButton_Click">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="⚙" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
-                                <TextBlock Text="Settings"/>
-                            </StackPanel>
-                        </Button>
+
+                    <StackPanel Orientation="Horizontal">
+                        <!-- Spinner (Simple Rotation animation would be ideal here) -->
+                        <TextBlock x:Name="StatusText" Text="Ready" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                     </StackPanel>
 
+                    <TextBlock Grid.Column="1" Text="v0.5.0-beta" FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center"/>
                 </Grid>
-            </Grid>
-        </Border>
-        
-        <!-- Stats Bar -->
-        <Border Grid.Row="2" Background="{DynamicResource BackgroundDarkBrush}" 
-                BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="32,16">
-
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                
-                <!-- Games Count -->
-                <Border Grid.Column="0" Background="{DynamicResource BackgroundLightBrush}" 
-                        CornerRadius="8" Padding="16,10" Margin="0,0,16,0">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="📚" FontSize="18" Margin="0,0,10,0" VerticalAlignment="Center"
-                                   FontFamily="Segoe UI Emoji" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                        <StackPanel>
-                            <TextBlock x:Name="TotalGamesText" Text="0" FontSize="20" FontWeight="Bold"
-                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <TextBlock Text="Games" FontSize="11" Foreground="{DynamicResource TextMutedBrush}"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-                
-                <!-- Packageable Count -->
-                <Border Grid.Column="1" Background="{DynamicResource BackgroundLightBrush}" 
-                        CornerRadius="8" Padding="16,10" Margin="0,0,16,0">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="✓" FontSize="18" Foreground="{DynamicResource SuccessBrush}" 
-                                   Margin="0,0,10,0" VerticalAlignment="Center"/>
-                        <StackPanel>
-                            <TextBlock x:Name="PackageableText" Text="0" FontSize="20" FontWeight="Bold"
-                                       Foreground="{DynamicResource SuccessBrush}"/>
-                            <TextBlock Text="Packageable" FontSize="11" Foreground="{DynamicResource TextMutedBrush}"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-                
-                <!-- Total Size -->
-                <Border Grid.Column="2" Background="{DynamicResource BackgroundLightBrush}" 
-                        CornerRadius="8" Padding="16,10">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="💾" FontSize="18" Margin="0,0,10,0" VerticalAlignment="Center"
-                                   FontFamily="Segoe UI Emoji" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                        <StackPanel>
-                            <TextBlock x:Name="TotalSizeText" Text="0 GB" FontSize="20" FontWeight="Bold"
-                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <TextBlock Text="Total Size" FontSize="11" Foreground="{DynamicResource TextMutedBrush}"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-                
-                <!-- Network Status (visually distinct from static stats) -->
-                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
-                    <TextBlock x:Name="NetworkStatusText" Text="Searching for peers" FontSize="13"
-                               FontWeight="Normal"
-                               Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="NetworkStatusDots" Text="..." FontSize="13"
-                               FontWeight="Normal"
-                               Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
-                </StackPanel>
-                
-                <!-- Sort Box -->
-                <ComboBox Grid.Column="4" x:Name="SortBox" Width="140" Margin="0,0,16,0"
-                          SelectionChanged="SortBox_SelectionChanged"
-                          Style="{DynamicResource ComboBoxStyle}" VerticalAlignment="Center">
-                    <ComboBoxItem Content="Name (A-Z)" Tag="Name"/>
-                    <ComboBoxItem Content="Size (Largest)" Tag="Size"/>
-                    <ComboBoxItem Content="Last Played" Tag="LastPlayed"/>
-                    <ComboBoxItem Content="Review Score" Tag="ReviewScore"/>
-                    <ComboBoxItem Content="Release Date" Tag="ReleaseDate"/>
-                </ComboBox>
-
-                <!-- Filter Buttons (pill-style chips) -->
-                <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,16,0">
-                    <ToggleButton x:Name="FilterFavoritesBtn" Click="FilterFavorites_Click"
-                                  ToolTip="Show favorites"
-                                  Background="#1A27272A" BorderThickness="0" Padding="12,6" Margin="0,0,6,0" Cursor="Hand">
-                         <ToggleButton.Template>
-                            <ControlTemplate TargetType="ToggleButton">
-                                <Border x:Name="border" Background="{TemplateBinding Background}"
-                                        CornerRadius="14" Padding="{TemplateBinding Padding}"
-                                        BorderBrush="#3F3F46" BorderThickness="1">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsChecked" Value="True">
-                                        <Setter TargetName="border" Property="Background" Value="#DA3633"/>
-                                        <Setter TargetName="border" Property="BorderBrush" Value="#DA3633"/>
-                                    </Trigger>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="border" Property="Background" Value="#2A2A2E"/>
-                                        <Setter TargetName="border" Property="BorderBrush" Value="#52525B"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </ToggleButton.Template>
-                        <TextBlock Text="❤️ Favorites" FontSize="11" FontFamily="Segoe UI Emoji" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                    </ToggleButton>
-
-                    <ToggleButton x:Name="FilterReadyBtn" Click="FilterReady_Click" 
-                                  ToolTip="Show only games ready to package"
-                                  Background="#1A27272A" BorderThickness="0" Padding="12,6" Margin="0,0,6,0" Cursor="Hand">
-                        <ToggleButton.Template>
-                            <ControlTemplate TargetType="ToggleButton">
-                                <Border x:Name="border" Background="{TemplateBinding Background}" 
-                                        CornerRadius="14" Padding="{TemplateBinding Padding}"
-                                        BorderBrush="#3F3F46" BorderThickness="1">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsChecked" Value="True">
-                                        <Setter TargetName="border" Property="Background" Value="#238636"/>
-                                        <Setter TargetName="border" Property="BorderBrush" Value="#238636"/>
-                                    </Trigger>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="border" Property="Background" Value="#2A2A2E"/>
-                                        <Setter TargetName="border" Property="BorderBrush" Value="#52525B"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </ToggleButton.Template>
-                        <TextBlock Text="✓ Ready" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                    </ToggleButton>
-                    
-                    <ToggleButton x:Name="FilterPackagedBtn" Click="FilterPackaged_Click"
-                                  ToolTip="Show only packaged games"
-                                  Background="#1A27272A" BorderThickness="0" Padding="12,6" Margin="0,0,6,0" Cursor="Hand">
-                        <ToggleButton.Template>
-                            <ControlTemplate TargetType="ToggleButton">
-                                <Border x:Name="border" Background="{TemplateBinding Background}" 
-                                        CornerRadius="14" Padding="{TemplateBinding Padding}"
-                                        BorderBrush="#3F3F46" BorderThickness="1">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsChecked" Value="True">
-                                        <Setter TargetName="border" Property="Background" Value="#0D9488"/>
-                                        <Setter TargetName="border" Property="BorderBrush" Value="#0D9488"/>
-                                    </Trigger>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="border" Property="Background" Value="#2A2A2E"/>
-                                        <Setter TargetName="border" Property="BorderBrush" Value="#52525B"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </ToggleButton.Template>
-                        <TextBlock Text="📦 Packaged" FontSize="11" FontFamily="Segoe UI Emoji" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                    </ToggleButton>
-                    
-                    <ToggleButton x:Name="FilterDlcBtn" Click="FilterDlc_Click"
-                                  ToolTip="Show only games with DLC"
-                                  Background="#1A27272A" BorderThickness="0" Padding="12,6" Margin="0,0,6,0" Cursor="Hand">
-                        <ToggleButton.Template>
-                            <ControlTemplate TargetType="ToggleButton">
-                                <Border x:Name="border" Background="{TemplateBinding Background}" 
-                                        CornerRadius="14" Padding="{TemplateBinding Padding}"
-                                        BorderBrush="#3F3F46" BorderThickness="1">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsChecked" Value="True">
-                                        <Setter TargetName="border" Property="Background" Value="#A371F7"/>
-                                        <Setter TargetName="border" Property="BorderBrush" Value="#A371F7"/>
-                                    </Trigger>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="border" Property="Background" Value="#2A2A2E"/>
-                                        <Setter TargetName="border" Property="BorderBrush" Value="#52525B"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </ToggleButton.Template>
-                        <TextBlock Text="🎁 DLC" FontSize="11" FontFamily="Segoe UI Emoji" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                    </ToggleButton>
-                    
-                    <!-- Update Available Filter -->
-                    <ToggleButton x:Name="FilterUpdateBtn" Click="FilterUpdate_Click"
-                                  ToolTip="Show games with updates available (package outdated)"
-                                  Background="#1A27272A" BorderThickness="0" Padding="12,6" Cursor="Hand">
-                        <ToggleButton.Template>
-                            <ControlTemplate TargetType="ToggleButton">
-                                <Border x:Name="border" Background="{TemplateBinding Background}" 
-                                        CornerRadius="14" Padding="{TemplateBinding Padding}"
-                                        BorderBrush="#3F3F46" BorderThickness="1">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsChecked" Value="True">
-                                        <Setter TargetName="border" Property="Background" Value="#D29922"/>
-                                        <Setter TargetName="border" Property="BorderBrush" Value="#D29922"/>
-                                    </Trigger>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="border" Property="Background" Value="#2A2A2E"/>
-                                        <Setter TargetName="border" Property="BorderBrush" Value="#52525B"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </ToggleButton.Template>
-                        <TextBlock Text="🔄 Updates" FontSize="11" FontFamily="Segoe UI Emoji" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                    </ToggleButton>
-                </StackPanel>
-                
-                <!-- Search Box -->
-                <TextBox Grid.Column="6" x:Name="SearchBox" Width="150"
-                         Style="{DynamicResource SearchBoxStyle}"
-                         Text="🔍 Search games..." Foreground="{DynamicResource TextSecondaryBrush}"
-                         GotFocus="SearchBox_GotFocus"
-                         LostFocus="SearchBox_LostFocus"
-                         TextChanged="SearchBox_TextChanged"/>
-                
-                <!-- Browse Peer Library Button -->
-                <Button Grid.Column="7" Click="BrowsePeerButton_Click"
-                        Margin="6,0,0,0" Padding="10,4" Cursor="Hand"
-                        Background="#1A58A6FF" BorderThickness="1" BorderBrush="#58A6FF"
-                        Visibility="{Binding HasPeers, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border x:Name="border" Background="{TemplateBinding Background}" 
-                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="4" Padding="{TemplateBinding Padding}">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="border" Property="Background" Value="#3358A6FF"/>
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Button.Template>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="🌐" FontSize="11" FontFamily="Segoe UI Emoji" Foreground="#58A6FF" Margin="0,0,4,0"/>
-                        <TextBlock Text="Browse Peer Library" FontSize="11" Foreground="#58A6FF"/>
-                    </StackPanel>
-                </Button>
-            </Grid>
-        </Border>
-        
-        <!-- Library View Container (game list) -->
-        <Grid x:Name="LibraryView" Grid.Row="3">
-        
-            <!-- Empty State (shown when no games) -->
-            <Border x:Name="EmptyStatePanel" Visibility="Collapsed" VerticalAlignment="Center" HorizontalAlignment="Center">
-                <StackPanel>
-                    <TextBlock Text="🎮" FontSize="64" FontFamily="Segoe UI Emoji" HorizontalAlignment="Center" Opacity="0.5" Foreground="{DynamicResource TextPrimaryBrush}"/>
-                    <TextBlock x:Name="EmptyStateTitle" Text="No Games Found" FontSize="20" FontWeight="SemiBold"
-                               Foreground="{DynamicResource TextPrimaryBrush}" HorizontalAlignment="Center" Margin="0,16,0,8"/>
-                    <TextBlock x:Name="EmptyStateMessage" Text="Try adjusting your filters or adding Steam library paths in Settings."
-                               FontSize="13" Foreground="{DynamicResource TextSecondaryBrush}" 
-                               HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="400"/>
-                    <Button x:Name="EmptyStateRefreshBtn" Click="RefreshButton_Click" Margin="0,24,0,0"
-                            Background="#238636" Foreground="White" BorderThickness="0" Padding="20,10" Cursor="Hand">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                            </ControlTemplate>
-                        </Button.Template>
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="🔄 " FontFamily="Segoe UI Emoji"/>
-                            <TextBlock Text="Refresh Library"/>
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
             </Border>
 
-            <!-- Skeleton View (Loading State) -->
-            <ScrollViewer x:Name="SkeletonView" VerticalScrollBarVisibility="Hidden" Padding="24,16" Visibility="Collapsed">
-                 <ItemsControl>
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <UniformGrid Columns="5"/>
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemsSource>
-                        <x:Array Type="{x:Type sys:String}">
-                             <sys:String>1</sys:String><sys:String>2</sys:String><sys:String>3</sys:String><sys:String>4</sys:String><sys:String>5</sys:String>
-                             <sys:String>6</sys:String><sys:String>7</sys:String><sys:String>8</sys:String><sys:String>9</sys:String><sys:String>10</sys:String>
-                             <sys:String>11</sys:String><sys:String>12</sys:String><sys:String>13</sys:String><sys:String>14</sys:String><sys:String>15</sys:String>
-                        </x:Array>
-                    </ItemsControl.ItemsSource>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                             <Border Style="{DynamicResource SkeletonCardStyle}" Margin="8">
-                                 <Grid>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="90"/>
-                                        <RowDefinition Height="*"/>
-                                    </Grid.RowDefinitions>
-                                    <Border Grid.Row="0" Background="#30363D" CornerRadius="10,10,0,0"/>
-                                    <StackPanel Grid.Row="1" Margin="14">
-                                        <Border Height="18" Width="120" Background="#30363D" CornerRadius="4" HorizontalAlignment="Left" Margin="0,0,0,8"/>
-                                        <Border Height="12" Width="60" Background="#30363D" CornerRadius="4" HorizontalAlignment="Left" Margin="0,0,0,16"/>
-                                        <StackPanel Orientation="Horizontal">
-                                            <Border Height="20" Width="60" Background="#30363D" CornerRadius="4" Margin="0,0,8,0"/>
-                                            <Border Height="20" Width="40" Background="#30363D" CornerRadius="4"/>
-                                        </StackPanel>
-                                        <Border Height="36" Background="#30363D" CornerRadius="6" VerticalAlignment="Bottom" Margin="0,30,0,0"/>
-                                    </StackPanel>
-                                    <!-- Pulse Animation trigger -->
-                                    <Grid.Triggers>
-                                        <EventTrigger RoutedEvent="Loaded">
-                                            <BeginStoryboard>
-                                                <Storyboard RepeatBehavior="Forever" AutoReverse="True">
-                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0.3" To="0.7" Duration="0:0:1"/>
-                                                </Storyboard>
-                                            </BeginStoryboard>
-                                        </EventTrigger>
-                                    </Grid.Triggers>
-                                </Grid>
-                             </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                 </ItemsControl>
-            </ScrollViewer>
-
-            <!-- Game List (Grid View) -->
-            <ScrollViewer x:Name="GamesGridScroll" VerticalScrollBarVisibility="Auto" Padding="24,16">
-                <ItemsControl x:Name="GamesList">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <WrapPanel ItemWidth="240" ItemHeight="Auto" Orientation="Horizontal"/>
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border Style="{DynamicResource GameCard}" Margin="8" Cursor="Hand"
-                                    MouseLeftButtonUp="GameCard_Click" Tag="{Binding}"
-                                    ToolTip="{Binding DetailedTooltip}" ClipToBounds="True">
-                                <Border.Triggers>
-                                    <EventTrigger RoutedEvent="Loaded">
-                                        <BeginStoryboard>
-                                            <Storyboard>
-                                                <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.3"/>
-                                                <ThicknessAnimation Storyboard.TargetProperty="Margin" From="8,20,8,0" To="8,8,8,8" Duration="0:0:0.3" DecelerationRatio="0.5"/>
-                                            </Storyboard>
-                                        </BeginStoryboard>
-                                    </EventTrigger>
-                                </Border.Triggers>
-                                <!-- Context Menu for game cards -->
-                                <Border.ContextMenu>
-                                    <ContextMenu>
-                                        <MenuItem Header="❤️ Toggle Favorite" Click="ContextMenu_Favorite_Click" Tag="{Binding}"/>
-                                        <MenuItem Header="💾 Backup Save" Click="ContextMenu_BackupSave_Click" Tag="{Binding}"/>
-                                        <Separator/>
-                                        <MenuItem Header="📦 Create Package" Click="ContextMenu_Package_Click" Tag="{Binding}">
-                                        <MenuItem.Style>
-                                            <Style TargetType="MenuItem">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsPackaged}" Value="True">
-                                                        <Setter Property="Header" Value="📂 Open Package"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </MenuItem.Style>
-                                    </MenuItem>
-                                    <MenuItem Header="🗑️ Delete Package" Click="ContextMenu_DeletePackage_Click" Tag="{Binding}">
-                                        <MenuItem.Style>
-                                            <Style TargetType="MenuItem">
-                                                <Setter Property="IsEnabled" Value="{Binding IsPackaged}"/>
-                                            </Style>
-                                        </MenuItem.Style>
-                                    </MenuItem>
-                                    <Separator/>
-                                    <MenuItem Header="📤 Send to Peer" Click="ContextMenu_SendToPeer_Click" Tag="{Binding}">
-                                        <MenuItem.Style>
-                                            <Style TargetType="MenuItem">
-                                                <Setter Property="IsEnabled" Value="{Binding IsPackaged}"/>
-                                            </Style>
-                                        </MenuItem.Style>
-                                    </MenuItem>
-                                    <MenuItem Header="🔄 Sync Saves with Peer" Click="ContextMenu_SyncSaves_Click" Tag="{Binding}"/>
-                                    <MenuItem Header="⚙️ Advanced Config" Click="ContextMenu_AdvancedConfig_Click" Tag="{Binding}"
-                                              ToolTip="Configure Goldberg emulator settings">
-                                        <MenuItem.Style>
-                                            <Style TargetType="MenuItem">
-                                                <Setter Property="IsEnabled" Value="{Binding IsPackageable}"/>
-                                            </Style>
-                                        </MenuItem.Style>
-                                    </MenuItem>
-                                    <Separator/>
-                                    <MenuItem Header="📁 Open Install Folder" Click="ContextMenu_OpenInstallFolder_Click" Tag="{Binding}"/>
-                                    <MenuItem Header="🔍 View Details" Click="ContextMenu_ViewDetails_Click" Tag="{Binding}"/>
-                                    <MenuItem Header="🛡️ Verify Integrity" Click="ContextMenu_VerifyIntegrity_Click" Tag="{Binding}">
-                                        <MenuItem.Style>
-                                            <Style TargetType="MenuItem">
-                                                <Setter Property="IsEnabled" Value="{Binding IsPackaged}"/>
-                                            </Style>
-                                        </MenuItem.Style>
-                                    </MenuItem>
-                                    <MenuItem Header="🔧 Repair from Peer" Click="ContextMenu_RepairFromPeer_Click" Tag="{Binding}"
-                                              ToolTip="Pull missing/corrupt files from a peer">
-                                        <MenuItem.Style>
-                                            <Style TargetType="MenuItem">
-                                                <Setter Property="IsEnabled" Value="{Binding IsPackaged}"/>
-                                            </Style>
-                                        </MenuItem.Style>
-                                    </MenuItem>
-                                        <MenuItem Header="🌐 Open Steam Store" Click="ContextMenu_OpenSteamStore_Click" Tag="{Binding}"/>
-                                    </ContextMenu>
-                                </Border.ContextMenu>
-                                <Grid>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="90"/>
-                                        <RowDefinition Height="*"/>
-                                    </Grid.RowDefinitions>
-                                    
-                                    <!-- Row 0: Header Image with overlay -->
-                                    <Grid Grid.Row="0" x:Name="HeaderImageContainer">
-                                        <!-- Placeholder icon when no image loads -->
-                                        <Border Background="#21262D">
-                                            <TextBlock Text="🎮" FontSize="32"
-                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                       FontFamily="Segoe UI Emoji" Foreground="#6E7681"/>
-                                        </Border>
-
-                                        <!-- Game Header Image with rounded top corners -->
-                                        <Border CornerRadius="10,10,0,0" Style="{DynamicResource HeaderImageBorderStyle}">
-                                            <Border.Background>
-                                                <ImageBrush ImageSource="{Binding HeaderImageUrl}" Stretch="UniformToFill"/>
-                                            </Border.Background>
-                                        </Border>
-
-                                        <!-- Dark gradient overlay for text readability -->
-                                        <Border CornerRadius="10,10,0,0">
-                                            <Border.Background>
-                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                                    <GradientStop Color="#00000000" Offset="0"/>
-                                                    <GradientStop Color="#AA0D1117" Offset="0.7"/>
-                                                    <GradientStop Color="#FF0D1117" Offset="1"/>
-                                                </LinearGradientBrush>
-                                            </Border.Background>
-                                        </Border>
-
-                                        <!-- Selection checkbox (top left) -->
-                                        <CheckBox HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8,8,0,0"
-                                                  IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                                  Click="GameSelection_Click"
-                                                  Tag="{Binding}"
-                                                  Style="{DynamicResource SelectionCheckboxStyle}"/>
-
-                                        <!-- Compatibility indicator (top right) -->
-                                        <Ellipse Width="12" Height="12" Margin="0,8,8,0"
-                                                 HorizontalAlignment="Right" VerticalAlignment="Top"
-                                                 Style="{DynamicResource CompatDotStyle}"/>
-
-                                        <!-- Favorite Toggle (Bottom Right of Image) -->
-                                        <ToggleButton HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,8,8"
-                                                      IsChecked="{Binding IsFavorite, Mode=TwoWay}"
-                                                      Click="FavoriteToggle_Click"
-                                                      Tag="{Binding}"
-                                                      Cursor="Hand"
-                                                      Style="{DynamicResource FavoriteToggleStyle}">
-                                            <ToggleButton.Template>
-                                                <ControlTemplate TargetType="ToggleButton">
-                                                    <TextBlock x:Name="HeartIcon" Text="🤍" FontSize="16" Effect="{DynamicResource DropShadowEffect}"/>
-                                                    <ControlTemplate.Triggers>
-                                                        <Trigger Property="IsChecked" Value="True">
-                                                            <Setter TargetName="HeartIcon" Property="Text" Value="❤️"/>
-                                                        </Trigger>
-                                                        <Trigger Property="IsMouseOver" Value="True">
-                                                            <Setter TargetName="HeartIcon" Property="Opacity" Value="0.8"/>
-                                                        </Trigger>
-                                                    </ControlTemplate.Triggers>
-                                                </ControlTemplate>
-                                            </ToggleButton.Template>
-                                        </ToggleButton>
-                                    </Grid>
-
-                                
-                                <!-- Row 1: Content area -->
-                                <Grid Grid.Row="1" Margin="14,10,14,14">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                    </Grid.RowDefinitions>
-                                
-                                <!-- Game Name -->
-                                <TextBlock Grid.Row="0" Text="{Binding Name}" 
-                                           FontSize="15" FontWeight="SemiBold"
-                                           Foreground="{DynamicResource TextPrimaryBrush}"
-                                           TextTrimming="CharacterEllipsis"/>
-                                
-                                <!-- Row 1: DRM Type and Last Played (side by side) -->
-                                <Grid Grid.Row="1" Margin="0,4,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" FontSize="11" Style="{DynamicResource DrmTypeTextStyle}"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding FormattedLastPlayed}" FontSize="12"
-                                               Foreground="{DynamicResource TextMutedBrush}"
-                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                                </Grid>
-                                
-                                <!-- Row 2: Size and DLC Info Badges -->
-                                <WrapPanel Grid.Row="2" Margin="0,12,0,0">
-                                    <!-- Size Badge -->
-                                    <Border Background="#21262D" CornerRadius="4" Padding="8,4" Margin="0,0,8,4">
-                                        <TextBlock Text="{Binding FormattedSize}" FontSize="11" 
-                                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                    </Border>
-                                    
-                                    <!-- DLC Badge (only if HasDlc) -->
-                                    <Border CornerRadius="4" Padding="8,4" Margin="0,0,8,4" Style="{DynamicResource DlcBadgeBorderStyle}">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="🎁" FontSize="10" Margin="0,0,4,0" FontFamily="Segoe UI Emoji"/>
-                                            <TextBlock Text="{Binding DlcSummary}" 
-                                                       FontSize="11" Foreground="#A371F7"/>
-                                        </StackPanel>
-                                    </Border>
-                                    
-                                    <!-- Metacritic Badge -->
-                                    <Border Background="#21262D" CornerRadius="4" Padding="8,4" Margin="0,0,8,4"
-                                            Visibility="{Binding HasMetacriticScore, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="Metacritic" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,4,0"/>
-                                            <TextBlock Text="{Binding MetacriticScore}" FontSize="11" FontWeight="Bold" Foreground="{Binding MetacriticScoreColor}"/>
-                                        </StackPanel>
-                                    </Border>
-
-                                    <!-- Steam Review Badge -->
-                                    <Border Background="#21262D" CornerRadius="4" Padding="8,4" Margin="0,0,8,4"
-                                            Visibility="{Binding HasReviewScore, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="⭐" FontSize="10" Margin="0,0,4,0" FontFamily="Segoe UI Emoji" Foreground="{Binding ReviewScoreColor}"/>
-                                            <TextBlock Text="{Binding ReviewPositivePercent, StringFormat='{}{0}%'}" FontSize="11" FontWeight="Bold" Foreground="{Binding ReviewScoreColor}"/>
-                                        </StackPanel>
-                                    </Border>
-
-                                    <!-- Packaged Badge (shows different for received packages) -->
-                                    <Border CornerRadius="4" Padding="8,4" Margin="0,0,8,4" Style="{DynamicResource PackagedBadgeBorderStyle}">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock FontSize="10" Margin="0,0,4,0" Style="{DynamicResource PackagedIconTextStyle}"/>
-                                            <TextBlock FontSize="11" Style="{DynamicResource PackagedLabelTextStyle}"/>
-                                        </StackPanel>
-                                    </Border>
-                                    
-                                    <!-- Update Available Badge -->
-                                    <Border CornerRadius="4" Padding="8,4" Margin="0,0,8,4" Style="{DynamicResource UpdateBadgeBorderStyle}">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="🔄" FontSize="10" Margin="0,0,4,0" FontFamily="Segoe UI Emoji"/>
-                                            <TextBlock Text="Update" FontSize="11" Foreground="#D29922"/>
-                                        </StackPanel>
-                                    </Border>
-                                    
-                                    <!-- Status Badge (simplified) -->
-                                    <Border CornerRadius="4" Padding="8,4" Margin="0,0,0,4" Style="{DynamicResource ReadyBadgeBorderStyle}">
-                                        <TextBlock Text="Ready" FontSize="11" Foreground="{DynamicResource SuccessBrush}"/>
-                                    </Border>
-                                </WrapPanel>
-                                
-
-                                
-                                 <!-- Row 3: Actions -->
-                                <Grid Grid.Row="3" Margin="0,14,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    
-                                    <!-- Package Button -->
-                                    <Button Grid.Column="0"
-                                            Click="PackageButton_Click"
-                                            Tag="{Binding}"
-                                            IsEnabled="{Binding IsPackageable}"
-                                            FontWeight="SemiBold"
-                                            Foreground="White"
-                                            BorderThickness="0"
-                                            Padding="10,10"
-                                            Cursor="Hand"
-                                            HorizontalAlignment="Stretch"
-                                            ToolTip="{Binding FormattedSize, StringFormat='Package size: ~{0}'}"
-                                            Style="{DynamicResource PackageButtonStyle}">
-                                        <Button.Content>
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock FontSize="13" FontFamily="Segoe UI Emoji" Style="{DynamicResource ButtonIconTextStyle}"/>
-                                                <TextBlock FontSize="12" Style="{DynamicResource ButtonLabelTextStyle}"/>
-                                            </StackPanel>
-                                        </Button.Content>
-                                    </Button>
-                                    
-                                    <!-- Send to Peer Button (only when packaged) -->
-                                    <Button Grid.Column="1"
-                                            Style="{DynamicResource SecondaryButton}"
-                                            Margin="8,0,0,0" 
-                                            Click="SendToPeerButton_Click"
-                                            Tag="{Binding}"
-                                            Padding="12,10"
-                                            ToolTip="Send to Peer">
-                                        <Button.Visibility>
-                                            <Binding Path="IsPackaged">
-                                                <Binding.Converter>
-                                                    <BooleanToVisibilityConverter/>
-                                                </Binding.Converter>
-                                            </Binding>
-                                        </Button.Visibility>
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="📤" FontSize="13" FontFamily="Segoe UI Emoji" Margin="0,0,4,0"/>
-                                            <TextBlock Text="Send" FontSize="12" FontWeight="SemiBold"/>
-                                        </StackPanel>
-                                    </Button>
-                                </Grid>
-                                </Grid>
-                            </Grid>
-                        </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
-
-            <!-- List View (Table) -->
-            <ListView x:Name="GamesListView" Visibility="Collapsed"
-                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                      Background="Transparent" BorderThickness="0"
-                      Foreground="{DynamicResource TextPrimaryBrush}"
-                      Margin="24,16">
-                <ListView.ItemContainerStyle>
-                    <Style TargetType="ListViewItem">
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                        <Setter Property="Background" Value="Transparent"/>
-                        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
-                        <Setter Property="Cursor" Value="Hand"/>
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="ListViewItem">
-                                    <Border x:Name="Border" Background="{TemplateBinding Background}"
-                                            BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1"
-                                            Padding="8,12">
-                                        <GridViewRowPresenter 
-                                            VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                                            HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                            Columns="{Binding Path=View.Columns, RelativeSource={RelativeSource AncestorType={x:Type ListView}}}"/>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="Border" Property="Background" Value="#1AFFFFFF"/>
-                                        </Trigger>
-                                        <Trigger Property="IsSelected" Value="True">
-                                            <Setter TargetName="Border" Property="Background" Value="#2AFFFFFF"/>
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                        <EventSetter Event="MouseLeftButtonUp" Handler="GameCard_Click"/>
-                    </Style>
-                </ListView.ItemContainerStyle>
-                <ListView.View>
-                    <GridView>
-                        <GridViewColumn Header="Name" Width="300">
-                            <GridViewColumn.CellTemplate>
-                                <DataTemplate>
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="{Binding IsFavorite, Converter={StaticResource BooleanToHeartConverter}}" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}"/>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </GridViewColumn.CellTemplate>
-                        </GridViewColumn>
-                        <GridViewColumn Header="Size" Width="100">
-                            <GridViewColumn.CellTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding FormattedSize}" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                </DataTemplate>
-                            </GridViewColumn.CellTemplate>
-                        </GridViewColumn>
-                        <GridViewColumn Header="Status" Width="120">
-                            <GridViewColumn.CellTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                </DataTemplate>
-                            </GridViewColumn.CellTemplate>
-                        </GridViewColumn>
-                        <GridViewColumn Header="DRM" Width="80">
-                            <GridViewColumn.CellTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding PrimaryDrm}" Foreground="{DynamicResource TextMutedBrush}"/>
-                                </DataTemplate>
-                            </GridViewColumn.CellTemplate>
-                        </GridViewColumn>
-                        <GridViewColumn Header="Last Played" Width="120">
-                            <GridViewColumn.CellTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding FormattedLastPlayed}" Foreground="{DynamicResource TextMutedBrush}"/>
-                                </DataTemplate>
-                            </GridViewColumn.CellTemplate>
-                        </GridViewColumn>
-                        <GridViewColumn Header="Updated" Width="100">
-                            <GridViewColumn.CellTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding LastUpdated, StringFormat=d}" Foreground="{DynamicResource TextMutedBrush}"/>
-                                </DataTemplate>
-                            </GridViewColumn.CellTemplate>
-                        </GridViewColumn>
-                        <GridViewColumn Header="Score" Width="80">
-                            <GridViewColumn.CellTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding ReviewPositivePercent, StringFormat={}{0}%}" Foreground="{Binding ReviewScoreColor}" FontWeight="Bold"/>
-                                </DataTemplate>
-                            </GridViewColumn.CellTemplate>
-                        </GridViewColumn>
-                        <GridViewColumn Header="Actions" Width="Auto">
-                             <GridViewColumn.CellTemplate>
-                                <DataTemplate>
-                                    <Button Content="Package" Click="PackageButton_Click" Tag="{Binding}"
-                                            IsEnabled="{Binding IsPackageable}"
-                                            Padding="8,4" FontSize="11" Style="{DynamicResource SecondaryButton}"/>
-                                </DataTemplate>
-                            </GridViewColumn.CellTemplate>
-                        </GridViewColumn>
-                    </GridView>
-                </ListView.View>
-            </ListView>
-            
-            <!-- Batch Action Bar (shows when games are selected) -->
-            <Border x:Name="BatchActionBar" 
-                    VerticalAlignment="Bottom" 
-                    HorizontalAlignment="Center"
-                    Margin="0,0,0,20"
-                    Visibility="Collapsed">
-                <Border.Effect>
-                    <DropShadowEffect BlurRadius="20" ShadowDepth="5" Opacity="0.5"/>
-                </Border.Effect>
-                <Border Background="#27272A" CornerRadius="12" Padding="20,12" BorderBrush="#3F3F46" BorderThickness="1">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock x:Name="BatchSelectionText" Text="0 games selected" 
-                                   Foreground="{DynamicResource TextSecondaryBrush}" 
-                                   FontSize="13" VerticalAlignment="Center" Margin="0,0,20,0"/>
-                        
-                        <Button x:Name="BatchPackageButton" Click="BatchPackage_Click" 
-                                Cursor="Hand" Margin="0,0,10,0"
-                                Background="#238636" Foreground="White" BorderThickness="0" Padding="16,8">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                </ControlTemplate>
-                            </Button.Template>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="📦 " FontFamily="Segoe UI Emoji"/>
-                                <TextBlock Text="Package Selected"/>
-                            </StackPanel>
-                        </Button>
-                        
-                        <Button x:Name="BatchClearButton" Click="BatchClear_Click" 
-                                Cursor="Hand" Margin="0,0,10,0"
-                                Background="#3F3F46" Foreground="#E4E4E7" BorderThickness="0" Padding="16,8">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                </ControlTemplate>
-                            </Button.Template>
-                            <TextBlock Text="Clear Selection"/>
-                        </Button>
-                        
-                        <Button x:Name="BatchSendBtn" Click="BatchSendToPeer_Click" 
-                                Cursor="Hand" IsEnabled="False"
-                                Background="#58A6FF" Foreground="White" BorderThickness="0" Padding="16,8">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsEnabled" Value="False">
-                                            <Setter TargetName="border" Property="Opacity" Value="0.4"/>
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Button.Template>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="📤 " FontFamily="Segoe UI Emoji"/>
-                                <TextBlock Text="Send to Peer"/>
-                            </StackPanel>
-                        </Button>
-                    </StackPanel>
-                </Border>
-            </Border>
-        </Grid>
-        
-
-
-        
-        <!-- Game Details View (hidden by default) -->
-        <controls:GameDetailsView x:Name="GameDetailsView" Grid.Row="3" 
-                                   Visibility="Collapsed"/>
-
-        
-
-        
-        <!-- Status Bar -->
-        <Border Grid.Row="4" Background="{DynamicResource BackgroundMediumBrush}" CornerRadius="0,0,8,8" 
-                BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,1,0,0" Padding="32,14">
-
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                
-                <TextBlock x:Name="StatusText" Grid.Column="0" 
-                           Text="Ready — Select a game to view details or create a package"
-                           FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
-                           VerticalAlignment="Center"/>
-                
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="Goldberg Emulator + DLC Unlock" FontSize="11" 
-                               Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,16,0"/>
-                    <TextBlock Text="v1.1.0" FontSize="12" 
-                               Foreground="{DynamicResource AccentPrimaryBrush}" FontWeight="SemiBold"/>
-                </StackPanel>
-            </Grid>
-        </Border>
-        
-        <!-- Global Loading Overlay -->
-        <controls:LoadingOverlay x:Name="LoadingOverlay" Grid.RowSpan="5"/>
-        
-        <!-- Toast Notification Container -->
-        <StackPanel x:Name="ToastContainer" Grid.RowSpan="5"
-                    HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                    Margin="0,0,16,80"/>
+            <!-- Overlays -->
+            <controls:LoadingOverlay x:Name="LoadingOverlay" Grid.RowSpan="5" Visibility="Collapsed" Panel.ZIndex="100"/>
+            <StackPanel x:Name="ToastContainer" Grid.Row="3" VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,80" Panel.ZIndex="99"/>
         </Grid>
     </Border>
 </Window>
-
