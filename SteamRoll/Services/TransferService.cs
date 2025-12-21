@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -23,6 +24,7 @@ public class TransferService : IDisposable
     private CancellationTokenSource? _cts;
     private string _receiveBasePath;
     private readonly SettingsService? _settingsService;
+    private readonly ConcurrentDictionary<Guid, Task> _activeTransfers = new();
 
     public event EventHandler<TransferProgress>? ProgressChanged;
     public event EventHandler<TransferResult>? TransferComplete;
@@ -90,6 +92,9 @@ public class TransferService : IDisposable
         _cts?.Cancel();
         _listener?.Stop();
         _listener = null;
+
+        // We don't await active transfers here to avoid blocking UI,
+        // but they observe the cancellation token.
     }
 
     /// <summary>
@@ -197,7 +202,10 @@ public class TransferService : IDisposable
                     }
 
                     var fullPath = System.IO.Path.Combine(packagePath, fileInfo.RelativePath);
-                    using var fileStream = File.OpenRead(fullPath);
+
+                    // Use FileOptions for better sequential read performance
+                    using var fileStream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                        bufferSize: 4096, useAsync: true); // FileOptions.SequentialScan is implied default or not needed with async? Actually Async is key.
 
                     int bytesRead;
                     while ((bytesRead = await fileStream.ReadAsync(buffer, ct)) > 0)
@@ -273,7 +281,15 @@ public class TransferService : IDisposable
             try
             {
                 var client = await _listener.AcceptTcpClientAsync(ct);
-                _ = HandleIncomingTransferAsync(client, ct);
+
+                // Track the task
+                var transferId = Guid.NewGuid();
+                var task = HandleIncomingTransferAsync(client, ct);
+
+                _activeTransfers.TryAdd(transferId, task);
+
+                // Remove when complete
+                _ = task.ContinueWith(t => _activeTransfers.TryRemove(transferId, out _), TaskScheduler.Default);
             }
             catch (OperationCanceledException)
             {
@@ -554,7 +570,8 @@ public class TransferService : IDisposable
                     if (!string.IsNullOrEmpty(dir))
                         Directory.CreateDirectory(dir);
 
-                    using var fileStream = File.Create(fullPath);
+                    // Use Async FileStream
+                    using var fileStream = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true);
                     long remaining = fileInfo.Size;
 
                     while (remaining > 0)
@@ -580,6 +597,10 @@ public class TransferService : IDisposable
                     // Verify checksum if provided
                     if (!string.IsNullOrEmpty(fileInfo.Sha256))
                     {
+                        // Flush file before reading for verification
+                        await fileStream.FlushAsync(ct);
+                        fileStream.Close();
+
                         if (!VerifySha256(fullPath, fileInfo.Sha256))
                         {
                             LogService.Instance.Error($"Checksum mismatch for {fileInfo.RelativePath}", category: "TransferService");
@@ -678,8 +699,10 @@ public class TransferService : IDisposable
 
     private static async Task SendJsonAsync<T>(NetworkStream stream, T obj, CancellationToken ct)
     {
-        var json = JsonSerializer.Serialize(obj);
-        var data = Encoding.UTF8.GetBytes(json);
+        using var ms = new MemoryStream();
+        await JsonSerializer.SerializeAsync(ms, obj, cancellationToken: ct);
+        var data = ms.ToArray();
+
         var lengthBytes = BitConverter.GetBytes(data.Length);
 
         await stream.WriteAsync(lengthBytes, ct);
@@ -692,14 +715,67 @@ public class TransferService : IDisposable
         await ReadExactlyAsync(stream, lengthBytes, ct);
         var length = BitConverter.ToInt32(lengthBytes, 0);
 
-        // Increased limit to 64MB to support large game file lists
-        if (length <= 0 || length > 64_000_000) return default; // Sanity check
+        // Limit to 128MB (doubled for safety but still finite)
+        if (length <= 0 || length > 128_000_000) return default;
 
-        var data = new byte[length];
-        await ReadExactlyAsync(stream, data, ct);
+        // Use a bounded stream wrapper to avoid reading into a huge byte array
+        using var boundedStream = new BoundedStream(stream, length);
+        return await JsonSerializer.DeserializeAsync<T>(boundedStream, cancellationToken: ct);
+    }
 
-        var json = Encoding.UTF8.GetString(data);
-        return JsonSerializer.Deserialize<T>(json);
+    /// <summary>
+    /// Helper stream that reads exactly a specified number of bytes from the underlying stream
+    /// and reports EOF afterwards.
+    /// </summary>
+    private class BoundedStream : Stream
+    {
+        private readonly Stream _innerStream;
+        private long _remaining;
+
+        public BoundedStream(Stream inner, long length)
+        {
+            _innerStream = inner;
+            _remaining = length;
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override void Flush() => _innerStream.Flush();
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_remaining <= 0) return 0;
+            var toRead = (int)Math.Min(count, _remaining);
+            var read = _innerStream.Read(buffer, offset, toRead);
+            _remaining -= read;
+            return read;
+        }
+
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+             if (_remaining <= 0) return 0;
+             var toRead = (int)Math.Min(count, _remaining);
+             var read = await _innerStream.ReadAsync(buffer, offset, toRead, cancellationToken);
+             _remaining -= read;
+             return read;
+        }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_remaining <= 0) return 0;
+            var toRead = (int)Math.Min(buffer.Length, _remaining);
+            var read = await _innerStream.ReadAsync(buffer.Slice(0, toRead), cancellationToken);
+            _remaining -= read;
+            return read;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private static bool IsPathSafe(string relativePath)
@@ -751,7 +827,9 @@ public class TransferService : IDisposable
     private static string ComputeSha256(string filePath)
     {
         using var sha256 = SHA256.Create();
-        using var stream = File.OpenRead(filePath);
+        // Use Async file options for consistency, though ComputeHash is blocking.
+        // For truly async hashing, we would need to read chunks.
+        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
         var hash = sha256.ComputeHash(stream);
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
