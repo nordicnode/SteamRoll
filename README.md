@@ -24,7 +24,8 @@ It creates portable, LAN-ready game packages by automatically applying compatibi
 
 ### 🚀 Advanced LAN Transfer
 *   **Zero-Config Discovery**: Automatically finds other SteamRoll clients on your local network via UDP broadcast (Port 27050).
-*   **Smart Sync (Differential Transfer)**: Analyzes the destination folder before transfer to identify existing files. It skips files that match in size and hash, making it perfect for resuming interrupted transfers or pushing small game updates without re-sending the whole game.
+*   **Smart Sync (Differential Transfer)**: Uses a file-level transfer protocol to analyze the destination folder before sending. It intelligently skips files that match in size and hash, making it perfect for resuming interrupted transfers or pushing small game updates without re-sending the whole game. No temporary archives are created, making the process faster and more robust.
+*   **Smart Hashing**: intelligently uses existing package metadata to skip re-hashing unchanged files on the source, ensuring instant transfer initialization for large games.
 *   **Compression**: Optional GZip compression to reduce bandwidth usage during transfers.
 *   **Integrity Verification**: Uses SHA-256 hashing to ensure every file is transferred correctly and matches the source.
 *   **Remote Library Browsing**: Browse the library of other SteamRoll peers on your network and request "Pull" transfers directly from their machine.
