@@ -1,4 +1,7 @@
+using System.Text.RegularExpressions;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
 using Microsoft.Win32;
 using SteamRoll.Services;
 
@@ -31,6 +34,7 @@ public partial class SettingsWindow : Window
         LoadSettings();
         UpdateCacheStats();
         _ = LoadGoldbergVersionsAsync();
+        UpdateDefenderStatus();
     }
 
     private async Task LoadGoldbergVersionsAsync()
@@ -68,6 +72,41 @@ public partial class SettingsWindow : Window
         {
             LogService.Instance.Error($"Error loading Goldberg versions: {ex.Message}", ex, "SettingsWindow");
         }
+    }
+
+    private void UpdateDefenderStatus()
+    {
+        // This can be slow, so run on background
+        Task.Run(() =>
+        {
+            try
+            {
+                // Simple check if exclusions are present for all paths
+                var needsExclusions = DefenderExclusionHelper.NeedsExclusions();
+
+                Dispatcher.Invoke(() =>
+                {
+                    if (needsExclusions)
+                    {
+                        DefenderStatusText.Text = "Status: Not configured";
+                        DefenderStatusText.Foreground = System.Windows.Media.Brushes.Orange;
+                        AddExclusionBtn.IsEnabled = true;
+                        AddExclusionBtn.Content = "Add Exclusions";
+                    }
+                    else
+                    {
+                        DefenderStatusText.Text = "Status: Active";
+                        DefenderStatusText.Foreground = System.Windows.Media.Brushes.LightGreen;
+                        AddExclusionBtn.IsEnabled = false;
+                        AddExclusionBtn.Content = "Active";
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                LogService.Instance.Error("Error checking Defender status", ex, "Settings");
+            }
+        });
     }
 
     private async void DownloadGoldberg_Click(object sender, RoutedEventArgs e)
@@ -119,9 +158,11 @@ public partial class SettingsWindow : Window
         var settings = _settingsService.Settings;
         
         OutputPathBox.Text = settings.OutputPath;
+        CustomGoldbergPathBox.Text = settings.CustomGoldbergPath;
+        CustomCreamApiPathBox.Text = settings.CustomCreamApiPath;
         
         // Set package mode combo
-        foreach (System.Windows.Controls.ComboBoxItem item in PackageModeCombo.Items)
+        foreach (ComboBoxItem item in PackageModeCombo.Items)
         {
             if (item.Tag?.ToString() == settings.DefaultPackageMode.ToString())
             {
@@ -132,10 +173,14 @@ public partial class SettingsWindow : Window
         
         AutoAnalyzeCheck.IsChecked = settings.AutoAnalyzeOnScan;
         ToastNotificationsCheck.IsChecked = settings.ShowToastNotifications;
+        EnableCompressionCheck.IsChecked = settings.EnableTransferCompression;
+
+        DiscoveryPortBox.Text = settings.LanDiscoveryPort.ToString();
+        TransferPortBox.Text = settings.TransferPort.ToString();
 
         // Set bandwidth limit combo
         bool found = false;
-        foreach (System.Windows.Controls.ComboBoxItem item in BandwidthLimitCombo.Items)
+        foreach (ComboBoxItem item in BandwidthLimitCombo.Items)
         {
             if (item.Tag?.ToString() == settings.TransferSpeedLimit.ToString())
             {
@@ -182,6 +227,34 @@ public partial class SettingsWindow : Window
         }
     }
     
+    private void BrowseGoldberg_Click(object sender, RoutedEventArgs e)
+    {
+         var dialog = new OpenFolderDialog
+        {
+            Title = "Select Local Goldberg Emulator Folder",
+            InitialDirectory = string.IsNullOrEmpty(CustomGoldbergPathBox.Text) ? null : CustomGoldbergPathBox.Text
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            CustomGoldbergPathBox.Text = dialog.FolderName;
+        }
+    }
+
+    private void BrowseCreamApi_Click(object sender, RoutedEventArgs e)
+    {
+         var dialog = new OpenFolderDialog
+        {
+            Title = "Select Local CreamAPI Folder",
+            InitialDirectory = string.IsNullOrEmpty(CustomCreamApiPathBox.Text) ? null : CustomCreamApiPathBox.Text
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            CustomCreamApiPathBox.Text = dialog.FolderName;
+        }
+    }
+
     private void ClearCache_Click(object sender, RoutedEventArgs e)
     {
         if (_cacheService == null)
@@ -203,6 +276,39 @@ public partial class SettingsWindow : Window
             ToastService.Instance.ShowSuccess("Cache Cleared", "Game cache has been cleared.");
         }
     }
+
+    private void AddExclusion_Click(object sender, RoutedEventArgs e)
+    {
+        if (DefenderExclusionHelper.IsRunningAsAdmin())
+        {
+            var paths = DefenderExclusionHelper.GetSteamRollExclusionPaths();
+            if (DefenderExclusionHelper.AddExclusions(paths))
+            {
+                ToastService.Instance.ShowSuccess("Success", "Windows Defender exclusions added.");
+                UpdateDefenderStatus();
+            }
+            else
+            {
+                MessageBox.Show("Failed to add exclusions. Check logs.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        else
+        {
+            var result = MessageBox.Show(
+                "Adding exclusions requires Administrator privileges.\n\nRestart SteamRoll as Administrator?",
+                "Administrator Required",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                if (DefenderExclusionHelper.RequestElevation())
+                {
+                    Application.Current.Shutdown();
+                }
+            }
+        }
+    }
     
     private void Save_Click(object sender, RoutedEventArgs e)
     {
@@ -213,13 +319,28 @@ public partial class SettingsWindow : Window
             return;
         }
         
+        // Validate ports
+        if (!int.TryParse(DiscoveryPortBox.Text, out var discoveryPort) || discoveryPort < 1 || discoveryPort > 65535)
+        {
+             MessageBox.Show("Invalid LAN Discovery Port. Must be 1-65535.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+             return;
+        }
+
+        if (!int.TryParse(TransferPortBox.Text, out var transferPort) || transferPort < 1 || transferPort > 65535)
+        {
+             MessageBox.Show("Invalid File Transfer Port. Must be 1-65535.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+             return;
+        }
+
         // Save settings
         _settingsService.Update(settings =>
         {
             settings.OutputPath = OutputPathBox.Text;
+            settings.CustomGoldbergPath = CustomGoldbergPathBox.Text;
+            settings.CustomCreamApiPath = CustomCreamApiPathBox.Text;
             
             // Get selected package mode
-            if (PackageModeCombo.SelectedItem is System.Windows.Controls.ComboBoxItem selectedItem)
+            if (PackageModeCombo.SelectedItem is ComboBoxItem selectedItem)
             {
                 var modeTag = selectedItem.Tag?.ToString();
                 if (Enum.TryParse<PackageMode>(modeTag, out var mode))
@@ -230,9 +351,13 @@ public partial class SettingsWindow : Window
             
             settings.AutoAnalyzeOnScan = AutoAnalyzeCheck.IsChecked ?? true;
             settings.ShowToastNotifications = ToastNotificationsCheck.IsChecked ?? true;
+            settings.EnableTransferCompression = EnableCompressionCheck.IsChecked ?? true;
+
+            settings.LanDiscoveryPort = discoveryPort;
+            settings.TransferPort = transferPort;
 
             // Get selected bandwidth limit
-            if (BandwidthLimitCombo.SelectedItem is System.Windows.Controls.ComboBoxItem limitItem)
+            if (BandwidthLimitCombo.SelectedItem is ComboBoxItem limitItem)
             {
                 if (long.TryParse(limitItem.Tag?.ToString(), out var limit))
                 {
@@ -263,7 +388,7 @@ public partial class SettingsWindow : Window
 
     private async void CleanupLibrary_Click(object sender, RoutedEventArgs e)
     {
-        var btn = sender as System.Windows.Controls.Button;
+        var btn = sender as Button;
         if (btn != null) btn.IsEnabled = false;
 
         try
@@ -354,7 +479,7 @@ public partial class SettingsWindow : Window
         }
     }
     
-    private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ClickCount == 1)
         {
@@ -367,5 +492,10 @@ public partial class SettingsWindow : Window
         DialogResult = false;
         Close();
     }
-}
 
+    private void NumberValidationTextBox(object sender, TextCompositionEventArgs e)
+    {
+        Regex regex = new Regex("[^0-9]+");
+        e.Handled = regex.IsMatch(e.Text);
+    }
+}
