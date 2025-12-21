@@ -112,12 +112,19 @@
                                     <TextBlock Text="Update Available" FontSize="12" FontWeight="SemiBold" Foreground="#D29922"/>
                                 </StackPanel>
                             </Border>
-                            <Border x:Name="MetacriticBadge" CornerRadius="6" Padding="12,6" Margin="0,0,10,8"
-                                    Visibility="Collapsed">
+                            <Border x:Name="SteamReviewsBadge" CornerRadius="6" Padding="12,6" Margin="0,0,10,8"
+                                    Background="#21262D" Visibility="Collapsed">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="Metacritic: " FontSize="12" Foreground="White"/>
-                                    <TextBlock x:Name="MetacriticText" Text="85" FontSize="12" 
-                                               Foreground="White" FontWeight="Bold"/>
+                                    <TextBlock x:Name="ReviewIcon" Text="⭐" FontSize="12" Margin="0,0,6,0" FontFamily="Segoe UI Emoji"/>
+                                    <TextBlock x:Name="ReviewDescriptionText" Text="Very Positive" FontSize="12" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="ReviewPercentText" Text=" (95%)" FontSize="12" FontWeight="SemiBold"/>
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="MetacriticBadge" CornerRadius="6" Padding="12,6" Margin="0,0,10,8"
+                                    Background="#21262D" Visibility="Collapsed">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Metacritic" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,6,0"/>
+                                    <TextBlock x:Name="MetacriticText" Text="85" FontSize="12" FontWeight="Bold"/>
                                 </StackPanel>
                             </Border>
                             <!-- Compatibility Badge -->

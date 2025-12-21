@@ -834,6 +834,9 @@ public partial class MainWindow : Window
                 StatusText.Text = $"Fetching DLC for {gamesNeedingDlc.Count} games...";
                 SafeFireAndForget(FetchDlcForGamesAsync(gamesNeedingDlc), "DLC Fetch");
             }
+
+            // Start Store Data Fetch (Reviews/Metacritic)
+            SafeFireAndForget(EnrichGamesWithStoreDataAsync(_allGames, ct), "Store Enrich");
             
             var packageableCount = scannedGames.Count(g => g.IsPackageable);
             var packagedCount = scannedGames.Count(g => g.IsPackaged);
@@ -849,6 +852,39 @@ public partial class MainWindow : Window
             LoadingOverlay.Hide();
             StatusText.Text = $"⚠ Error scanning library: {ex.Message}";
             ToastService.Instance.ShowError("Scan Failed", ex.Message);
+        }
+    }
+
+    private async Task EnrichGamesWithStoreDataAsync(List<InstalledGame> games, CancellationToken ct)
+    {
+        // Process in batches
+        foreach (var game in games)
+        {
+            if (ct.IsCancellationRequested) break;
+            if (game.AppId <= 0) continue; 
+
+            try
+            {
+                // Verify we don't already have data
+                if (game.HasReviewScore || game.HasMetacriticScore) continue;
+
+                var details = await SteamStoreService.Instance.GetGameDetailsAsync(game.AppId, ct);
+                if (details != null)
+                {
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        game.ReviewPositivePercent = details.ReviewPositivePercent;
+                        game.ReviewDescription = details.ReviewDescription;
+                        game.MetacriticScore = details.MetacriticScore;
+                    });
+                }
+                
+                await Task.Delay(50, ct); 
+            }
+            catch (Exception ex)
+            {
+                 LogService.Instance.Debug($"Failed to enrich {game.Name}: {ex.Message}", "StoreEnricher");
+            }
         }
     }
 

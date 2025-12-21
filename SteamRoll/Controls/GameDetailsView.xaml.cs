@@ -208,12 +208,33 @@ public partial class GameDetailsView : UserControl
                 {
                     MetacriticBadge.Visibility = Visibility.Visible;
                     MetacriticText.Text = details.MetacriticScore.Value.ToString();
-                    MetacriticBadge.Background = details.MetacriticScore.Value switch
+                    
+                    var scoreColor = details.MetacriticScore.Value switch
                     {
-                        >= 75 => new SolidColorBrush(Color.FromRgb(0x3F, 0xB9, 0x50)),
-                        >= 50 => new SolidColorBrush(Color.FromRgb(0xD2, 0x99, 0x22)),
-                        _ => new SolidColorBrush(Color.FromRgb(0xF8, 0x51, 0x49))
+                        >= 75 => new SolidColorBrush(Color.FromRgb(0x3F, 0xB9, 0x50)), // Green
+                        >= 50 => new SolidColorBrush(Color.FromRgb(0xD2, 0x99, 0x22)), // Yellow
+                        _ => new SolidColorBrush(Color.FromRgb(0xF8, 0x51, 0x49))      // Red
                     };
+                    MetacriticText.Foreground = scoreColor;
+                }
+                
+                // Steam Reviews
+                if (details.ReviewPositivePercent.HasValue)
+                {
+                    SteamReviewsBadge.Visibility = Visibility.Visible;
+                    ReviewDescriptionText.Text = details.ReviewDescription ?? "Reviews";
+                    ReviewPercentText.Text = $" ({details.ReviewPositivePercent}%)";
+                    
+                    var reviewColor = details.ReviewPositivePercent.Value switch
+                    {
+                        >= 70 => new SolidColorBrush(Color.FromRgb(0x3F, 0xB9, 0x50)), // Green
+                        >= 40 => new SolidColorBrush(Color.FromRgb(0xD2, 0x99, 0x22)), // Yellow
+                        _ => new SolidColorBrush(Color.FromRgb(0xF8, 0x51, 0x49))      // Red
+                    };
+                    
+                    ReviewIcon.Foreground = reviewColor;
+                    ReviewDescriptionText.Foreground = reviewColor;
+                    ReviewPercentText.Foreground = reviewColor; // Make it all match for readability
                 }
                 
                 // Background image

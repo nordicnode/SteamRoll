@@ -1,4 +1,7 @@
+using System.ComponentModel;
 using System.IO;
+using System.Runtime.CompilerServices;
+using System.Windows.Media;
 using SteamRoll.Services;
 
 namespace SteamRoll.Models;
@@ -6,8 +9,15 @@ namespace SteamRoll.Models;
 /// <summary>
 /// Represents an installed Steam game with metadata from ACF manifest files.
 /// </summary>
-public class InstalledGame
+public class InstalledGame : INotifyPropertyChanged
 {
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
     /// <summary>
     /// Steam App ID (unique identifier).
     /// </summary>
@@ -154,6 +164,75 @@ public class InstalledGame
         : "No DLC";
 
     // ============================================
+    // Review Scores (Not persisted, fetched async)
+    // ============================================
+
+    private int? _reviewPositivePercent;
+    public int? ReviewPositivePercent
+    {
+        get => _reviewPositivePercent;
+        set
+        {
+            if (_reviewPositivePercent != value)
+            {
+                _reviewPositivePercent = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ReviewDescription));
+                OnPropertyChanged(nameof(ReviewScoreColor));
+                OnPropertyChanged(nameof(HasReviewScore));
+            }
+        }
+    }
+
+    private string? _reviewDescription;
+    public string? ReviewDescription
+    {
+        get => _reviewDescription;
+        set
+        {
+            if (_reviewDescription != value)
+            {
+                _reviewDescription = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+    
+    public bool HasReviewScore => ReviewPositivePercent.HasValue;
+
+    public Brush ReviewScoreColor => ReviewPositivePercent switch
+    {
+        >= 70 => new SolidColorBrush(Color.FromRgb(0x3F, 0xB9, 0x50)), // Green
+        >= 40 => new SolidColorBrush(Color.FromRgb(0xD2, 0x99, 0x22)), // Yellow
+        _ => new SolidColorBrush(Color.FromRgb(0xF8, 0x51, 0x49))      // Red
+    };
+
+    private int? _metacriticScore;
+    public int? MetacriticScore
+    {
+        get => _metacriticScore;
+        set
+        {
+            if (_metacriticScore != value)
+            {
+                _metacriticScore = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(MetacriticScoreColor));
+                OnPropertyChanged(nameof(HasMetacriticScore));
+            }
+        }
+    }
+    
+    public bool HasMetacriticScore => MetacriticScore.HasValue;
+
+    public Brush MetacriticScoreColor => MetacriticScore switch
+    {
+        >= 75 => new SolidColorBrush(Color.FromRgb(0x3F, 0xB9, 0x50)), // Green
+        >= 50 => new SolidColorBrush(Color.FromRgb(0xD2, 0x99, 0x22)), // Yellow
+        _ => new SolidColorBrush(Color.FromRgb(0xF8, 0x51, 0x49))      // Red
+    };
+
+    // ============================================
     // DRM & Compatibility Analysis
     // ============================================
 
@@ -279,6 +358,12 @@ public class InstalledGame
                 {
                     lines.Add($"  • {drm.Type}");
                 }
+            }
+            
+            if (ReviewPositivePercent.HasValue)
+            {
+                lines.Add("");
+                lines.Add($"Reviews: {ReviewDescription} ({ReviewPositivePercent}%)");
             }
 
             return string.Join("\n", lines);

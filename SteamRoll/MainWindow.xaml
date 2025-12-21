@@ -794,6 +794,24 @@
                                         </StackPanel>
                                     </Border>
                                     
+                                    <!-- Metacritic Badge -->
+                                    <Border Background="#21262D" CornerRadius="4" Padding="8,4" Margin="0,0,8,4"
+                                            Visibility="{Binding HasMetacriticScore, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Metacritic" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,4,0"/>
+                                            <TextBlock Text="{Binding MetacriticScore}" FontSize="11" FontWeight="Bold" Foreground="{Binding MetacriticScoreColor}"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Steam Review Badge -->
+                                    <Border Background="#21262D" CornerRadius="4" Padding="8,4" Margin="0,0,8,4"
+                                            Visibility="{Binding HasReviewScore, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="⭐" FontSize="10" Margin="0,0,4,0" FontFamily="Segoe UI Emoji" Foreground="{Binding ReviewScoreColor}"/>
+                                            <TextBlock Text="{Binding ReviewPositivePercent, StringFormat='{}{0}%'}" FontSize="11" FontWeight="Bold" Foreground="{Binding ReviewScoreColor}"/>
+                                        </StackPanel>
+                                    </Border>
+
                                     <!-- Packaged Badge (shows different for received packages) -->
                                     <Border CornerRadius="4" Padding="8,4" Margin="0,0,8,4" Style="{DynamicResource PackagedBadgeBorderStyle}">
                                         <StackPanel Orientation="Horizontal">
