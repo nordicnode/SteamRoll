@@ -102,26 +102,49 @@ public class TransferService : IDisposable
     /// </summary>
     public async Task<bool> SendPackageAsync(string targetIp, int targetPort, string packagePath, CancellationToken ct = default)
     {
-        if (!Directory.Exists(packagePath))
+        if (!Directory.Exists(packagePath) && !File.Exists(packagePath))
         {
             Error?.Invoke(this, $"Package path does not exist: {packagePath}");
             return false;
         }
 
         var gameName = System.IO.Path.GetFileName(packagePath);
+        string? tempZipPath = null;
         
         try
         {
+            // If the package is a directory, archive it first
+            if (Directory.Exists(packagePath))
+            {
+                var tempPath = System.IO.Path.GetTempPath();
+                tempZipPath = System.IO.Path.Combine(tempPath, $"{gameName}.zip");
+
+                if (File.Exists(tempZipPath)) File.Delete(tempZipPath);
+
+                LogService.Instance.Info($"Archiving package {gameName} for transfer...", "TransferService");
+                await Task.Run(() => System.IO.Compression.ZipFile.CreateFromDirectory(packagePath, tempZipPath, System.IO.Compression.CompressionLevel.Optimal, false), ct);
+
+                // Use the zip as the source
+                packagePath = tempZipPath;
+            }
+
             using var client = new TcpClient();
             await client.ConnectAsync(targetIp, targetPort, ct);
 
             using var networkStream = client.GetStream();
             
             // Gather file list with checksums
-            var files = Directory.GetFiles(packagePath, "*", SearchOption.AllDirectories);
+            // If it was a directory, we now point to the zip file, so this logic handles single file or directory (if we supported existing zips)
+            var files = File.Exists(packagePath)
+                ? new[] { packagePath }
+                : Directory.GetFiles(packagePath, "*", SearchOption.AllDirectories);
+
+            // Base path for relative calculations
+            var basePath = File.Exists(packagePath) ? System.IO.Path.GetDirectoryName(packagePath)! : packagePath;
+
             var fileInfos = files.AsParallel().Select(f => new TransferFileInfo
             {
-                RelativePath = System.IO.Path.GetRelativePath(packagePath, f),
+                RelativePath = System.IO.Path.GetRelativePath(basePath, f),
                 Size = new FileInfo(f).Length,
                 Sha256 = ComputeSha256(f) // Include checksum for integrity verification
             }).ToList();
@@ -201,7 +224,16 @@ public class TransferService : IDisposable
                         continue;
                     }
 
-                    var fullPath = System.IO.Path.Combine(packagePath, fileInfo.RelativePath);
+                    // Adjust path resolution based on whether we are sending a zip file or directory contents
+                    string fullPath;
+                    if (tempZipPath != null && fileInfo.RelativePath == System.IO.Path.GetFileName(tempZipPath))
+                    {
+                         fullPath = tempZipPath;
+                    }
+                    else
+                    {
+                         fullPath = System.IO.Path.Combine(basePath, fileInfo.RelativePath);
+                    }
 
                     // Use FileOptions for better sequential read performance
                     using var fileStream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read,
@@ -271,6 +303,14 @@ public class TransferService : IDisposable
             LogService.Instance.Error($"Send error: {ex.Message}", ex, "TransferService");
             Error?.Invoke(this, $"Transfer failed: {ex.Message}");
             return false;
+        }
+        finally
+        {
+            // Cleanup temp zip
+            if (tempZipPath != null && File.Exists(tempZipPath))
+            {
+                try { File.Delete(tempZipPath); } catch { }
+            }
         }
     }
 

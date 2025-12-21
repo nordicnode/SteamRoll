@@ -249,24 +249,15 @@ public class PackageBuilder
             // Added check to ensure hashes are generated if metadata step was skipped but hashes are missing
             // But logic above includes GenerateFileHashes in Metadata step, so skipping implies done.
 
-            // Step 8: Zip Archive
-            if (state.CurrentStep <= PackagingStep.CreatingZip)
-            {
-                state.CurrentStep = PackagingStep.CreatingZip;
-                SavePackageState(state);
-                
-                ReportProgress("Creating ZIP archive...", 95);
-                var zipPath = await CreateZipArchiveAsync(packageDir, options.ZipCompressionLevel, ct);
-                
-                // Checkpoint
-                SavePackageState(state);
-            }
+            // Step 8: Zip Archive - Skipped (Archiving moved to TransferService)
+            // We now keep the package as a folder to allow integrity checks to pass.
+            // Zipping happens on-demand when sending.
 
             state.CurrentStep = PackagingStep.Complete;
             ClearPackageState(packageDir); // Success - cleanup state
             
             ReportProgress("Package complete!", 100);
-            LogService.Instance.Info($"Package and ZIP created: {packageDir}", "PackageBuilder");
+            LogService.Instance.Info($"Package created: {packageDir}", "PackageBuilder");
             return packageDir;
         }
         catch (OperationCanceledException)
