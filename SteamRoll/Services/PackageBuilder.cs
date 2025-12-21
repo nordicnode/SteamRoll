@@ -94,16 +94,25 @@ public class PackageBuilder
             // Initial Setup: Create directory if not resuming
             if (resumeState == null)
             {
-                // Clean existing package if not resuming
-                if (Directory.Exists(packageDir))
+                if (options.IsUpdate && Directory.Exists(packageDir))
                 {
-                    ReportProgress("Cleaning existing package...", 0);
-                    await Task.Run(() => Directory.Delete(packageDir, true), ct);
+                    ReportProgress("Synchronizing package files...", 5);
+                    await SyncDirectoryAsync(game.FullPath, packageDir, options.ExcludedPaths, ct);
+                    packageStarted = true;
                 }
+                else
+                {
+                    // Clean existing package if not resuming
+                    if (Directory.Exists(packageDir))
+                    {
+                        ReportProgress("Cleaning existing package...", 0);
+                        await Task.Run(() => Directory.Delete(packageDir, true), ct);
+                    }
 
-                ct.ThrowIfCancellationRequested();
-                Directory.CreateDirectory(packageDir);
-                packageStarted = true;
+                    ct.ThrowIfCancellationRequested();
+                    Directory.CreateDirectory(packageDir);
+                    packageStarted = true;
+                }
             }
             else
             {
@@ -720,6 +729,73 @@ public class PackageBuilder
             lines.Add(currentLine);
         
         return string.Join(Environment.NewLine, lines);
+    }
+
+    /// <summary>
+    /// Synchronizes the package directory with the source, removing files that no longer exist.
+    /// Preserves SteamRoll-specific files.
+    /// </summary>
+    private async Task SyncDirectoryAsync(string sourceDir, string packageDir, List<string>? excludedPaths, CancellationToken ct)
+    {
+        await Task.Run(() =>
+        {
+            var packageFiles = Directory.GetFiles(packageDir, "*", SearchOption.AllDirectories);
+
+            // List of files to always preserve (SteamRoll metadata, configs, etc.)
+            var preservedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "steamroll.json",
+                "LAUNCH.bat",
+                "launch.sh",
+                "README.txt",
+                "install_deps.bat",
+                ".steamroll_received",
+                "steam_interfaces.txt"
+            };
+
+            foreach (var file in packageFiles)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var relativePath = Path.GetRelativePath(packageDir, file);
+
+                // Skip preserved files
+                if (preservedFiles.Contains(Path.GetFileName(file)) ||
+                    relativePath.StartsWith("steam_settings", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var sourcePath = Path.Combine(sourceDir, relativePath);
+
+                // If file doesn't exist in source, delete it
+                if (!File.Exists(sourcePath))
+                {
+                    try
+                    {
+                        File.Delete(file);
+                        LogService.Instance.Debug($"Deleted orphaned file: {relativePath}", "PackageBuilder");
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Instance.Warning($"Failed to delete orphaned file {relativePath}: {ex.Message}", "PackageBuilder");
+                    }
+                }
+            }
+
+            // Cleanup empty directories
+            foreach (var dir in Directory.GetDirectories(packageDir, "*", SearchOption.AllDirectories).OrderByDescending(d => d.Length))
+            {
+                if (!Directory.EnumerateFileSystemEntries(dir).Any())
+                {
+                    try
+                    {
+                        Directory.Delete(dir);
+                    }
+                    catch { }
+                }
+            }
+        }, ct);
     }
 
     /// <summary>
@@ -1450,6 +1526,11 @@ public class PackageOptions
     /// Tags for organizing packages.
     /// </summary>
     public List<string> Tags { get; set; } = new();
+
+    /// <summary>
+    /// Whether to perform a differential update instead of a full repackage.
+    /// </summary>
+    public bool IsUpdate { get; set; } = false;
 
     /// <summary>
     /// Advanced Goldberg configuration (null = use defaults).

@@ -1465,13 +1465,26 @@ public partial class MainWindow : Window
         _currentOperationCts = new CancellationTokenSource();
         var ct = _currentOperationCts.Token;
         
-        LoadingOverlay.Show($"Packaging {game.Name}... (Press ESC to cancel)");
-        StatusText.Text = $"⏳ Packaging {game.Name}...";
+        var isUpdate = game.IsPackaged && game.UpdateAvailable;
+        var actionText = isUpdate ? "Updating package for" : "Packaging";
+
+        LoadingOverlay.Show($"{actionText} {game.Name}... (Press ESC to cancel)");
+        StatusText.Text = $"⏳ {actionText} {game.Name}...";
 
         try
         {
+            // Look up any stored Goldberg config for this game
+            _gameGoldbergConfigs.TryGetValue(game.AppId, out var goldbergConfig);
+
+            var options = new PackageOptions
+            {
+                IsUpdate = isUpdate,
+                GoldbergConfig = goldbergConfig,
+                Mode = _settingsService.Settings.DefaultPackageMode
+            };
+
             // Use the new PackageBuilder with Goldberg integration
-            var packagePath = await _packageBuilder.CreatePackageAsync(game, _outputPath, null, ct);
+            var packagePath = await _packageBuilder.CreatePackageAsync(game, _outputPath, options, ct);
             
             // Update game's package status
             game.IsPackaged = true;
@@ -1526,8 +1539,11 @@ public partial class MainWindow : Window
         _currentOperationCts = new CancellationTokenSource();
         var ct = _currentOperationCts.Token;
         
-        LoadingOverlay.Show($"Packaging {game.Name}... (Press ESC to cancel)");
-        StatusText.Text = $"⏳ Packaging {game.Name}...";
+        var isUpdate = game.IsPackaged && game.UpdateAvailable && resumeState == null;
+        var actionText = isUpdate ? "Updating package for" : "Packaging";
+
+        LoadingOverlay.Show($"{actionText} {game.Name}... (Press ESC to cancel)");
+        StatusText.Text = $"⏳ {actionText} {game.Name}...";
         
         try
         {
@@ -1539,7 +1555,8 @@ public partial class MainWindow : Window
             {
                 Mode = mode,
                 IncludeDlc = true,
-                GoldbergConfig = goldbergConfig
+                GoldbergConfig = goldbergConfig,
+                IsUpdate = isUpdate
             };
             
             // Start packaging process with optional resume state
