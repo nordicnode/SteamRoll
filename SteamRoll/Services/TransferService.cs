@@ -27,6 +27,9 @@ public class TransferService : IDisposable
     private readonly SettingsService? _settingsService;
     private readonly ConcurrentDictionary<Guid, Task> _activeTransfers = new();
 
+    // Limits concurrent transfers to the same destination path to prevent file corruption
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _pathLocks = new(StringComparer.OrdinalIgnoreCase);
+
     public event EventHandler<TransferProgress>? ProgressChanged;
     public event EventHandler<TransferResult>? TransferComplete;
     public event EventHandler<string>? Error;
@@ -482,372 +485,392 @@ public class TransferService : IDisposable
 
             var destPath = System.IO.Path.Combine(_receiveBasePath, gameName);
 
-            // Request approval from UI before accepting
-            // We pass 0 for skipped files initially because we haven't analyzed yet to avoid hanging
-            var approvalArgs = new TransferApprovalEventArgs
-            {
-                GameName = gameName,
-                SizeBytes = header.TotalSize,
-                FileCount = header.TotalFiles
-            };
+            // Acquire lock for this destination path
+            var pathLock = _pathLocks.GetOrAdd(destPath, _ => new SemaphoreSlim(1, 1));
             
-            // Invoke approval event (UI handler should call approvalArgs.SetApproval(true/false))
-            TransferApprovalRequested?.Invoke(this, approvalArgs);
-            
-            // Wait for approval decision from UI thread (with 60 second timeout)
-            var approved = await approvalArgs.WaitForApprovalAsync();
-
-            if (!approved)
+            // Try to acquire lock - if we can't, another transfer is already writing to this folder
+            // Wait up to 2 seconds, then reject if busy
+            if (!await pathLock.WaitAsync(2000, ct))
             {
-                LogService.Instance.Info($"Transfer of {gameName} was rejected by user", "TransferService");
-                await SendJsonAsync(networkStream, new TransferAck { Accepted = false }, ct);
+                var msg = $"Transfer rejected: A transfer for '{gameName}' is already in progress.";
+                LogService.Instance.Warning(msg, "TransferService");
+                await SendJsonAsync(networkStream, new TransferAck { Accepted = false, Reason = msg }, ct);
                 return;
             }
-
-            // Now perform analysis for differential update
-            // Check for existing files to skip (Smart Sync)
-            var skippedFiles = new List<string>();
-
-            if (Directory.Exists(destPath))
-            {
-                // Try to load local metadata first for fast checking
-                Dictionary<string, string> localHashes = new();
-                try
-                {
-                    var metadataPath = System.IO.Path.Combine(destPath, "steamroll.json");
-                    if (File.Exists(metadataPath))
-                    {
-                        var json = await File.ReadAllTextAsync(metadataPath, ct);
-                        var metadata = JsonSerializer.Deserialize<Models.PackageMetadata>(json); // Full qual to avoid using ambiguity
-                        if (metadata?.FileHashes != null)
-                        {
-                            localHashes = metadata.FileHashes;
-                        }
-                    }
-                }
-                catch { /* Ignore metadata read errors */ }
-
-                foreach (var fileInfo in fileInfos)
-                {
-                    // Normalize to local separators
-                    var localRelativePath = fileInfo.RelativePath.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
-
-                    // Security check: Prevent directory traversal in analysis phase
-                    if (!IsPathSafe(localRelativePath)) continue;
-
-                    var localPath = System.IO.Path.Combine(destPath, localRelativePath);
-
-                    // Double check path containment
-                    if (!Path.GetFullPath(localPath).StartsWith(Path.GetFullPath(destPath), StringComparison.OrdinalIgnoreCase)) continue;
-
-                    if (File.Exists(localPath))
-                    {
-                        bool matches = false;
-
-                        // Check size first
-                        var fi = new FileInfo(localPath);
-                        if (fi.Length == fileInfo.Size)
-                        {
-                            // Check hash if available in metadata
-                            if (localHashes.TryGetValue(fileInfo.RelativePath, out var localHash) &&
-                                string.Equals(localHash, fileInfo.Sha256, StringComparison.OrdinalIgnoreCase))
-                            {
-                                matches = true;
-                            }
-                            // Fallback to checking hash if size matches but no metadata hash (safe but slower)
-                            else
-                            {
-                                try
-                                {
-                                    // Only hash if we have a hash to compare against
-                                    if (!string.IsNullOrEmpty(fileInfo.Sha256))
-                                    {
-                                        var computedHash = ComputeSha256(localPath);
-                                        if (string.Equals(computedHash, fileInfo.Sha256, StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            matches = true;
-                                        }
-                                    }
-                                }
-                                catch { /* If we can't read it, we can't skip it */ }
-                            }
-                        }
-
-                        if (matches)
-                        {
-                            skippedFiles.Add(fileInfo.RelativePath);
-                        }
-                    }
-
-                    // Update analysis progress (avoid UI hang appearance)
-                    // We can't update percentage accurately without total files count processed so far,
-                    // but we can show activity.
-                    // This runs on a thread pool thread, so it won't block UI if marshaled correctly.
-                    ProgressChanged?.Invoke(this, new TransferProgress
-                    {
-                        GameName = gameName,
-                        CurrentFile = $"Analyzing local files: {fileInfo.RelativePath}",
-                        IsSending = false
-                    });
-                }
-            }
-            
-            // Send acknowledgment with approval and skipped files
-            await SendJsonAsync(networkStream, new TransferAck { Accepted = true, SkippedFiles = skippedFiles }, ct);
-            
-            // If not approved, return early
-            if (!approved)
-            {
-                LogService.Instance.Info($"Transfer of {gameName} was rejected by user", "TransferService");
-                return;
-            }
-
-            // Create destination directory
-            Directory.CreateDirectory(destPath);
-            
-            // Check for existing transfer state to resume
-            var existingState = TransferState.Load(destPath);
-            var fileListHash = TransferState.ComputeFileListHash(fileInfos);
-            var completedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            long previouslyReceivedBytes = 0;
-            
-            if (existingState != null && existingState.FileListHash == fileListHash)
-            {
-                // Valid resume state found - skip already completed files
-                foreach (var completed in existingState.CompletedFiles)
-                {
-                    completedFiles.Add(completed);
-                }
-                previouslyReceivedBytes = existingState.BytesReceived;
-                LogService.Instance.Info($"Resuming transfer for {gameName}: {existingState.FilesCompleted}/{existingState.TotalFiles} files already received", "TransferService");
-            }
-            else if (existingState != null)
-            {
-                // File list changed - can't resume, start fresh
-                LogService.Instance.Info($"Transfer file list changed for {gameName}, starting fresh transfer", "TransferService");
-                TransferState.Delete(destPath);
-            }
-            
-            // Create or update transfer state
-            var state = existingState ?? new TransferState
-            {
-                GameName = gameName,
-                TotalFiles = fileInfos.Count,
-                TotalSize = header.TotalSize,
-                StartedAt = DateTime.UtcNow,
-                FileListHash = fileListHash
-            };
-
-            // Receive files
-            long receivedBytes = previouslyReceivedBytes;
-            var buffer = ArrayPool<byte>.Shared.Rent(BUFFER_SIZE);
-
-            // Setup input stream (compressed or raw)
-            Stream inputStream = networkStream;
-            System.IO.Compression.GZipStream? gzipStream = null;
-
-            if (isCompressed)
-            {
-                gzipStream = new System.IO.Compression.GZipStream(networkStream, System.IO.Compression.CompressionMode.Decompress, true);
-                inputStream = gzipStream;
-            }
-
-            // Throttle state saves and progress updates
-            DateTime lastStateSave = DateTime.UtcNow;
-            DateTime lastProgressTime = DateTime.MinValue;
 
             try
             {
-                foreach (var fileInfo in fileInfos)
+                // Request approval from UI before accepting
+                // We pass 0 for skipped files initially because we haven't analyzed yet to avoid hanging
+                var approvalArgs = new TransferApprovalEventArgs
                 {
-                    // Normalize to local separators
-                    var localRelativePath = fileInfo.RelativePath.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+                    GameName = gameName,
+                    SizeBytes = header.TotalSize,
+                    FileCount = header.TotalFiles
+                };
 
-                    // Validate path to prevent directory traversal
-                    if (!IsPathSafe(localRelativePath))
+                // Invoke approval event (UI handler should call approvalArgs.SetApproval(true/false))
+                TransferApprovalRequested?.Invoke(this, approvalArgs);
+
+                // Wait for approval decision from UI thread (with 60 second timeout)
+                var approved = await approvalArgs.WaitForApprovalAsync();
+
+                if (!approved)
+                {
+                    LogService.Instance.Info($"Transfer of {gameName} was rejected by user", "TransferService");
+                    await SendJsonAsync(networkStream, new TransferAck { Accepted = false }, ct);
+                    return;
+                }
+
+                // Now perform analysis for differential update
+                // Check for existing files to skip (Smart Sync)
+                var skippedFiles = new List<string>();
+
+                if (Directory.Exists(destPath))
+                {
+                    // Try to load local metadata first for fast checking
+                    Dictionary<string, string> localHashes = new();
+                    try
                     {
-                        LogService.Instance.Warning($"Blocked potentially malicious file path: {localRelativePath}", "TransferService");
-
-                        // Consume bytes to keep stream in sync but don't write to disk
-                        long toSkip = fileInfo.Size;
-                        while (toSkip > 0)
+                        var metadataPath = System.IO.Path.Combine(destPath, "steamroll.json");
+                        if (File.Exists(metadataPath))
                         {
-                            var toRead = (int)Math.Min(toSkip, buffer.Length);
-                            var bytesRead = await inputStream.ReadAsync(buffer.AsMemory(0, toRead), ct);
-                            if (bytesRead == 0) break;
-                            toSkip -= bytesRead;
+                            var json = await File.ReadAllTextAsync(metadataPath, ct);
+                            var metadata = JsonSerializer.Deserialize<Models.PackageMetadata>(json); // Full qual to avoid using ambiguity
+                            if (metadata?.FileHashes != null)
+                            {
+                                localHashes = metadata.FileHashes;
+                            }
                         }
-                        continue;
                     }
+                    catch { /* Ignore metadata read errors */ }
 
-                    // Check if this file was already completed in a previous transfer attempt
-                    if (completedFiles.Contains(fileInfo.RelativePath))
+                    foreach (var fileInfo in fileInfos)
                     {
-                        // Skip the bytes in the stream (sender still sends them)
-                        // We need to consume them to keep the stream in sync
-                        long toSkip = fileInfo.Size;
-                        while (toSkip > 0)
+                        // Normalize to local separators
+                        var localRelativePath = fileInfo.RelativePath.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+
+                        // Security check: Prevent directory traversal in analysis phase
+                        if (!IsPathSafe(localRelativePath)) continue;
+
+                        var localPath = System.IO.Path.Combine(destPath, localRelativePath);
+
+                        // Double check path containment
+                        if (!Path.GetFullPath(localPath).StartsWith(Path.GetFullPath(destPath), StringComparison.OrdinalIgnoreCase)) continue;
+
+                        if (File.Exists(localPath))
                         {
-                            var toRead = (int)Math.Min(toSkip, buffer.Length);
-                            var bytesRead = await inputStream.ReadAsync(buffer.AsMemory(0, toRead), ct);
-                            if (bytesRead == 0) break;
-                            toSkip -= bytesRead;
+                            bool matches = false;
+
+                            // Check size first
+                            var fi = new FileInfo(localPath);
+                            if (fi.Length == fileInfo.Size)
+                            {
+                                // Check hash if available in metadata
+                                if (localHashes.TryGetValue(fileInfo.RelativePath, out var localHash) &&
+                                    string.Equals(localHash, fileInfo.Sha256, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    matches = true;
+                                }
+                                // Fallback to checking hash if size matches but no metadata hash (safe but slower)
+                                else
+                                {
+                                    try
+                                    {
+                                        // Only hash if we have a hash to compare against
+                                        if (!string.IsNullOrEmpty(fileInfo.Sha256))
+                                        {
+                                            var computedHash = ComputeSha256(localPath);
+                                            if (string.Equals(computedHash, fileInfo.Sha256, StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                matches = true;
+                                            }
+                                        }
+                                    }
+                                    catch { /* If we can't read it, we can't skip it */ }
+                                }
+                            }
+
+                            if (matches)
+                            {
+                                skippedFiles.Add(fileInfo.RelativePath);
+                            }
                         }
 
-                        // Report progress for skipped file
+                        // Update analysis progress (avoid UI hang appearance)
+                        // We can't update percentage accurately without total files count processed so far,
+                        // but we can show activity.
+                        // This runs on a thread pool thread, so it won't block UI if marshaled correctly.
                         ProgressChanged?.Invoke(this, new TransferProgress
                         {
                             GameName = gameName,
-                            CurrentFile = fileInfo.RelativePath + " (skipped - already received)",
-                            BytesTransferred = receivedBytes,
-                            TotalBytes = header.TotalSize,
+                            CurrentFile = $"Analyzing local files: {fileInfo.RelativePath}",
                             IsSending = false
                         });
-                        continue;
                     }
-                    
-                    var fullPath = System.IO.Path.Combine(destPath, localRelativePath);
-                    // Ensure the final path is actually within destPath (double check)
-                    if (!Path.GetFullPath(fullPath).StartsWith(Path.GetFullPath(destPath), StringComparison.OrdinalIgnoreCase))
+                }
+
+                // Send acknowledgment with approval and skipped files
+                await SendJsonAsync(networkStream, new TransferAck { Accepted = true, SkippedFiles = skippedFiles }, ct);
+
+                // If not approved, return early
+                if (!approved)
+                {
+                    LogService.Instance.Info($"Transfer of {gameName} was rejected by user", "TransferService");
+                    return;
+                }
+
+                // Create destination directory
+                Directory.CreateDirectory(destPath);
+
+                // Check for existing transfer state to resume
+                var existingState = TransferState.Load(destPath);
+                var fileListHash = TransferState.ComputeFileListHash(fileInfos);
+                var completedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                long previouslyReceivedBytes = 0;
+
+                if (existingState != null && existingState.FileListHash == fileListHash)
+                {
+                    // Valid resume state found - skip already completed files
+                    foreach (var completed in existingState.CompletedFiles)
                     {
-                        LogService.Instance.Warning($"Blocked path traversal attempt: {localRelativePath} -> {fullPath}", "TransferService");
-                        // Consume bytes
-                        long toSkip = fileInfo.Size;
-                        while (toSkip > 0)
-                        {
-                            var toRead = (int)Math.Min(toSkip, buffer.Length);
-                            var bytesRead = await inputStream.ReadAsync(buffer.AsMemory(0, toRead), ct);
-                            if (bytesRead == 0) break;
-                            toSkip -= bytesRead;
-                        }
-                        continue;
+                        completedFiles.Add(completed);
                     }
+                    previouslyReceivedBytes = existingState.BytesReceived;
+                    LogService.Instance.Info($"Resuming transfer for {gameName}: {existingState.FilesCompleted}/{existingState.TotalFiles} files already received", "TransferService");
+                }
+                else if (existingState != null)
+                {
+                    // File list changed - can't resume, start fresh
+                    LogService.Instance.Info($"Transfer file list changed for {gameName}, starting fresh transfer", "TransferService");
+                    TransferState.Delete(destPath);
+                }
 
-                    var dir = System.IO.Path.GetDirectoryName(fullPath);
-                    if (!string.IsNullOrEmpty(dir))
-                        Directory.CreateDirectory(dir);
+                // Create or update transfer state
+                var state = existingState ?? new TransferState
+                {
+                    GameName = gameName,
+                    TotalFiles = fileInfos.Count,
+                    TotalSize = header.TotalSize,
+                    StartedAt = DateTime.UtcNow,
+                    FileListHash = fileListHash
+                };
 
-                    // Use Async FileStream
-                    using var fileStream = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true);
+                // Receive files
+                long receivedBytes = previouslyReceivedBytes;
+                var buffer = ArrayPool<byte>.Shared.Rent(BUFFER_SIZE);
 
-                    // Optimization: Compute hash while writing to avoid re-reading the file
-                    using var hasher = !string.IsNullOrEmpty(fileInfo.Sha256) ? IncrementalHash.CreateHash(HashAlgorithmName.SHA256) : null;
+                // Setup input stream (compressed or raw)
+                Stream inputStream = networkStream;
+                System.IO.Compression.GZipStream? gzipStream = null;
 
-                    long remaining = fileInfo.Size;
+                if (isCompressed)
+                {
+                    gzipStream = new System.IO.Compression.GZipStream(networkStream, System.IO.Compression.CompressionMode.Decompress, true);
+                    inputStream = gzipStream;
+                }
 
-                    while (remaining > 0)
+                // Throttle state saves and progress updates
+                DateTime lastStateSave = DateTime.UtcNow;
+                DateTime lastProgressTime = DateTime.MinValue;
+
+                try
+                {
+                    foreach (var fileInfo in fileInfos)
                     {
-                        var toRead = (int)Math.Min(remaining, buffer.Length);
-                        var bytesRead = await inputStream.ReadAsync(buffer.AsMemory(0, toRead), ct);
-                        if (bytesRead == 0) break;
+                        // Normalize to local separators
+                        var localRelativePath = fileInfo.RelativePath.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
 
-                        await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-
-                        if (hasher != null)
+                        // Validate path to prevent directory traversal
+                        if (!IsPathSafe(localRelativePath))
                         {
-                            hasher.AppendData(buffer, 0, bytesRead);
+                            LogService.Instance.Warning($"Blocked potentially malicious file path: {localRelativePath}", "TransferService");
+
+                            // Consume bytes to keep stream in sync but don't write to disk
+                            long toSkip = fileInfo.Size;
+                            while (toSkip > 0)
+                            {
+                                var toRead = (int)Math.Min(toSkip, buffer.Length);
+                                var bytesRead = await inputStream.ReadAsync(buffer.AsMemory(0, toRead), ct);
+                                if (bytesRead == 0) break;
+                                toSkip -= bytesRead;
+                            }
+                            continue;
                         }
 
-                        remaining -= bytesRead;
-                        receivedBytes += bytesRead;
-
-                        var progressNow = DateTime.UtcNow;
-                        if ((progressNow - lastProgressTime).TotalMilliseconds >= 100)
+                        // Check if this file was already completed in a previous transfer attempt
+                        if (completedFiles.Contains(fileInfo.RelativePath))
                         {
-                            lastProgressTime = progressNow;
+                            // Skip the bytes in the stream (sender still sends them)
+                            // We need to consume them to keep the stream in sync
+                            long toSkip = fileInfo.Size;
+                            while (toSkip > 0)
+                            {
+                                var toRead = (int)Math.Min(toSkip, buffer.Length);
+                                var bytesRead = await inputStream.ReadAsync(buffer.AsMemory(0, toRead), ct);
+                                if (bytesRead == 0) break;
+                                toSkip -= bytesRead;
+                            }
+
+                            // Report progress for skipped file
                             ProgressChanged?.Invoke(this, new TransferProgress
                             {
                                 GameName = gameName,
-                                CurrentFile = fileInfo.RelativePath,
+                                CurrentFile = fileInfo.RelativePath + " (skipped - already received)",
                                 BytesTransferred = receivedBytes,
                                 TotalBytes = header.TotalSize,
                                 IsSending = false
                             });
+                            continue;
                         }
-                    }
 
-                    // Verify checksum if provided
-                    if (!string.IsNullOrEmpty(fileInfo.Sha256) && hasher != null)
-                    {
-                        var actualHashBytes = hasher.GetHashAndReset();
-                        var actualHash = Convert.ToHexString(actualHashBytes).ToLowerInvariant();
-
-                        if (!string.Equals(actualHash, fileInfo.Sha256, StringComparison.OrdinalIgnoreCase))
+                        var fullPath = System.IO.Path.Combine(destPath, localRelativePath);
+                        // Ensure the final path is actually within destPath (double check)
+                        if (!Path.GetFullPath(fullPath).StartsWith(Path.GetFullPath(destPath), StringComparison.OrdinalIgnoreCase))
                         {
-                            LogService.Instance.Error($"Checksum mismatch for {fileInfo.RelativePath}", category: "TransferService");
-                            throw new InvalidDataException($"Checksum verification failed for {fileInfo.RelativePath}");
+                            LogService.Instance.Warning($"Blocked path traversal attempt: {localRelativePath} -> {fullPath}", "TransferService");
+                            // Consume bytes
+                            long toSkip = fileInfo.Size;
+                            while (toSkip > 0)
+                            {
+                                var toRead = (int)Math.Min(toSkip, buffer.Length);
+                                var bytesRead = await inputStream.ReadAsync(buffer.AsMemory(0, toRead), ct);
+                                if (bytesRead == 0) break;
+                                toSkip -= bytesRead;
+                            }
+                            continue;
                         }
-                    }
 
-                    // Mark file as completed
-                    state.FilesCompleted++;
-                    state.BytesReceived = receivedBytes;
-                    state.CompletedFiles.Add(fileInfo.RelativePath);
+                        var dir = System.IO.Path.GetDirectoryName(fullPath);
+                        if (!string.IsNullOrEmpty(dir))
+                            Directory.CreateDirectory(dir);
 
-                    // Periodically save state (every 5 seconds or when finished)
-                    var now = DateTime.UtcNow;
-                    if ((now - lastStateSave).TotalSeconds >= 5 || state.FilesCompleted == state.TotalFiles)
-                    {
-                        TransferState.Save(destPath, state);
-                        lastStateSave = now;
+                        // Use Async FileStream
+                        using var fileStream = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true);
+
+                        // Optimization: Compute hash while writing to avoid re-reading the file
+                        using var hasher = !string.IsNullOrEmpty(fileInfo.Sha256) ? IncrementalHash.CreateHash(HashAlgorithmName.SHA256) : null;
+
+                        long remaining = fileInfo.Size;
+
+                        while (remaining > 0)
+                        {
+                            var toRead = (int)Math.Min(remaining, buffer.Length);
+                            var bytesRead = await inputStream.ReadAsync(buffer.AsMemory(0, toRead), ct);
+                            if (bytesRead == 0) break;
+
+                            await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+
+                            if (hasher != null)
+                            {
+                                hasher.AppendData(buffer, 0, bytesRead);
+                            }
+
+                            remaining -= bytesRead;
+                            receivedBytes += bytesRead;
+
+                            var progressNow = DateTime.UtcNow;
+                            if ((progressNow - lastProgressTime).TotalMilliseconds >= 100)
+                            {
+                                lastProgressTime = progressNow;
+                                ProgressChanged?.Invoke(this, new TransferProgress
+                                {
+                                    GameName = gameName,
+                                    CurrentFile = fileInfo.RelativePath,
+                                    BytesTransferred = receivedBytes,
+                                    TotalBytes = header.TotalSize,
+                                    IsSending = false
+                                });
+                            }
+                        }
+
+                        // Verify checksum if provided
+                        if (!string.IsNullOrEmpty(fileInfo.Sha256) && hasher != null)
+                        {
+                            var actualHashBytes = hasher.GetHashAndReset();
+                            var actualHash = Convert.ToHexString(actualHashBytes).ToLowerInvariant();
+
+                            if (!string.Equals(actualHash, fileInfo.Sha256, StringComparison.OrdinalIgnoreCase))
+                            {
+                                LogService.Instance.Error($"Checksum mismatch for {fileInfo.RelativePath}", category: "TransferService");
+                                throw new InvalidDataException($"Checksum verification failed for {fileInfo.RelativePath}");
+                            }
+                        }
+
+                        // Mark file as completed
+                        state.FilesCompleted++;
+                        state.BytesReceived = receivedBytes;
+                        state.CompletedFiles.Add(fileInfo.RelativePath);
+
+                        // Periodically save state (every 5 seconds or when finished)
+                        var now = DateTime.UtcNow;
+                        if ((now - lastStateSave).TotalSeconds >= 5 || state.FilesCompleted == state.TotalFiles)
+                        {
+                            TransferState.Save(destPath, state);
+                            lastStateSave = now;
+                        }
                     }
                 }
+                finally
+                {
+                     ArrayPool<byte>.Shared.Return(buffer);
+
+                     // No need to dispose reader stream specifically if it just wraps,
+                     // but good practice if we want to ensure any internal buffers are cleared
+                     if (gzipStream != null) await gzipStream.DisposeAsync();
+                }
+
+                // Transfer complete - delete state file
+                TransferState.Delete(destPath);
+
+                // Mark as received from network
+                await MarkAsReceivedPackage(destPath);
+                
+                // Verify package integrity using stored hashes in steamroll.json
+                bool verificationPassed = true;
+                var verificationErrors = new List<string>();
+
+                try
+                {
+                    var (isValid, mismatches) = PackageBuilder.VerifyIntegrity(destPath);
+                    verificationPassed = isValid;
+                    verificationErrors = mismatches;
+
+                    if (isValid)
+                    {
+                        LogService.Instance.Info($"Package verification passed for {gameName}", "TransferService");
+                    }
+                    else
+                    {
+                        LogService.Instance.Warning($"Package verification failed for {gameName}: {string.Join(", ", mismatches)}", "TransferService");
+                    }
+                }
+                catch (Exception verifyEx)
+                {
+                    LogService.Instance.Warning($"Could not verify package {gameName}: {verifyEx.Message}", "TransferService");
+                    // Don't fail the transfer, just note we couldn't verify
+                }
+
+                // Send completion
+                await SendJsonAsync(networkStream, new TransferComplete { Success = true }, ct);
+
+                TransferComplete?.Invoke(this, new TransferResult
+                {
+                    Success = true,
+                    GameName = gameName,
+                    Path = destPath,
+                    BytesTransferred = receivedBytes,
+                    WasReceived = true,
+                    VerificationPassed = verificationPassed,
+                    VerificationErrors = verificationErrors
+                });
+
+                LogService.Instance.Info($"Received package: {gameName} ({receivedBytes} bytes, verified: {verificationPassed})", "TransferService");
             }
             finally
             {
-                 ArrayPool<byte>.Shared.Return(buffer);
-
-                 // No need to dispose reader stream specifically if it just wraps,
-                 // but good practice if we want to ensure any internal buffers are cleared
-                 if (gzipStream != null) await gzipStream.DisposeAsync();
+                pathLock.Release();
             }
-            
-            // Transfer complete - delete state file
-            TransferState.Delete(destPath);
-
-            // Mark as received from network
-            await MarkAsReceivedPackage(destPath);
-            
-            // Verify package integrity using stored hashes in steamroll.json
-            bool verificationPassed = true;
-            var verificationErrors = new List<string>();
-            
-            try
-            {
-                var (isValid, mismatches) = PackageBuilder.VerifyIntegrity(destPath);
-                verificationPassed = isValid;
-                verificationErrors = mismatches;
-                
-                if (isValid)
-                {
-                    LogService.Instance.Info($"Package verification passed for {gameName}", "TransferService");
-                }
-                else
-                {
-                    LogService.Instance.Warning($"Package verification failed for {gameName}: {string.Join(", ", mismatches)}", "TransferService");
-                }
-            }
-            catch (Exception verifyEx)
-            {
-                LogService.Instance.Warning($"Could not verify package {gameName}: {verifyEx.Message}", "TransferService");
-                // Don't fail the transfer, just note we couldn't verify
-            }
-
-            // Send completion
-            await SendJsonAsync(networkStream, new TransferComplete { Success = true }, ct);
-
-            TransferComplete?.Invoke(this, new TransferResult
-            {
-                Success = true,
-                GameName = gameName,
-                Path = destPath,
-                BytesTransferred = receivedBytes,
-                WasReceived = true,
-                VerificationPassed = verificationPassed,
-                VerificationErrors = verificationErrors
-            });
-
-            LogService.Instance.Info($"Received package: {gameName} ({receivedBytes} bytes, verified: {verificationPassed})", "TransferService");
 
         }
         catch (Exception ex)
