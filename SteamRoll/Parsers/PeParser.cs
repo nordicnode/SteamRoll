@@ -331,6 +331,14 @@ public class PeParser
         return ImportedFunctions.Any(f => 
             f.Equals(functionName, StringComparison.OrdinalIgnoreCase));
     }
+
+    /// <summary>
+    /// Returns the architecture string (32-bit or 64-bit).
+    /// </summary>
+    public string GetArchitecture()
+    {
+        return Is64Bit ? "64-bit" : "32-bit";
+    }
 }
 
 /// <summary>
