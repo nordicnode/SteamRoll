@@ -255,6 +255,7 @@ public partial class MainWindow : Window
         {
             // Switch to List View
             GamesGridScroll.Visibility = Visibility.Collapsed;
+            GamesList.Visibility = Visibility.Collapsed;
             GamesListView.Visibility = Visibility.Visible;
             ViewModeIcon.Text = "⊞"; // Icon becomes Grid
             ViewModeToggle.ToolTip = "Switch to Grid View";
@@ -263,6 +264,7 @@ public partial class MainWindow : Window
         {
             // Switch to Grid View
             GamesGridScroll.Visibility = Visibility.Visible;
+            GamesList.Visibility = Visibility.Visible;
             GamesListView.Visibility = Visibility.Collapsed;
             ViewModeIcon.Text = "📑"; // Icon becomes List
             ViewModeToggle.ToolTip = "Switch to List View";
@@ -1335,11 +1337,13 @@ public partial class MainWindow : Window
             if (ViewModeToggle.IsChecked == true)
             {
                 GamesGridScroll.Visibility = Visibility.Collapsed;
+                GamesList.Visibility = Visibility.Collapsed;
                 GamesListView.Visibility = Visibility.Visible;
             }
             else
             {
                 GamesGridScroll.Visibility = Visibility.Visible;
+                GamesList.Visibility = Visibility.Visible;
                 GamesListView.Visibility = Visibility.Collapsed;
             }
         }
