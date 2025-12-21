@@ -12,7 +12,12 @@
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         AllowsTransparency="True"
-        Background="Transparent">
+        Background="Transparent"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
+        RenderOptions.BitmapScalingMode="HighQuality">
 
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="0" ResizeBorderThickness="8" CornerRadius="0" GlassFrameThickness="0"/>
@@ -384,7 +389,7 @@
                                         </ControlTemplate>
                                     </ToggleButton.Template>
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock x:Name="ViewModeIcon" Text="📑" FontFamily="Segoe UI Emoji"/>
+                                        <TextBlock x:Name="ViewModeIcon" Text="📑" FontFamily="Segoe UI Emoji" Foreground="White"/>
                                     </StackPanel>
                                     <ToggleButton.ToolTip>
                                         <ToolTip Content="Toggle List View"/>
@@ -516,12 +521,12 @@
                 
                 <!-- Network Status (visually distinct from static stats) -->
                 <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
-                    <TextBlock x:Name="NetworkStatusText" Text="Searching for peers" FontSize="12"
-                               FontStyle="Italic" FontWeight="Light"
-                               Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="NetworkStatusDots" Text="..." FontSize="12"
-                               FontStyle="Italic" FontWeight="Light"
-                               Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="NetworkStatusText" Text="Searching for peers" FontSize="13"
+                               FontWeight="Normal"
+                               Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="NetworkStatusDots" Text="..." FontSize="13"
+                               FontWeight="Normal"
+                               Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                 </StackPanel>
                 
                 <!-- Sort Box -->
@@ -665,16 +670,16 @@
                 </StackPanel>
                 
                 <!-- Search Box -->
-                <TextBox Grid.Column="6" x:Name="SearchBox" Width="200"
+                <TextBox Grid.Column="6" x:Name="SearchBox" Width="150"
                          Style="{DynamicResource SearchBoxStyle}"
-                         Text="" 
+                         Text="🔍 Search games..." Foreground="{DynamicResource TextSecondaryBrush}"
                          GotFocus="SearchBox_GotFocus"
                          LostFocus="SearchBox_LostFocus"
                          TextChanged="SearchBox_TextChanged"/>
                 
                 <!-- Browse Peer Library Button -->
                 <Button Grid.Column="7" Click="BrowsePeerButton_Click"
-                        Margin="12,0,0,0" Padding="14,8" Cursor="Hand"
+                        Margin="6,0,0,0" Padding="10,4" Cursor="Hand"
                         Background="#1A58A6FF" BorderThickness="1" BorderBrush="#58A6FF"
                         Visibility="{Binding HasPeers, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <Button.Template>
@@ -682,7 +687,7 @@
                             <Border x:Name="border" Background="{TemplateBinding Background}" 
                                     BorderBrush="{TemplateBinding BorderBrush}"
                                     BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                    CornerRadius="4" Padding="{TemplateBinding Padding}">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
@@ -693,8 +698,8 @@
                         </ControlTemplate>
                     </Button.Template>
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="🌐 " FontFamily="Segoe UI Emoji" Foreground="#58A6FF"/>
-                        <TextBlock Text="Browse Peer Library" FontWeight="SemiBold" Foreground="#58A6FF"/>
+                        <TextBlock Text="🌐" FontSize="11" FontFamily="Segoe UI Emoji" Foreground="#58A6FF" Margin="0,0,4,0"/>
+                        <TextBlock Text="Browse Peer Library" FontSize="11" Foreground="#58A6FF"/>
                     </StackPanel>
                 </Button>
             </Grid>
@@ -784,7 +789,7 @@
                 <ItemsControl x:Name="GamesList">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
-                            <UniformGrid Columns="5"/>
+                            <WrapPanel ItemWidth="240" ItemHeight="Auto" Orientation="Horizontal"/>
                         </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
@@ -948,10 +953,17 @@
                                            Foreground="{DynamicResource TextPrimaryBrush}"
                                            TextTrimming="CharacterEllipsis"/>
                                 
-                                <!-- Row 1: DRM Type only (simplified) -->
-                                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,4,0,0">
-                                    <TextBlock FontSize="11" Style="{DynamicResource DrmTypeTextStyle}"/>
-                                </StackPanel>
+                                <!-- Row 1: DRM Type and Last Played (side by side) -->
+                                <Grid Grid.Row="1" Margin="0,4,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" FontSize="11" Style="{DynamicResource DrmTypeTextStyle}"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding FormattedLastPlayed}" FontSize="12"
+                                               Foreground="{DynamicResource TextMutedBrush}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
                                 
                                 <!-- Row 2: Size and DLC Info Badges -->
                                 <WrapPanel Grid.Row="2" Margin="0,12,0,0">
@@ -1008,11 +1020,6 @@
                                     <Border CornerRadius="4" Padding="8,4" Margin="0,0,0,4" Style="{DynamicResource ReadyBadgeBorderStyle}">
                                         <TextBlock Text="Ready" FontSize="11" Foreground="{DynamicResource SuccessBrush}"/>
                                     </Border>
-
-                                    <!-- Last Played -->
-                                    <TextBlock Text="{Binding FormattedLastPlayed}" FontSize="10"
-                                               Foreground="{DynamicResource TextMutedBrush}"
-                                               Margin="0,4,0,0" HorizontalAlignment="Right"/>
                                 </WrapPanel>
                                 
 

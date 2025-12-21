@@ -179,8 +179,8 @@
                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
                 <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}"/>
-                <Setter Property="Padding" Value="12,10"/>
-                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="Padding" Value="8,4"/>
+                <Setter Property="FontSize" Value="12"/>
                 <Setter Property="CaretBrush" Value="{StaticResource TextPrimaryBrush}"/>
                 <Setter Property="Template">
                     <Setter.Value>

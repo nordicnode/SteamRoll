@@ -1469,6 +1469,9 @@ public partial class MainWindow : Window
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
+        // Skip if not yet initialized (fires during XAML loading)
+        if (!IsLoaded) return;
+        
         ApplyFilters();
     }
     
