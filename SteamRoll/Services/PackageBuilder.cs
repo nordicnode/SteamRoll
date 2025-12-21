@@ -1343,6 +1343,21 @@ public class PackageBuilder
 
                         var fullOutputPath = Path.Combine(destPath, relativePath);
 
+                        // Prevent Zip Slip vulnerability
+                        var fullDestPath = Path.GetFullPath(destPath);
+                        // Ensure fullDestPath ends with a directory separator to prevent matching partial directory names (e.g. /tmp/test vs /tmp/test_exploit)
+                        if (!fullDestPath.EndsWith(Path.DirectorySeparatorChar.ToString()) && !fullDestPath.EndsWith(Path.AltDirectorySeparatorChar.ToString()))
+                        {
+                            fullDestPath += Path.DirectorySeparatorChar;
+                        }
+
+                        var fullTarget = Path.GetFullPath(fullOutputPath);
+                        if (!fullTarget.StartsWith(fullDestPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            LogService.Instance.Warning($"Skipped potentially malicious zip entry: {entry.FullName}", "PackageBuilder");
+                            continue;
+                        }
+
                         Directory.CreateDirectory(Path.GetDirectoryName(fullOutputPath)!);
                         entry.ExtractToFile(fullOutputPath, true);
                     }
