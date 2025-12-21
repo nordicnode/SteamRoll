@@ -93,6 +93,50 @@ public class InstalledGame : INotifyPropertyChanged
     /// </summary>
     public string CapsuleImageUrl => $"https://steamcdn-a.akamaihd.net/steam/apps/{AppId}/capsule_231x87.jpg";
 
+    /// <summary>
+    /// Timestamp when the game was last played (Unix timestamp).
+    /// </summary>
+    public long LastPlayed { get; set; }
+
+    /// <summary>
+    /// DateTime representation of LastPlayed.
+    /// </summary>
+    public DateTime LastPlayedTime => LastPlayed > 0 ? DateTimeOffset.FromUnixTimeSeconds(LastPlayed).LocalDateTime : DateTime.MinValue;
+
+    /// <summary>
+    /// Formatted relative time string for Last Played.
+    /// </summary>
+    public string FormattedLastPlayed
+    {
+        get
+        {
+            if (LastPlayed <= 0) return "Never played";
+            var span = DateTime.Now - LastPlayedTime;
+            if (span.TotalDays < 1) return "Played today";
+            if (span.TotalDays < 2) return "Played yesterday";
+            if (span.TotalDays < 30) return $"Played {span.Days} days ago";
+            if (span.TotalDays < 365) return $"Played {span.Days / 30} months ago";
+            return $"Played {span.Days / 365} years ago";
+        }
+    }
+
+    private bool _isFavorite;
+    /// <summary>
+    /// Whether the game is marked as favorite.
+    /// </summary>
+    public bool IsFavorite
+    {
+        get => _isFavorite;
+        set
+        {
+            if (_isFavorite != value)
+            {
+                _isFavorite = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
     // ============================================
     // Package Status Tracking
     // ============================================
