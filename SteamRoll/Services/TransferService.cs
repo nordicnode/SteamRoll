@@ -164,7 +164,7 @@ public class TransferService : IDisposable
             catch { /* Ignore metadata read errors */ }
 
             var fileInfos = files.AsParallel().Select(f => {
-                var relativePath = System.IO.Path.GetRelativePath(basePath, f);
+                var relativePath = System.IO.Path.GetRelativePath(basePath, f).Replace('\\', '/');
                 var fi = new FileInfo(f);
                 var size = fi.Length;
                 string hash;
@@ -174,7 +174,24 @@ public class TransferService : IDisposable
                 // If the file was modified after metadata creation, we MUST re-hash it to ensure correctness.
                 bool isUnchanged = fi.LastWriteTimeUtc <= metadataDate;
 
-                if (isUnchanged && knownHashes.TryGetValue(relativePath, out var cachedHash) && !string.IsNullOrEmpty(cachedHash))
+                // Note: knownHashes usually uses OS-specific separators if generated locally.
+                // We should normalize lookup if needed, but for now assuming steamroll.json matches local OS.
+                // Ideally steamroll.json should also use forward slashes.
+
+                // Try to find hash using the normalized relative path (assuming steamroll.json uses forward slashes)
+                // or the original relative path (backward compatibility)
+                var originalRelativePath = System.IO.Path.GetRelativePath(basePath, f);
+
+                string? cachedHash = null;
+                if (isUnchanged)
+                {
+                    if (!knownHashes.TryGetValue(relativePath, out cachedHash))
+                    {
+                        knownHashes.TryGetValue(originalRelativePath, out cachedHash);
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(cachedHash))
                 {
                      hash = cachedHash;
                 }
@@ -185,7 +202,7 @@ public class TransferService : IDisposable
 
                 return new TransferFileInfo
                 {
-                    RelativePath = relativePath,
+                    RelativePath = relativePath, // Always send forward slashes
                     Size = size,
                     Sha256 = hash
                 };
@@ -408,7 +425,8 @@ public class TransferService : IDisposable
             var fileInfos = await ReceiveJsonAsync<List<TransferFileInfo>>(networkStream, ct);
             if (fileInfos == null) return;
 
-            var gameName = header.GameName ?? "Unknown";
+            // Sanitize GameName from header to prevent path traversal
+            var gameName = FormatUtils.SanitizeFileName(header.GameName ?? "Unknown");
 
             // Handle Save Sync Request
             if (header.TransferType == "SaveSync")
@@ -480,10 +498,13 @@ public class TransferService : IDisposable
 
                 foreach (var fileInfo in fileInfos)
                 {
-                    // Security check: Prevent directory traversal in analysis phase
-                    if (!IsPathSafe(fileInfo.RelativePath)) continue;
+                    // Normalize to local separators
+                    var localRelativePath = fileInfo.RelativePath.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
 
-                    var localPath = System.IO.Path.Combine(destPath, fileInfo.RelativePath);
+                    // Security check: Prevent directory traversal in analysis phase
+                    if (!IsPathSafe(localRelativePath)) continue;
+
+                    var localPath = System.IO.Path.Combine(destPath, localRelativePath);
 
                     // Double check path containment
                     if (!Path.GetFullPath(localPath).StartsWith(Path.GetFullPath(destPath), StringComparison.OrdinalIgnoreCase)) continue;
@@ -608,10 +629,13 @@ public class TransferService : IDisposable
             {
                 foreach (var fileInfo in fileInfos)
                 {
+                    // Normalize to local separators
+                    var localRelativePath = fileInfo.RelativePath.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+
                     // Validate path to prevent directory traversal
-                    if (!IsPathSafe(fileInfo.RelativePath))
+                    if (!IsPathSafe(localRelativePath))
                     {
-                        LogService.Instance.Warning($"Blocked potentially malicious file path: {fileInfo.RelativePath}", "TransferService");
+                        LogService.Instance.Warning($"Blocked potentially malicious file path: {localRelativePath}", "TransferService");
 
                         // Consume bytes to keep stream in sync but don't write to disk
                         long toSkip = fileInfo.Size;
@@ -651,11 +675,11 @@ public class TransferService : IDisposable
                         continue;
                     }
                     
-                    var fullPath = System.IO.Path.Combine(destPath, fileInfo.RelativePath);
+                    var fullPath = System.IO.Path.Combine(destPath, localRelativePath);
                     // Ensure the final path is actually within destPath (double check)
                     if (!Path.GetFullPath(fullPath).StartsWith(Path.GetFullPath(destPath), StringComparison.OrdinalIgnoreCase))
                     {
-                        LogService.Instance.Warning($"Blocked path traversal attempt: {fileInfo.RelativePath} -> {fullPath}", "TransferService");
+                        LogService.Instance.Warning($"Blocked path traversal attempt: {localRelativePath} -> {fullPath}", "TransferService");
                         // Consume bytes
                         long toSkip = fileInfo.Size;
                         while (toSkip > 0)
