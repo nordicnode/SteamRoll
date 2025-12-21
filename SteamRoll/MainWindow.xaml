@@ -673,6 +673,13 @@
                                     <Separator/>
                                     <MenuItem Header="📁 Open Install Folder" Click="ContextMenu_OpenInstallFolder_Click" Tag="{Binding}"/>
                                     <MenuItem Header="🔍 View Details" Click="ContextMenu_ViewDetails_Click" Tag="{Binding}"/>
+                                    <MenuItem Header="🛡️ Verify Integrity" Click="ContextMenu_VerifyIntegrity_Click" Tag="{Binding}">
+                                        <MenuItem.Style>
+                                            <Style TargetType="MenuItem">
+                                                <Setter Property="IsEnabled" Value="{Binding IsPackaged}"/>
+                                            </Style>
+                                        </MenuItem.Style>
+                                    </MenuItem>
                                     <MenuItem Header="🌐 Open Steam Store" Click="ContextMenu_OpenSteamStore_Click" Tag="{Binding}"/>
                                 </ContextMenu>
                             </Border.ContextMenu>

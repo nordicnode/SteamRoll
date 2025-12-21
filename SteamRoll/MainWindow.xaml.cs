@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private readonly SettingsService _settingsService;
     private readonly SaveGameService _saveGameService;
     private readonly UpdateService _updateService;
+    private readonly IntegrityService _integrityService;
     private CancellationTokenSource? _currentOperationCts;
     private CancellationTokenSource? _scanCts;
     private List<InstalledGame> _allGames = new();
@@ -63,6 +64,9 @@ public partial class MainWindow : Window
         
         // Initialize SaveGameService
         _saveGameService = new SaveGameService(_settingsService);
+
+        // Initialize IntegrityService
+        _integrityService = new IntegrityService();
 
         // Initialize update service
         _updateService = new UpdateService(_goldbergService.GoldbergPath);
@@ -2125,6 +2129,69 @@ public partial class MainWindow : Window
             // Show game info in a toast for now - full details view can be added later
             var info = $"AppID: {game.AppId}\nSize: {game.FormattedSize}\nInstalled: {game.InstallDir}";
             ToastService.Instance.ShowInfo(game.Name, info);
+        }
+    }
+
+    private async void ContextMenu_VerifyIntegrity_Click(object sender, RoutedEventArgs e)
+    {
+        var game = GetGameFromContextMenu(sender);
+        if (game == null || !game.IsPackaged || string.IsNullOrEmpty(game.PackagePath)) return;
+
+        LoadingOverlay.Show($"Verifying {game.Name} integrity...");
+        StatusText.Text = $"🛡️ Verifying {game.Name}...";
+
+        try
+        {
+            var progress = new Progress<int>(p =>
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    LoadingOverlay.UpdateProgress("Verifying files...", p);
+                    StatusText.Text = $"🛡️ Verifying {game.Name}: {p}%";
+                });
+            });
+
+            var result = await _integrityService.VerifyPackageAsync(game.PackagePath, progress);
+
+            LoadingOverlay.Hide();
+
+            if (result.IsValid)
+            {
+                StatusText.Text = $"✓ Verification passed: {game.Name}";
+                ToastService.Instance.ShowSuccess("Verification Passed", $"{game.Name} is valid and intact.");
+            }
+            else
+            {
+                StatusText.Text = $"⚠ Verification failed: {game.Name}";
+
+                var message = $"{result.MissingFiles.Count} missing files, {result.MismatchedFiles.Count} modified files.\n\n" +
+                              "Would you like to see the detailed report?";
+
+                if (MessageBox.Show(message, "Verification Failed", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
+                {
+                    var report = $"Verification Report for {game.Name}\n\n";
+                    if (result.MissingFiles.Count > 0)
+                    {
+                        report += "MISSING FILES:\n" + string.Join("\n", result.MissingFiles.Take(10));
+                        if (result.MissingFiles.Count > 10) report += $"\n...and {result.MissingFiles.Count - 10} more";
+                        report += "\n\n";
+                    }
+                    if (result.MismatchedFiles.Count > 0)
+                    {
+                        report += "MODIFIED/CORRUPT FILES:\n" + string.Join("\n", result.MismatchedFiles.Take(10));
+                        if (result.MismatchedFiles.Count > 10) report += $"\n...and {result.MismatchedFiles.Count - 10} more";
+                    }
+
+                    // Show in a simple dialog or just a large message box
+                    MessageBox.Show(report, "Detailed Report", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LoadingOverlay.Hide();
+            StatusText.Text = $"⚠ Verification error: {ex.Message}";
+            ToastService.Instance.ShowError("Verification Error", ex.Message);
         }
     }
     
