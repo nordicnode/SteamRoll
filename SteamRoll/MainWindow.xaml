@@ -19,6 +19,8 @@
     
     <!-- Window Resources: Extracted styles to avoid BAML loading issues in single-file publish -->
     <Window.Resources>
+        <!-- Value Converters -->
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
         <!-- Header Image Border Style with hover opacity -->
         <Style x:Key="HeaderImageBorderStyle" TargetType="Border">
             <Setter Property="Opacity" Value="0.85"/>
