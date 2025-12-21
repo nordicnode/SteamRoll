@@ -1013,7 +1013,8 @@ public class PackageBuilder
                         try
                         {
                             // Use async stream copy for better responsiveness and I/O handling
-                            using var sourceStream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, true);
+                            // Use FileShare.ReadWrite to prevent locking issues
+                            using var sourceStream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, true);
                             using var destStream = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, true);
                             await sourceStream.CopyToAsync(destStream, token);
 

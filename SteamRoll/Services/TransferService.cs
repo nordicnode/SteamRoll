@@ -271,8 +271,9 @@ public class TransferService : IDisposable
                     var fullPath = System.IO.Path.Combine(basePath, fileInfo.RelativePath);
 
                     // Use FileOptions for better sequential read performance
-                    using var fileStream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read,
-                        bufferSize: 4096, useAsync: true); // FileOptions.SequentialScan is implied default or not needed with async? Actually Async is key.
+                    // Use FileShare.ReadWrite to allow reading files that are currently open by the game
+                    using var fileStream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
+                        bufferSize: 4096, useAsync: true);
 
                     int bytesRead;
                     while ((bytesRead = await fileStream.ReadAsync(buffer, ct)) > 0)
@@ -673,6 +674,10 @@ public class TransferService : IDisposable
 
                     // Use Async FileStream
                     using var fileStream = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true);
+
+                    // Optimization: Compute hash while writing to avoid re-reading the file
+                    using var hasher = !string.IsNullOrEmpty(fileInfo.Sha256) ? IncrementalHash.CreateHash(HashAlgorithmName.SHA256) : null;
+
                     long remaining = fileInfo.Size;
 
                     while (remaining > 0)
@@ -682,6 +687,12 @@ public class TransferService : IDisposable
                         if (bytesRead == 0) break;
 
                         await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+
+                        if (hasher != null)
+                        {
+                            hasher.AppendData(buffer, 0, bytesRead);
+                        }
+
                         remaining -= bytesRead;
                         receivedBytes += bytesRead;
 
@@ -701,13 +712,12 @@ public class TransferService : IDisposable
                     }
 
                     // Verify checksum if provided
-                    if (!string.IsNullOrEmpty(fileInfo.Sha256))
+                    if (!string.IsNullOrEmpty(fileInfo.Sha256) && hasher != null)
                     {
-                        // Flush file before reading for verification
-                        await fileStream.FlushAsync(ct);
-                        fileStream.Close();
+                        var actualHashBytes = hasher.GetHashAndReset();
+                        var actualHash = Convert.ToHexString(actualHashBytes).ToLowerInvariant();
 
-                        if (!VerifySha256(fullPath, fileInfo.Sha256))
+                        if (!string.Equals(actualHash, fileInfo.Sha256, StringComparison.OrdinalIgnoreCase))
                         {
                             LogService.Instance.Error($"Checksum mismatch for {fileInfo.RelativePath}", category: "TransferService");
                             throw new InvalidDataException($"Checksum verification failed for {fileInfo.RelativePath}");
@@ -1069,8 +1079,8 @@ public class TransferService : IDisposable
     {
         using var sha256 = SHA256.Create();
         // Use Async file options for consistency, though ComputeHash is blocking.
-        // For truly async hashing, we would need to read chunks.
-        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
+        // Use FileShare.ReadWrite to avoid locking issues with running games
+        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, FileOptions.SequentialScan);
         var hash = sha256.ComputeHash(stream);
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
