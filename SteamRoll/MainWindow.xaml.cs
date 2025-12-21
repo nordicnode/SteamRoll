@@ -115,6 +115,9 @@ public partial class MainWindow : Window
             WindowState = savedState;
         }
 
+        // Initialize Sort Box
+        SortBox.SelectedIndex = 0; // Default to Name
+
         // Load games on startup
         Loaded += MainWindow_Loaded;
         Closed += MainWindow_Closed;
@@ -245,6 +248,26 @@ public partial class MainWindow : Window
     // ============================================
     // View Switching Methods
     // ============================================
+
+    private void ViewModeToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModeToggle.IsChecked == true)
+        {
+            // Switch to List View
+            GamesGridScroll.Visibility = Visibility.Collapsed;
+            GamesListView.Visibility = Visibility.Visible;
+            ViewModeIcon.Text = "⊞"; // Icon becomes Grid
+            ViewModeToggle.ToolTip = "Switch to Grid View";
+        }
+        else
+        {
+            // Switch to Grid View
+            GamesGridScroll.Visibility = Visibility.Visible;
+            GamesListView.Visibility = Visibility.Collapsed;
+            ViewModeIcon.Text = "📑"; // Icon becomes List
+            ViewModeToggle.ToolTip = "Switch to List View";
+        }
+    }
     
     private void ShowDetailsView(InstalledGame game)
     {
@@ -757,13 +780,17 @@ public partial class MainWindow : Window
 
     private async Task ScanLibraryAsync(CancellationToken ct = default)
     {
-        LoadingOverlay.Show("Scanning Steam libraries...");
+        // Use Skeleton Loading instead of full Overlay
+        SkeletonView.Visibility = Visibility.Visible;
+        GamesList.Visibility = Visibility.Collapsed;
+        GamesListView.Visibility = Visibility.Collapsed;
+
         StatusText.Text = "Scanning Steam libraries...";
 
         var steamPath = _steamLocator.GetSteamInstallPath();
         if (steamPath == null)
         {
-            LoadingOverlay.Hide();
+            SkeletonView.Visibility = Visibility.Collapsed;
             StatusText.Text = "⚠ Steam installation not found. Please ensure Steam is installed.";
             ToastService.Instance.ShowError("Steam Not Found", "Please ensure Steam is installed.");
             return;
@@ -812,7 +839,7 @@ public partial class MainWindow : Window
             CheckExistingPackages(scannedGames);
             
             // Show games immediately
-            UpdateGamesList(scannedGames);
+            ApplyFilters(); // Apply initial sorting and filtering logic
             UpdateStats(scannedGames);
             
             // Save updated cache
@@ -841,7 +868,7 @@ public partial class MainWindow : Window
             var packageableCount = scannedGames.Count(g => g.IsPackageable);
             var packagedCount = scannedGames.Count(g => g.IsPackaged);
             StatusText.Text = $"✓ {scannedGames.Count} games • {packageableCount} ready • {packagedCount} packaged";
-            LoadingOverlay.Hide();
+            SkeletonView.Visibility = Visibility.Collapsed;
         }
         catch (OperationCanceledException)
         {
@@ -849,7 +876,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            LoadingOverlay.Hide();
+            SkeletonView.Visibility = Visibility.Collapsed;
             StatusText.Text = $"⚠ Error scanning library: {ex.Message}";
             ToastService.Instance.ShowError("Scan Failed", ex.Message);
         }
@@ -1284,25 +1311,51 @@ public partial class MainWindow : Window
     private static string SanitizeFileName(string name) => FormatUtils.SanitizeFileName(name);
 
     private void UpdateGamesList(List<InstalledGame> games)
-{
-    GamesList.ItemsSource = games;
-    
-    // Show/hide empty state
-    var isEmpty = games.Count == 0;
-    EmptyStatePanel.Visibility = isEmpty ? Visibility.Visible : Visibility.Collapsed;
-    
-    // Update empty state message based on context
-    if (isEmpty && _allGames.Count > 0)
     {
-        EmptyStateTitle.Text = "No Matching Games";
-        EmptyStateMessage.Text = "No games match your current filters. Try adjusting your filters or search.";
+        GamesList.ItemsSource = games;
+        GamesListView.ItemsSource = games;
+
+        // Ensure Skeleton is hidden
+        SkeletonView.Visibility = Visibility.Collapsed;
+
+        // Show/hide empty state
+        var isEmpty = games.Count == 0;
+        EmptyStatePanel.Visibility = isEmpty ? Visibility.Visible : Visibility.Collapsed;
+
+        if (isEmpty)
+        {
+            // Hide both lists if empty
+            GamesList.Visibility = Visibility.Collapsed;
+            GamesListView.Visibility = Visibility.Collapsed;
+            GamesGridScroll.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            // Show appropriate list based on view mode
+            if (ViewModeToggle.IsChecked == true)
+            {
+                GamesGridScroll.Visibility = Visibility.Collapsed;
+                GamesListView.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                GamesGridScroll.Visibility = Visibility.Visible;
+                GamesListView.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        // Update empty state message based on context
+        if (isEmpty && _allGames.Count > 0)
+        {
+            EmptyStateTitle.Text = "No Matching Games";
+            EmptyStateMessage.Text = "No games match your current filters. Try adjusting your filters or search.";
+        }
+        else if (isEmpty)
+        {
+            EmptyStateTitle.Text = "No Games Found";
+            EmptyStateMessage.Text = "No Steam games were detected. Try adding Steam library paths in Settings or refreshing the library.";
+        }
     }
-    else if (isEmpty)
-    {
-        EmptyStateTitle.Text = "No Games Found";
-        EmptyStateMessage.Text = "No Steam games were detected. Try adding Steam library paths in Settings or refreshing the library.";
-    }
-}
 
     private void UpdateStats(List<InstalledGame> games)
     {
@@ -1416,13 +1469,19 @@ public partial class MainWindow : Window
     }
     
     // ============================================
-    // Filters
+    // Filters & Sorting
     // ============================================
     
     private void FilterReady_Click(object sender, RoutedEventArgs e) => ApplyFilters();
     private void FilterPackaged_Click(object sender, RoutedEventArgs e) => ApplyFilters();
     private void FilterDlc_Click(object sender, RoutedEventArgs e) => ApplyFilters();
     private void FilterUpdate_Click(object sender, RoutedEventArgs e) => ApplyFilters();
+    private void FilterFavorites_Click(object sender, RoutedEventArgs e) => ApplyFilters();
+
+    private void SortBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        ApplyFilters();
+    }
     
     private void ApplyFilters()
     {
@@ -1433,13 +1492,7 @@ public partial class MainWindow : Window
         var filterPackaged = FilterPackagedBtn.IsChecked == true;
         var filterDlc = FilterDlcBtn.IsChecked == true;
         var filterUpdate = FilterUpdateBtn.IsChecked == true;
-        
-        // If no filters active, show all games
-        if (!isSearchActive && !filterReady && !filterPackaged && !filterDlc && !filterUpdate)
-        {
-            UpdateGamesList(_allGames);
-            return;
-        }
+        var filterFavorites = FilterFavoritesBtn.IsChecked == true;
         
         var filtered = _allGames.AsEnumerable();
         
@@ -1463,6 +1516,49 @@ public partial class MainWindow : Window
         
         if (filterUpdate)
             filtered = filtered.Where(g => g.UpdateAvailable);
+
+        if (filterFavorites)
+            filtered = filtered.Where(g => g.IsFavorite);
+
+        // Apply Sorting
+        if (SortBox.SelectedItem is ComboBoxItem item && item.Tag is string sortType)
+        {
+            filtered = sortType switch
+            {
+                "Size" => filtered.OrderByDescending(g => g.SizeOnDisk),
+                "LastPlayed" => filtered.OrderByDescending(g => g.LastPlayed),
+                "ReviewScore" => filtered.OrderByDescending(g => g.ReviewPositivePercent ?? 0),
+                "ReleaseDate" => filtered.OrderByDescending(g => g.BuildId), // Approximate release date via BuildId for now
+                _ => filtered.OrderBy(g => g.Name)
+            };
+        }
+        else
+        {
+            filtered = filtered.OrderBy(g => g.Name);
+        }
+
+        // Favorites always on top if not specifically sorting?
+        // For now, let's keep it simple and just respect the sort.
+        // Although the user asked for "Favorites would be pinned to the top".
+        // Let's implement that: Favorites first, then secondary sort.
+        if (!filterFavorites) // If we are filtering BY favorites, everything is a favorite, so no need to pin.
+        {
+             filtered = filtered.OrderByDescending(g => g.IsFavorite).ThenBy(g => 1); // Helper to keep stable sort? No, LINQ OrderBy is stable.
+
+             // Re-applying the primary sort as ThenBy
+             if (SortBox.SelectedItem is ComboBoxItem item2 && item2.Tag is string sortType2)
+             {
+                 var ordered = filtered.OrderByDescending(g => g.IsFavorite);
+                 filtered = sortType2 switch
+                 {
+                     "Size" => ordered.ThenByDescending(g => g.SizeOnDisk),
+                     "LastPlayed" => ordered.ThenByDescending(g => g.LastPlayed),
+                     "ReviewScore" => ordered.ThenByDescending(g => g.ReviewPositivePercent ?? 0),
+                     "ReleaseDate" => ordered.ThenByDescending(g => g.BuildId),
+                     _ => ordered.ThenBy(g => g.Name)
+                 };
+             }
+        }
         
         UpdateGamesList(filtered.ToList());
     }
@@ -2031,6 +2127,62 @@ public partial class MainWindow : Window
         if (game?.IsPackaged == true)
         {
             ToastService.Instance.ShowInfo("Send to Peer", $"Use the 'Send to Peer' button on the game card to transfer {game.Name}");
+        }
+    }
+
+    private void ContextMenu_Favorite_Click(object sender, RoutedEventArgs e)
+    {
+        var game = GetGameFromContextMenu(sender);
+        if (game != null)
+        {
+            game.IsFavorite = !game.IsFavorite;
+            _cacheService.UpdateCache(game);
+            _cacheService.SaveCache();
+            ApplyFilters(); // Refresh sort order
+        }
+    }
+
+    private void FavoriteToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.Tag is InstalledGame game)
+        {
+            _cacheService.UpdateCache(game);
+            _cacheService.SaveCache();
+            // Don't ApplyFilters immediately to avoid items jumping around while user is interacting
+        }
+    }
+
+    private async void ContextMenu_BackupSave_Click(object sender, RoutedEventArgs e)
+    {
+        var game = GetGameFromContextMenu(sender);
+        if (game == null) return;
+
+        try
+        {
+            var saveDir = _saveGameService.FindSaveDirectory(game.AppId, game.PackagePath);
+            if (string.IsNullOrEmpty(saveDir))
+            {
+                ToastService.Instance.ShowWarning("No Saves Found", $"Could not find local saves for {game.Name}.");
+                return;
+            }
+
+            var backupDir = Path.Combine(_settingsService.Settings.OutputPath, "Backups");
+            Directory.CreateDirectory(backupDir);
+
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var backupPath = Path.Combine(backupDir, $"{FormatUtils.SanitizeFileName(game.Name)}_Save_{timestamp}.zip");
+
+            await _saveGameService.BackupSavesAsync(game.AppId, backupPath, game.PackagePath);
+
+            ToastService.Instance.ShowSuccess("Backup Complete", $"Saved to Backups/{Path.GetFileName(backupPath)}");
+
+            // Open folder?
+            // Process.Start("explorer.exe", "/select," + backupPath);
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Backup failed: {ex.Message}", ex, "Backup");
+            ToastService.Instance.ShowError("Backup Failed", ex.Message);
         }
     }
 

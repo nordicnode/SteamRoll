@@ -120,6 +120,10 @@ public class LibraryScanner
         if (long.TryParse(lastUpdatedStr, out var timestamp) && timestamp > 0)
             game.LastUpdated = DateTimeOffset.FromUnixTimeSeconds(timestamp).LocalDateTime;
 
+        var lastPlayedStr = VdfParser.GetValue(appState, "LastPlayed");
+        if (long.TryParse(lastPlayedStr, out var lastPlayed) && lastPlayed > 0)
+            game.LastPlayed = lastPlayed;
+
         // Verify installation directory exists
         if (!Directory.Exists(fullPath))
         {
