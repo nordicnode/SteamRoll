@@ -171,6 +171,14 @@ public static class FormatUtils
     public static string SanitizeFileName(string name)
     {
         var invalid = System.IO.Path.GetInvalidFileNameChars();
-        return string.Join("_", name.Split(invalid, StringSplitOptions.RemoveEmptyEntries)).Trim();
+        var sanitized = string.Join("_", name.Split(invalid, StringSplitOptions.RemoveEmptyEntries)).Trim();
+
+        // Prevent directory traversal names if the name consists solely of dots
+        if (sanitized == "." || sanitized == "..")
+        {
+            return "Unknown_Game";
+        }
+
+        return sanitized;
     }
 }

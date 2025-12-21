@@ -612,7 +612,8 @@ public class PackageBuilder
                 var ext = System.IO.Path.GetExtension(file).ToLowerInvariant();
                 if (extensions.Contains(ext))
                 {
-                    var relativePath = System.IO.Path.GetRelativePath(packageDir, file);
+                    // Use forward slashes for cross-platform compatibility
+                    var relativePath = System.IO.Path.GetRelativePath(packageDir, file).Replace('\\', '/');
                     try
                     {
                         using var sha256 = System.Security.Cryptography.SHA256.Create();
