@@ -353,6 +353,15 @@
                             <TextBlock Text="View recent application logs for troubleshooting." Style="{DynamicResource SettingDescription}"/>
                         </StackPanel>
                     </Border>
+
+                    <!-- Library Maintenance -->
+                    <TextBlock Text="🧹 Maintenance" Style="{DynamicResource SectionHeader}"/>
+                    <Border Background="#27272A" CornerRadius="8" Padding="16" Margin="0,0,0,20">
+                        <StackPanel>
+                            <Button Content="🗑️ Clean Up Library" Click="CleanupLibrary_Click" Style="{DynamicResource SecondaryButton}" HorizontalAlignment="Left"/>
+                            <TextBlock Text="Scan for and remove orphaned files that don't belong to any known package." Style="{DynamicResource SettingDescription}"/>
+                        </StackPanel>
+                    </Border>
                     
                     <!-- Backup & Restore -->
                     <TextBlock Text="💾 Backup &amp; Restore" Style="{DynamicResource SectionHeader}"/>

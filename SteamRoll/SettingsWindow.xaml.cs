@@ -261,6 +261,51 @@ public partial class SettingsWindow : Window
         logViewer.ShowDialog();
     }
 
+    private async void CleanupLibrary_Click(object sender, RoutedEventArgs e)
+    {
+        var btn = sender as System.Windows.Controls.Button;
+        if (btn != null) btn.IsEnabled = false;
+
+        try
+        {
+            var cleanupService = new LibraryCleanupService(_settingsService.Settings.OutputPath);
+
+            // This might take a moment if the library is huge, so we run async
+            var orphans = await cleanupService.ScanForOrphansAsync();
+
+            if (orphans.Count == 0)
+            {
+                MessageBox.Show("No orphaned files found. Your library is clean!", "Library Cleanup", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var totalSize = orphans.Sum(o => o.Size);
+            var fileCount = orphans.Count(o => !o.IsDirectory);
+            var dirCount = orphans.Count(o => o.IsDirectory);
+
+            var message = $"Found {fileCount} orphaned files and {dirCount} folders.\n" +
+                          $"Total size: {FormatUtils.FormatBytes(totalSize)}\n\n" +
+                          "These items are not part of any valid SteamRoll package in your library.\n" +
+                          "Do you want to delete them permanently?";
+
+            var result = MessageBox.Show(message, "Confirm Cleanup", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                await cleanupService.CleanupAsync(orphans);
+                ToastService.Instance.ShowSuccess("Cleanup Complete", $"Recovered {FormatUtils.FormatBytes(totalSize)} of disk space.");
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Cleanup failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            if (btn != null) btn.IsEnabled = true;
+        }
+    }
+
     private void ExportSettings_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new SaveFileDialog

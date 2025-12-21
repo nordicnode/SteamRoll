@@ -235,7 +235,8 @@ public class TransferService : IDisposable
             var ack = await ReceiveJsonAsync<TransferAck>(networkStream, ct);
             if (ack?.Accepted != true)
             {
-                Error?.Invoke(this, "Transfer was rejected by recipient");
+                var reason = !string.IsNullOrEmpty(ack?.Reason) ? $": {ack.Reason}" : "";
+                Error?.Invoke(this, $"Transfer was rejected by recipient{reason}");
                 return false;
             }
 
@@ -428,6 +429,29 @@ public class TransferService : IDisposable
             // Sanitize GameName from header to prevent path traversal
             var gameName = FormatUtils.SanitizeFileName(header.GameName ?? "Unknown");
 
+            // --- Security Check: Disk Space ---
+            try
+            {
+                var root = Path.GetPathRoot(Path.GetFullPath(_receiveBasePath)) ?? _receiveBasePath;
+                var drive = new DriveInfo(root);
+                long safetyBuffer = 500 * 1024 * 1024; // 500 MB buffer
+                long required = header.TotalSize + safetyBuffer;
+
+                if (drive.AvailableFreeSpace < required)
+                {
+                    var msg = $"Insufficient disk space. Required: {FormatUtils.FormatBytes(required)}, Available: {FormatUtils.FormatBytes(drive.AvailableFreeSpace)}";
+                    LogService.Instance.Warning($"Rejected transfer: {msg}", "TransferService");
+                    await SendJsonAsync(networkStream, new TransferAck { Accepted = false, Reason = msg }, ct);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Instance.Warning($"Could not verify disk space: {ex.Message}", "TransferService");
+                // We proceed if we can't check, assuming user knows what they're doing or OS will error later
+            }
+            // ----------------------------------
+
             // Handle Save Sync Request
             if (header.TransferType == "SaveSync")
             {
@@ -446,6 +470,13 @@ public class TransferService : IDisposable
             if (header.TransferType == "PullRequest")
             {
                 await HandlePullRequestAsync(client, header, ct);
+                return;
+            }
+
+            // Handle Speed Test
+            if (header.TransferType == "SpeedTest")
+            {
+                await HandleSpeedTestAsync(networkStream, header, ct);
                 return;
             }
 
@@ -897,6 +928,81 @@ public class TransferService : IDisposable
         }
     }
 
+    private async Task HandleSpeedTestAsync(NetworkStream stream, TransferHeader header, CancellationToken ct)
+    {
+        // Receive payload (junk data)
+        var buffer = new byte[BUFFER_SIZE];
+        long received = 0;
+
+        // We just read and discard as fast as possible
+        // But we need to read exactly what was sent or connection will be desynced/closed
+        while (received < header.TotalSize)
+        {
+             var toRead = (int)Math.Min(buffer.Length, header.TotalSize - received);
+             var read = await stream.ReadAsync(buffer, 0, toRead, ct);
+             if (read == 0) break;
+             received += read;
+        }
+
+        // Send back completion
+        await SendJsonAsync(stream, new TransferComplete { Success = true }, ct);
+    }
+
+    public async Task<double> RunSpeedTestAsync(string targetIp, int targetPort, long testSizeBytes = 50 * 1024 * 1024, CancellationToken ct = default)
+    {
+        try
+        {
+            using var client = new TcpClient();
+            await client.ConnectAsync(targetIp, targetPort, ct);
+            using var stream = client.GetStream();
+
+            var header = new TransferHeader
+            {
+                Magic = PROTOCOL_MAGIC_V2,
+                TransferType = "SpeedTest",
+                TotalSize = testSizeBytes,
+                TotalFiles = 1,
+                Compression = "None"
+            };
+
+            await SendJsonAsync(stream, header, ct);
+
+            // Dummy file list
+            await SendJsonAsync(stream, new List<TransferFileInfo>(), ct);
+
+            // Send junk data
+            var buffer = new byte[BUFFER_SIZE];
+            new Random().NextBytes(buffer);
+            long sent = 0;
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+
+            while (sent < testSizeBytes)
+            {
+                var toWrite = (int)Math.Min(buffer.Length, testSizeBytes - sent);
+                await stream.WriteAsync(buffer, 0, toWrite, ct);
+                sent += toWrite;
+            }
+
+            // Wait for completion ack
+            var complete = await ReceiveJsonAsync<TransferComplete>(stream, ct);
+            sw.Stop();
+
+            if (complete?.Success == true && sw.Elapsed.TotalSeconds > 0)
+            {
+                // Return Mbps
+                var mbps = (sent * 8.0) / (sw.Elapsed.TotalSeconds * 1024 * 1024);
+                return mbps;
+            }
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Speed test failed: {ex.Message}", ex, "TransferService");
+            throw;
+        }
+    }
+
     public async Task<List<Models.RemoteGame>?> RequestLibraryListAsync(string targetIp, int targetPort)
     {
         try
@@ -1236,6 +1342,11 @@ public class TransferFileInfo
 public class TransferAck
 {
     public bool Accepted { get; set; }
+
+    /// <summary>
+    /// Optional rejection reason message.
+    /// </summary>
+    public string? Reason { get; set; }
 
     /// <summary>
     /// List of relative paths of files that the receiver already has and wants to skip.

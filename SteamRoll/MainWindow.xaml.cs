@@ -2132,6 +2132,52 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void ContextMenu_RepairFromPeer_Click(object sender, RoutedEventArgs e)
+    {
+        var game = GetGameFromContextMenu(sender);
+        if (game == null) return;
+
+        var peers = _lanDiscoveryService.GetPeers();
+        if (peers.Count == 0)
+        {
+            ToastService.Instance.ShowWarning("No Peers Found", "No peers available for repair.");
+            return;
+        }
+
+        PeerInfo? selectedPeer;
+        if (peers.Count == 1)
+        {
+            selectedPeer = peers.First();
+        }
+        else
+        {
+            var dialog = new PeerSelectionDialog(peers) { Owner = this };
+            if (dialog.ShowDialog() != true || dialog.SelectedPeer == null) return;
+            selectedPeer = dialog.SelectedPeer;
+        }
+
+        var result = MessageBox.Show(
+            $"Attempt to repair \"{game.Name}\" from {selectedPeer.HostName}?\n\n" +
+            "This will verify your local files against the peer's copy and download only what is missing or corrupt.",
+            "Repair Package",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        try
+        {
+            StatusText.Text = $"⏳ Requesting repair for {game.Name}...";
+            // Uses the same "Pull Request" flow - TransferService handles the differential sync
+            await _transferService.RequestPullPackageAsync(selectedPeer.IpAddress, selectedPeer.TransferPort, game.Name);
+            ToastService.Instance.ShowSuccess("Repair Requested", $"Asked {selectedPeer.HostName} to send clean files.");
+        }
+        catch (Exception ex)
+        {
+            ToastService.Instance.ShowError("Repair Failed", ex.Message);
+        }
+    }
+
     private async void ContextMenu_VerifyIntegrity_Click(object sender, RoutedEventArgs e)
     {
         var game = GetGameFromContextMenu(sender);
