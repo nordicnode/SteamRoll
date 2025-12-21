@@ -80,11 +80,15 @@ public class SaveGameService
         if (!File.Exists(zipPath))
             throw new FileNotFoundException("Backup file not found", zipPath);
 
-        // Determine restore location
-        // If we can find an existing save dir, overwrite it.
-        // If not, we need to decide where to put it.
-        // Default to AppData/Goldberg SteamEmu Saves/{AppID} as it's the most standard global location if the game isn't packaged with local saves.
+        await RestoreSavesFromStreamAsync(File.OpenRead(zipPath), appId, gamePackagePath);
+    }
 
+    /// <summary>
+    /// Restores saves from a zip stream for a given AppID.
+    /// </summary>
+    public async Task RestoreSavesFromStreamAsync(Stream zipStream, int appId, string? gamePackagePath = null)
+    {
+        // Determine restore location
         var saveDir = FindSaveDirectory(appId, gamePackagePath);
 
         if (string.IsNullOrEmpty(saveDir))
@@ -105,7 +109,41 @@ public class SaveGameService
         await Task.Run(() =>
         {
             Directory.CreateDirectory(saveDir);
-            ZipFile.ExtractToDirectory(zipPath, saveDir, true); // Overwrite
+
+            // Backup existing if not empty
+            if (Directory.GetFiles(saveDir).Length > 0)
+            {
+                var backupPath = Path.Combine(Path.GetDirectoryName(saveDir)!, $"{appId}_backup_{DateTime.Now:yyyyMMddHHmmss}.zip");
+                try { ZipFile.CreateFromDirectory(saveDir, backupPath); } catch {}
+            }
+
+            using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
+            archive.ExtractToDirectory(saveDir, true); // Overwrite
         });
+    }
+
+    /// <summary>
+    /// Exports saves for a given AppID to a memory stream (zip format).
+    /// </summary>
+    public async Task<MemoryStream> ExportSavesToStreamAsync(int appId, string? gamePackagePath = null)
+    {
+        var saveDir = FindSaveDirectory(appId, gamePackagePath);
+        if (string.IsNullOrEmpty(saveDir))
+            throw new DirectoryNotFoundException($"Could not find save directory for AppID {appId}");
+
+        var ms = new MemoryStream();
+        await Task.Run(() =>
+        {
+            using var archive = new ZipArchive(ms, ZipArchiveMode.Create, true);
+            var files = Directory.GetFiles(saveDir, "*", SearchOption.AllDirectories);
+            foreach (var file in files)
+            {
+                var relPath = Path.GetRelativePath(saveDir, file);
+                archive.CreateEntryFromFile(file, relPath);
+            }
+        });
+
+        ms.Position = 0;
+        return ms;
     }
 }

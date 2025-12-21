@@ -582,6 +582,16 @@
         
         <!-- Library View Container (game list) -->
         <Grid x:Name="LibraryView" Grid.Row="3">
+
+            <!-- Peers list (above game list, only when peers found) -->
+            <StackPanel VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,10,24,0"
+                        Visibility="{Binding HasPeers, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Button Click="BrowsePeerButton_Click" Background="Transparent" Foreground="#58A6FF" BorderThickness="0" Cursor="Hand">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="🌐 Browse Peer Library" FontWeight="SemiBold"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
         
             <!-- Empty State (shown when no games) -->
             <Border x:Name="EmptyStatePanel" Visibility="Collapsed" VerticalAlignment="Center" HorizontalAlignment="Center">
@@ -651,6 +661,7 @@
                                             </Style>
                                         </MenuItem.Style>
                                     </MenuItem>
+                                    <MenuItem Header="🔄 Sync Saves with Peer" Click="ContextMenu_SyncSaves_Click" Tag="{Binding}"/>
                                     <MenuItem Header="⚙️ Advanced Config" Click="ContextMenu_AdvancedConfig_Click" Tag="{Binding}"
                                               ToolTip="Configure Goldberg emulator settings">
                                         <MenuItem.Style>
