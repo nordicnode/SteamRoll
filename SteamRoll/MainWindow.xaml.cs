@@ -24,6 +24,7 @@ public partial class MainWindow : Window
     private readonly LanDiscoveryService _lanDiscoveryService;
     private readonly TransferService _transferService;
     private readonly SettingsService _settingsService;
+    private readonly SaveGameService _saveGameService;
     private readonly UpdateService _updateService;
     private CancellationTokenSource? _currentOperationCts;
     private CancellationTokenSource? _scanCts;
@@ -60,6 +61,9 @@ public partial class MainWindow : Window
         _lanDiscoveryService = new LanDiscoveryService();
         _transferService = new TransferService(_outputPath);
         
+        // Initialize SaveGameService
+        _saveGameService = new SaveGameService(_settingsService);
+
         // Initialize update service
         _updateService = new UpdateService(_goldbergService.GoldbergPath);
         _updateService.UpdateAvailable += OnUpdateAvailable;
@@ -69,6 +73,8 @@ public partial class MainWindow : Window
         _transferService.ProgressChanged += OnTransferProgress;
         _transferService.TransferComplete += OnTransferComplete;
         _transferService.TransferApprovalRequested += OnTransferApprovalRequested;
+        _transferService.LocalLibraryRequested += OnLocalLibraryRequested;
+        _transferService.PullPackageRequested += OnPullPackageRequested;
         _lanDiscoveryService.PeerDiscovered += OnPeerDiscovered;
         _lanDiscoveryService.PeerLost += OnPeerLost;
         _lanDiscoveryService.TransferRequested += OnTransferRequested;
@@ -542,6 +548,54 @@ public partial class MainWindow : Window
                 
                 if (result.WasReceived)
                 {
+                    if (result.IsSaveSync)
+                    {
+                        // Handle Save Sync Restoration
+                        try
+                        {
+                            // We assume GameName is just the name of the game for now.
+                            // To actually restore, we need the AppID.
+                            // Ideally, the game name string should allow us to find the InstalledGame.
+                            var game = _allGames.FirstOrDefault(g => g.Name.Equals(result.GameName, StringComparison.OrdinalIgnoreCase));
+
+                            if (game != null)
+                            {
+                                // Prompt user before overwriting
+                                var confirm = MessageBox.Show(
+                                    $"Received updated saves for {game.Name}. Overwrite local saves?",
+                                    "Save Sync Received",
+                                    MessageBoxButton.YesNo,
+                                    MessageBoxImage.Question);
+
+                                if (confirm == MessageBoxResult.Yes)
+                                {
+                                    await _saveGameService.RestoreSavesAsync(result.Path, game.AppId, game.PackagePath);
+                                    StatusText.Text = $"✓ Synced saves for {result.GameName}";
+                                    ToastService.Instance.ShowSuccess("Save Sync", "Local saves updated successfully.");
+                                }
+                                else
+                                {
+                                    StatusText.Text = $"⚠ Save sync skipped for {result.GameName}";
+                                }
+                            }
+                            else
+                            {
+                                ToastService.Instance.ShowWarning("Save Sync", $"Received saves for unknown game: {result.GameName}");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.Instance.Error($"Failed to restore saves: {ex.Message}", ex, "SaveSync");
+                            ToastService.Instance.ShowError("Save Restore Failed", ex.Message);
+                        }
+                        finally
+                        {
+                            // Cleanup temp zip
+                            try { File.Delete(result.Path); } catch { }
+                        }
+                        return;
+                    }
+
                     // Show verification status for received packages
                     if (result.VerificationPassed)
                     {
@@ -1923,6 +1977,91 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void ContextMenu_SyncSaves_Click(object sender, RoutedEventArgs e)
+    {
+        var game = GetGameFromContextMenu(sender);
+        if (game == null) return;
+
+        // Get available peers
+        var peers = _lanDiscoveryService.GetPeers();
+        if (peers.Count == 0)
+        {
+            ToastService.Instance.ShowWarning("No Peers Found", "No other SteamRoll instances found on your network.");
+            return;
+        }
+
+        // Peer selection
+        PeerInfo? selectedPeer;
+        if (peers.Count == 1)
+        {
+            selectedPeer = peers.First();
+        }
+        else
+        {
+            var dialog = new PeerSelectionDialog(peers) { Owner = this };
+            if (dialog.ShowDialog() != true || dialog.SelectedPeer == null) return;
+            selectedPeer = dialog.SelectedPeer;
+        }
+
+        // Confirm sync (Push)
+        var result = MessageBox.Show(
+            $"Send saves for {game.Name} to {selectedPeer.HostName}?\n\nThis will overwrite their local saves.",
+            "Send Saves",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        try
+        {
+            StatusText.Text = $"⏳ Sending saves for {game.Name} to {selectedPeer.HostName}...";
+            LoadingOverlay.Show("Sending saves...");
+
+            // Check if we have saves to send
+            var saveDir = _saveGameService.FindSaveDirectory(game.AppId, game.PackagePath);
+            if (string.IsNullOrEmpty(saveDir) || Directory.GetFiles(saveDir).Length == 0)
+            {
+                ToastService.Instance.ShowWarning("No Saves Found", $"Could not find local saves for {game.Name} to send.");
+                LoadingOverlay.Hide();
+                return;
+            }
+
+            // Create zip in temp and send
+            var tempZip = System.IO.Path.GetTempFileName();
+            File.Delete(tempZip);
+            await _saveGameService.BackupSavesAsync(game.AppId, tempZip, game.PackagePath);
+
+            // Use SendSaveSyncAsync (we need to add this method to TransferService)
+            var success = await _transferService.SendSaveSyncAsync(
+                selectedPeer.IpAddress,
+                selectedPeer.TransferPort,
+                tempZip,
+                game.Name
+            );
+
+            File.Delete(tempZip); // Cleanup
+
+            LoadingOverlay.Hide();
+
+            if (success)
+            {
+                StatusText.Text = $"✓ Sent saves for {game.Name} to {selectedPeer.HostName}";
+                ToastService.Instance.ShowSuccess("Save Sync", "Saves sent successfully!");
+            }
+            else
+            {
+                StatusText.Text = "⚠ Failed to send saves";
+                ToastService.Instance.ShowError("Save Sync Failed", "Peer rejected or error occurred.");
+            }
+        }
+        catch (Exception ex)
+        {
+            LoadingOverlay.Hide();
+            LogService.Instance.Error($"Save sync failed: {ex.Message}", ex, "SaveSync");
+            ToastService.Instance.ShowError("Save Sync Error", ex.Message);
+        }
+    }
+
     private async void ContextMenu_DeletePackage_Click(object sender, RoutedEventArgs e)
     {
         var game = GetGameFromContextMenu(sender);
@@ -2024,6 +2163,74 @@ public partial class MainWindow : Window
     
 
     
+    private List<RemoteGame> OnLocalLibraryRequested()
+    {
+        // Return only packaged games
+        return _allGames.Where(g => g.IsPackaged && !string.IsNullOrEmpty(g.PackagePath))
+            .Select(g => new RemoteGame { Name = g.Name, SizeBytes = g.SizeOnDisk })
+            .ToList();
+    }
+
+    private async Task OnPullPackageRequested(string gameName, string targetIp, int targetPort)
+    {
+        // Find the requested game
+        var game = _allGames.FirstOrDefault(g => g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase) && g.IsPackaged);
+
+        if (game != null && !string.IsNullOrEmpty(game.PackagePath))
+        {
+            Dispatcher.Invoke(() =>
+            {
+                StatusText.Text = $"📤 Sending requested package {game.Name}...";
+                ToastService.Instance.ShowInfo("Transfer Started", $"Sending {game.Name} (Requested by peer)");
+            });
+
+            await _transferService.SendPackageAsync(targetIp, targetPort, game.PackagePath);
+        }
+        else
+        {
+            LogService.Instance.Warning($"Peer requested unknown/unpackaged game: {gameName}", "MainWindow");
+        }
+    }
+
+    private async void BrowsePeerButton_Click(object sender, RoutedEventArgs e)
+    {
+        var peers = _lanDiscoveryService.GetPeers();
+        if (peers.Count == 0)
+        {
+            ToastService.Instance.ShowInfo("No Peers", "No peers found to browse.");
+            return;
+        }
+
+        PeerInfo selectedPeer;
+        if (peers.Count == 1)
+        {
+            selectedPeer = peers[0];
+        }
+        else
+        {
+            var dialog = new PeerSelectionDialog(peers) { Owner = this };
+            if (dialog.ShowDialog() != true || dialog.SelectedPeer == null) return;
+            selectedPeer = dialog.SelectedPeer;
+        }
+
+        var remoteLibWindow = new RemoteLibraryWindow(_transferService, selectedPeer) { Owner = this };
+        if (remoteLibWindow.ShowDialog() == true && remoteLibWindow.SelectedGame != null)
+        {
+            var game = remoteLibWindow.SelectedGame;
+            StatusText.Text = $"⏳ Requesting {game.Name} from {selectedPeer.HostName}...";
+
+            try
+            {
+                await _transferService.RequestPullPackageAsync(selectedPeer.IpAddress, selectedPeer.TransferPort, game.Name);
+                ToastService.Instance.ShowSuccess("Request Sent", $"Asked {selectedPeer.HostName} to send {game.Name}");
+            }
+            catch (Exception ex)
+            {
+                ToastService.Instance.ShowError("Request Failed", ex.Message);
+            }
+        }
+    }
+
     // ============================================
     // Keyboard Shortcuts
     // ============================================

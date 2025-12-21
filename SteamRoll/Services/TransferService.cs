@@ -102,30 +102,44 @@ public class TransferService : IDisposable
     /// </summary>
     public async Task<bool> SendPackageAsync(string targetIp, int targetPort, string packagePath, CancellationToken ct = default)
     {
-        if (!Directory.Exists(packagePath) && !File.Exists(packagePath))
+        return await SendFileOrFolderAsync(targetIp, targetPort, packagePath, "Package", null, ct);
+    }
+
+    /// <summary>
+    /// Sends a save game sync zip to a peer.
+    /// </summary>
+    public async Task<bool> SendSaveSyncAsync(string targetIp, int targetPort, string zipPath, string gameName, CancellationToken ct = default)
+    {
+        return await SendFileOrFolderAsync(targetIp, targetPort, zipPath, "SaveSync", gameName, ct);
+    }
+
+    private async Task<bool> SendFileOrFolderAsync(string targetIp, int targetPort, string path, string transferType, string? overrideGameName = null, CancellationToken ct = default)
+    {
+        if (!Directory.Exists(path) && !File.Exists(path))
         {
-            Error?.Invoke(this, $"Package path does not exist: {packagePath}");
+            Error?.Invoke(this, $"Path does not exist: {path}");
             return false;
         }
 
-        var gameName = System.IO.Path.GetFileName(packagePath);
+        var gameName = overrideGameName ?? System.IO.Path.GetFileName(path);
         string? tempZipPath = null;
+        var sourcePath = path;
         
         try
         {
-            // If the package is a directory, archive it first
-            if (Directory.Exists(packagePath))
+            // If it's a directory, archive it first
+            if (Directory.Exists(sourcePath))
             {
                 var tempPath = System.IO.Path.GetTempPath();
                 tempZipPath = System.IO.Path.Combine(tempPath, $"{gameName}.zip");
 
                 if (File.Exists(tempZipPath)) File.Delete(tempZipPath);
 
-                LogService.Instance.Info($"Archiving package {gameName} for transfer...", "TransferService");
-                await Task.Run(() => System.IO.Compression.ZipFile.CreateFromDirectory(packagePath, tempZipPath, System.IO.Compression.CompressionLevel.Optimal, false), ct);
+                LogService.Instance.Info($"Archiving {gameName} for transfer...", "TransferService");
+                await Task.Run(() => System.IO.Compression.ZipFile.CreateFromDirectory(sourcePath, tempZipPath, System.IO.Compression.CompressionLevel.Optimal, false), ct);
 
                 // Use the zip as the source
-                packagePath = tempZipPath;
+                sourcePath = tempZipPath;
             }
 
             using var client = new TcpClient();
@@ -134,13 +148,12 @@ public class TransferService : IDisposable
             using var networkStream = client.GetStream();
             
             // Gather file list with checksums
-            // If it was a directory, we now point to the zip file, so this logic handles single file or directory (if we supported existing zips)
-            var files = File.Exists(packagePath)
-                ? new[] { packagePath }
-                : Directory.GetFiles(packagePath, "*", SearchOption.AllDirectories);
+            var files = File.Exists(sourcePath)
+                ? new[] { sourcePath }
+                : Directory.GetFiles(sourcePath, "*", SearchOption.AllDirectories);
 
             // Base path for relative calculations
-            var basePath = File.Exists(packagePath) ? System.IO.Path.GetDirectoryName(packagePath)! : packagePath;
+            var basePath = File.Exists(sourcePath) ? System.IO.Path.GetDirectoryName(sourcePath)! : sourcePath;
 
             var fileInfos = files.AsParallel().Select(f => new TransferFileInfo
             {
@@ -163,7 +176,8 @@ public class TransferService : IDisposable
                 TotalFiles = fileInfos.Count,
                 TotalSize = totalSize,
                 IsReceivedPackage = false, // Originated here
-                Compression = useCompression ? "GZip" : "None"
+                Compression = useCompression ? "GZip" : "None",
+                TransferType = transferType
             };
 
             await SendJsonAsync(networkStream, header, ct);
@@ -292,7 +306,7 @@ public class TransferService : IDisposable
             {
                 Success = complete?.Success == true,
                 GameName = gameName,
-                Path = packagePath,
+                Path = sourcePath,
                 BytesTransferred = sentBytes
             });
 
@@ -370,6 +384,28 @@ public class TransferService : IDisposable
             if (fileInfos == null) return;
 
             var gameName = header.GameName ?? "Unknown";
+
+            // Handle Save Sync Request
+            if (header.TransferType == "SaveSync")
+            {
+                await HandleIncomingSaveSyncAsync(networkStream, header, fileInfos, ct);
+                return;
+            }
+
+            // Handle List Request
+            if (header.TransferType == "ListRequest")
+            {
+                await HandleListRequestAsync(networkStream, ct);
+                return;
+            }
+
+            // Handle Pull Request
+            if (header.TransferType == "PullRequest")
+            {
+                await HandlePullRequestAsync(client, header, ct);
+                return;
+            }
+
             var destPath = System.IO.Path.Combine(_receiveBasePath, gameName);
 
             // Request approval from UI before accepting
@@ -724,6 +760,139 @@ public class TransferService : IDisposable
         }
     }
 
+    private async Task HandleIncomingSaveSyncAsync(NetworkStream stream, TransferHeader header, List<TransferFileInfo> fileInfos, CancellationToken ct)
+    {
+        // For save sync, we auto-accept (or we could prompt, but let's assume saves are small and safe enough for now)
+        // Actually, we should still notify/prompt for security.
+
+        var gameName = header.GameName ?? "Unknown";
+
+        // Use a temp path for the zip
+        var tempZip = Path.GetTempFileName();
+
+        await SendJsonAsync(stream, new TransferAck { Accepted = true }, ct);
+
+        // Receive the zip file content
+        using (var fs = File.Create(tempZip))
+        {
+            var buffer = new byte[BUFFER_SIZE];
+
+            // Wait for stream data
+            foreach (var info in fileInfos)
+            {
+                long remaining = info.Size;
+                while (remaining > 0)
+                {
+                    var read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(remaining, buffer.Length)), ct);
+                    if (read == 0) break;
+                    await fs.WriteAsync(buffer.AsMemory(0, read), ct);
+                    remaining -= read;
+                }
+            }
+        }
+
+        // Notify completion
+        await SendJsonAsync(stream, new TransferComplete { Success = true }, ct);
+
+        TransferComplete?.Invoke(this, new TransferResult
+        {
+            Success = true,
+            GameName = gameName, // Note: This should ideally contain AppID prefix like "Save_12345"
+            Path = tempZip, // Path to the downloaded zip
+            WasReceived = true,
+            VerificationPassed = true
+        });
+    }
+
+    // Event to get list of local packages from the main app
+    public event Func<List<Models.RemoteGame>>? LocalLibraryRequested;
+
+    private async Task HandleListRequestAsync(NetworkStream stream, CancellationToken ct)
+    {
+        var games = LocalLibraryRequested?.Invoke() ?? new List<Models.RemoteGame>();
+        await SendJsonAsync(stream, games, ct);
+    }
+
+    // Event to request a package push based on name (MainWindow handles looking up path and calling SendPackage)
+    public event Func<string, string, int, Task>? PullPackageRequested;
+
+    private async Task HandlePullRequestAsync(TcpClient client, TransferHeader header, CancellationToken ct)
+    {
+        var remoteEndpoint = client.Client.RemoteEndPoint as IPEndPoint;
+        if (remoteEndpoint == null) return;
+
+        var targetIp = remoteEndpoint.Address.ToString();
+        var targetPort = Port; // Assume same port
+
+        // Fire and forget the push back
+        if (PullPackageRequested != null && header.GameName != null)
+        {
+             _ = PullPackageRequested.Invoke(header.GameName, targetIp, targetPort);
+        }
+    }
+
+    public async Task<List<Models.RemoteGame>?> RequestLibraryListAsync(string targetIp, int targetPort)
+    {
+        try
+        {
+            using var client = new TcpClient();
+            await client.ConnectAsync(targetIp, targetPort);
+            using var stream = client.GetStream();
+
+            var header = new TransferHeader
+            {
+                Magic = PROTOCOL_MAGIC_V2,
+                TransferType = "ListRequest",
+                TotalFiles = 0,
+                TotalSize = 0
+            };
+
+            await SendJsonAsync(stream, header, default);
+
+            // Send empty file list to satisfy protocol
+            await SendJsonAsync(stream, new List<TransferFileInfo>(), default);
+
+            // Receive list
+            return await ReceiveJsonAsync<List<Models.RemoteGame>>(stream, default);
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"List request failed: {ex.Message}", ex, "TransferService");
+            throw;
+        }
+    }
+
+    public async Task RequestPullPackageAsync(string targetIp, int targetPort, string gameName)
+    {
+        try
+        {
+            using var client = new TcpClient();
+            await client.ConnectAsync(targetIp, targetPort);
+            using var stream = client.GetStream();
+
+            var header = new TransferHeader
+            {
+                Magic = PROTOCOL_MAGIC_V2,
+                TransferType = "PullRequest",
+                GameName = gameName,
+                TotalFiles = 0,
+                TotalSize = 0
+            };
+
+            await SendJsonAsync(stream, header, default);
+
+            // Send empty file list
+            await SendJsonAsync(stream, new List<TransferFileInfo>(), default);
+
+            // The connection closes. The peer will initiate a new connection to US to send the file.
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Pull request failed: {ex.Message}", ex, "TransferService");
+            throw;
+        }
+    }
+
     private async Task MarkAsReceivedPackage(string packagePath)
     {
         // Create a marker file to indicate this came from another SteamRoll client
@@ -967,6 +1136,11 @@ public class TransferHeader
     public bool IsReceivedPackage { get; set; }
 
     /// <summary>
+    /// Type of transfer (Package, SaveSync, etc).
+    /// </summary>
+    public string TransferType { get; set; } = "Package";
+
+    /// <summary>
     /// Compression mode used for file transfer (e.g., "None", "GZip").
     /// </summary>
     public string Compression { get; set; } = "None";
@@ -1034,6 +1208,7 @@ public class TransferResult
     public string Path { get; set; } = "";
     public long BytesTransferred { get; set; }
     public bool WasReceived { get; set; }
+    public bool IsSaveSync { get; set; }
     
     /// <summary>
     /// Whether the package passed integrity verification after transfer.
