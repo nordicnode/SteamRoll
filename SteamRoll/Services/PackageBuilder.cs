@@ -950,11 +950,11 @@ public class PackageBuilder
     }
 
     /// <summary>
-    /// Copies a directory recursively with progress reporting using parallelism. Skips files that already exist with matching size/timestamp.
+    /// Copies a directory recursively with progress reporting using limited concurrency. Skips files that already exist with matching size/timestamp.
     /// </summary>
     private async Task CopyDirectoryAsync(string sourceDir, string destDir, List<string>? excludedPaths = null, CancellationToken ct = default)
     {
-        await Task.Run(() =>
+        await Task.Run(async () =>
         {
             var dir = new DirectoryInfo(sourceDir);
             if (!dir.Exists)
@@ -964,12 +964,6 @@ public class PackageBuilder
             var totalFiles = allFiles.Length;
             int copiedFiles = 0;
 
-            var parallelOptions = new ParallelOptions
-            {
-                MaxDegreeOfParallelism = Environment.ProcessorCount,
-                CancellationToken = ct
-            };
-
             // Prepare exclude patterns
             var excludePatterns = excludedPaths?.Select(p =>
             {
@@ -977,7 +971,12 @@ public class PackageBuilder
                 return p.Replace('/', '\\').Trim('\\');
             }).ToList() ?? new List<string>();
 
-            Parallel.ForEach(allFiles, parallelOptions, (file) =>
+            // Use Parallel.ForEachAsync for better scalability and cleaner code
+            await Parallel.ForEachAsync(allFiles, new ParallelOptions
+            {
+                MaxDegreeOfParallelism = 8,
+                CancellationToken = ct
+            }, async (file, token) =>
             {
                 var relativePath = System.IO.Path.GetRelativePath(sourceDir, file.FullName);
 
@@ -998,7 +997,6 @@ public class PackageBuilder
                 }
 
                 var destPath = System.IO.Path.Combine(destDir, relativePath);
-
                 Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
 
                 // Check if file exists and matches
@@ -1015,15 +1013,20 @@ public class PackageBuilder
 
                 if (!skip)
                 {
-                    // CopyTo is not thread safe if two threads try to write to same file, but we are writing to unique paths
-                    // However, we need to handle potential IO exceptions for file access
+                    // Handle IO exceptions with retries
                     int retries = 0;
                     const int maxRetries = 3;
                     while (true)
                     {
                         try
                         {
-                            file.CopyTo(destPath, overwrite: true);
+                            // Use async stream copy for better responsiveness and I/O handling
+                            using var sourceStream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, true);
+                            using var destStream = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, true);
+                            await sourceStream.CopyToAsync(destStream, token);
+
+                            // Preserve timestamp
+                            File.SetLastWriteTimeUtc(destPath, file.LastWriteTimeUtc);
                             break;
                         }
                         catch (IOException ioEx)
@@ -1036,8 +1039,7 @@ public class PackageBuilder
                             }
 
                             LogService.Instance.Warning($"Retry copy {retries}/{maxRetries} for {file.Name}: {ioEx.Message}", "PackageBuilder");
-                            // Exponential backoff: 100ms, 200ms, 400ms...
-                            Thread.Sleep(100 * (int)Math.Pow(2, retries - 1));
+                            await Task.Delay(100 * (int)Math.Pow(2, retries - 1), token);
                         }
                     }
                 }
@@ -1045,7 +1047,7 @@ public class PackageBuilder
                 // Increment atomically
                 var currentCount = Interlocked.Increment(ref copiedFiles);
 
-                // Report progress with throttling to avoid swamping the UI thread
+                // Report progress
                 var progress = 10 + (int)(((double)currentCount / totalFiles) * 60); // 10-70%
                 ThrottleProgress($"{(skip ? "Skipping" : "Copying")}: {relativePath}", progress);
             });
