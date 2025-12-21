@@ -94,6 +94,22 @@ public partial class GameDetailsWindow : Window
                         _ => new SolidColorBrush(Color.FromRgb(0xF8, 0x51, 0x49)) // Red
                     };
                 }
+
+                // Update Steam Reviews
+                if (details.ReviewPositivePercent.HasValue)
+                {
+                    ReviewBadge.Visibility = Visibility.Visible;
+                    ReviewText.Text = details.ReviewDisplay;
+
+                    // Color based on percent
+                    var percent = details.ReviewPositivePercent.Value;
+                    if (percent >= 70) // Mostly Positive or better
+                        ReviewText.Foreground = new SolidColorBrush(Color.FromRgb(0x66, 0xC0, 0xF4)); // Steam Blue
+                    else if (percent >= 40) // Mixed
+                        ReviewText.Foreground = new SolidColorBrush(Color.FromRgb(0xB9, 0xA0, 0x74)); // Steam Mixed/Orange
+                    else // Negative
+                        ReviewText.Foreground = new SolidColorBrush(Color.FromRgb(0xA3, 0x4C, 0x2E)); // Steam Red
+                }
                 
                 // Load background image
                 if (!string.IsNullOrEmpty(details.BackgroundImage))

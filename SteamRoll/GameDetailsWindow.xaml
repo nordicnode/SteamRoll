@@ -68,8 +68,13 @@
                                        Foreground="{DynamicResource TextSecondaryBrush}"/>
                         </Border>
                         <Border x:Name="MetacriticBadge" Background="#3FB950" CornerRadius="4" 
-                                Padding="8,4" Visibility="Collapsed">
-                            <TextBlock x:Name="MetacriticText" Text="85" FontSize="11" 
+                                Padding="8,4" Visibility="Collapsed" ToolTip="Metacritic Score">
+                            <TextBlock x:Name="MetacriticText" Text="" FontSize="11"
+                                       Foreground="White" FontWeight="Bold"/>
+                        </Border>
+                        <Border x:Name="ReviewBadge" Background="#21262D" CornerRadius="4"
+                                Padding="8,4" Margin="8,0,0,0" Visibility="Collapsed" ToolTip="Steam User Reviews">
+                            <TextBlock x:Name="ReviewText" Text="" FontSize="11"
                                        Foreground="White" FontWeight="Bold"/>
                         </Border>
                     </StackPanel>
