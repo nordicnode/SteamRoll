@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -52,6 +53,40 @@ public partial class PeerSelectionDialog : Window
             SelectedPeer = PeerListBox.SelectedItem as PeerInfo;
             DialogResult = true;
             Close();
+        }
+    }
+
+    private async void SpeedTestButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (PeerListBox.SelectedItem is not PeerInfo peer)
+        {
+            MessageBox.Show("Please select a peer first.", "Speed Test", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var btn = sender as Button;
+        if (btn != null) btn.IsEnabled = false;
+
+        try
+        {
+            // Create a temporary TransferService just for the test if not passed in,
+            // or we assume MainWindow passes one.
+            // To keep this dialog simple/standalone, we'll assume we can't easily reuse the main one without passing it.
+            // But we can instantiate a temporary one easily.
+            using var transferService = new TransferService(Path.GetTempPath());
+
+            // We use a small buffer for quick test (50MB)
+            var mbps = await transferService.RunSpeedTestAsync(peer.IpAddress, peer.TransferPort);
+
+            MessageBox.Show($"Speed to {peer.HostName}: {mbps:F1} Mbps", "Speed Test Result", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Speed test failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            if (btn != null) btn.IsEnabled = true;
         }
     }
 }

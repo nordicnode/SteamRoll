@@ -720,28 +720,42 @@ public class GoldbergService : IDisposable
 
         try
         {
-            // Sanity check: steam_api.dll shouldn't be massive
-            // If it is, it's likely not the real DLL or something weird is going on.
-            // Reading a 100MB+ file into a string for regex is bad for memory.
-            var info = new FileInfo(steamApiPath);
-            if (info.Length > 10 * 1024 * 1024) // 10MB limit
-            {
-                LogService.Instance.Warning($"Skipping interface detection for {steamApiPath} (size {info.Length} > 10MB)", "GoldbergService");
-                return interfaces;
-            }
+            // Robust scanning: Stream read file in chunks to handle any size
+            // and use overlapping buffers to catch patterns spanning chunk boundaries
+            const int bufferSize = 64 * 1024; // 64KB chunks
+            const int overlap = 1024; // Max interface name length safety margin
 
-            var bytes = File.ReadAllBytes(steamApiPath);
-            var content = System.Text.Encoding.ASCII.GetString(bytes);
+            var buffer = new byte[bufferSize];
+            using var fs = new FileStream(steamApiPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+
+            int bytesRead;
+            int offset = 0;
             
-            // Use precompiled regex patterns for better performance
-            foreach (var regex in InterfacePatterns)
+            // Read until end
+            while ((bytesRead = fs.Read(buffer, offset, buffer.Length - offset)) > 0)
             {
-                var matches = regex.Matches(content);
-                foreach (Match match in matches)
+                var totalBytes = bytesRead + offset;
+                var content = System.Text.Encoding.ASCII.GetString(buffer, 0, totalBytes);
+
+                // Scan buffer
+                foreach (var regex in InterfacePatterns)
                 {
-                    if (!interfaces.Contains(match.Value))
-                        interfaces.Add(match.Value);
+                    var matches = regex.Matches(content);
+                    foreach (Match match in matches)
+                    {
+                        if (!interfaces.Contains(match.Value))
+                            interfaces.Add(match.Value);
+                    }
                 }
+
+                // Shift buffer to keep overlap for next iteration
+                // If we reached end of file, stop
+                if (fs.Position >= fs.Length) break;
+
+                // Keep the last 'overlap' bytes at the start of buffer for next read
+                var keepCount = Math.Min(totalBytes, overlap);
+                Array.Copy(buffer, totalBytes - keepCount, buffer, 0, keepCount);
+                offset = keepCount;
             }
         }
         catch (Exception ex)

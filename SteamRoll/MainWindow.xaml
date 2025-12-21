@@ -680,6 +680,14 @@
                                             </Style>
                                         </MenuItem.Style>
                                     </MenuItem>
+                                    <MenuItem Header="🔧 Repair from Peer" Click="ContextMenu_RepairFromPeer_Click" Tag="{Binding}"
+                                              ToolTip="Pull missing/corrupt files from a peer">
+                                        <MenuItem.Style>
+                                            <Style TargetType="MenuItem">
+                                                <Setter Property="IsEnabled" Value="{Binding IsPackaged}"/>
+                                            </Style>
+                                        </MenuItem.Style>
+                                    </MenuItem>
                                     <MenuItem Header="🌐 Open Steam Store" Click="ContextMenu_OpenSteamStore_Click" Tag="{Binding}"/>
                                 </ContextMenu>
                             </Border.ContextMenu>

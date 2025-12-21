@@ -71,53 +71,82 @@ public class IntegrityService
         result.TotalFiles = metadata.FileHashes.Count;
         int processedCount = 0;
 
-        await Task.Run(() =>
+        // Use parallel processing for improved performance on SSDs
+        // Limit concurrency to avoid choking mechanical drives or saturating CPU completely
+        var options = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount };
+
+        await Parallel.ForEachAsync(metadata.FileHashes, options, async (entry, ct) =>
         {
-            using var sha256 = SHA256.Create();
+            var (relativePath, expectedHash) = entry;
+            var filePath = Path.Combine(packagePath, relativePath);
 
-            // We can iterate sequentially or parallel. Sequential is often better for disk I/O unless SSD.
-            // Let's stick to sequential for simplicity and consistent progress reporting,
-            // or parallel with a lock for progress. Given we need to read files, I/O is the bottleneck.
+            bool missing = false;
+            bool mismatch = false;
+            bool readError = false;
 
-            foreach (var (relativePath, expectedHash) in metadata.FileHashes)
+            if (!File.Exists(filePath))
             {
-                var filePath = Path.Combine(packagePath, relativePath);
+                missing = true;
+            }
+            else
+            {
+                try
+                {
+                    // ComputeSha256Async will be needed, or run sync inside Task.Run if we want true parallel compute
+                    // Since hashing is CPU bound too, we'll run it here.
+                    // We need a fresh SHA256 instance per task/thread or use a static one?
+                    // SHA256 is not thread safe for instance members.
+                    // We'll create one per operation.
 
-                if (!File.Exists(filePath))
-                {
-                    result.MissingFiles.Add(relativePath);
-                }
-                else
-                {
-                    try
+                    var actualHash = await ComputeSha256Async(filePath);
+                    if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
                     {
-                        var actualHash = ComputeSha256(filePath, sha256);
-                        if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
-                        {
-                            result.MismatchedFiles.Add(relativePath);
-                        }
-                    }
-                    catch
-                    {
-                        result.MismatchedFiles.Add($"{relativePath} (Read Error)");
+                        mismatch = true;
                     }
                 }
+                catch
+                {
+                    readError = true;
+                }
+            }
+
+            // Thread-safe update of result collections
+            lock (result)
+            {
+                if (missing) result.MissingFiles.Add(relativePath);
+                else if (mismatch) result.MismatchedFiles.Add(relativePath);
+                else if (readError) result.MismatchedFiles.Add($"{relativePath} (Read Error)");
 
                 processedCount++;
-                progress?.Report((int)((double)processedCount / result.TotalFiles * 100));
+                // Report periodically to avoid lock contention on progress delegate
+                if (processedCount % 10 == 0 || processedCount == result.TotalFiles)
+                {
+                    progress?.Report((int)((double)processedCount / result.TotalFiles * 100));
+                }
             }
         });
 
         result.FilesChecked = processedCount;
         result.IsValid = result.MissingFiles.Count == 0 && result.MismatchedFiles.Count == 0;
 
+        // Sort for consistent UI display
+        result.MissingFiles.Sort();
+        result.MismatchedFiles.Sort();
+
         return result;
     }
 
-    private string ComputeSha256(string filePath, SHA256 sha256)
+    private static async Task<string> ComputeSha256Async(string filePath)
     {
-        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, FileOptions.SequentialScan);
-        var hashBytes = sha256.ComputeHash(stream);
-        return Convert.ToHexString(hashBytes).ToLowerInvariant();
+        // Offload to thread pool to avoid blocking the parallel looper
+        return await Task.Run(async () =>
+        {
+            using var sha256 = SHA256.Create();
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, FileOptions.SequentialScan | FileOptions.Asynchronous);
+
+            // ComputeHashAsync is available in .NET 6+
+            var hashBytes = await sha256.ComputeHashAsync(stream);
+            return Convert.ToHexString(hashBytes).ToLowerInvariant();
+        });
     }
 }
