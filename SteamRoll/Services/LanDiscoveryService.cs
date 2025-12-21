@@ -104,6 +104,41 @@ public class LanDiscoveryService : IDisposable
     }
 
     /// <summary>
+    /// Manually adds a peer by IP address.
+    /// Used when UDP broadcast discovery is blocked or across subnets.
+    /// </summary>
+    public void AddManualPeer(string ipAddress, int port = AppConstants.DEFAULT_TRANSFER_PORT)
+    {
+        try
+        {
+            var peerId = $"{ipAddress}:{port}";
+            if (_peers.ContainsKey(peerId)) return;
+
+            var peer = new PeerInfo
+            {
+                Id = peerId,
+                HostName = ipAddress, // Will be updated if/when we get a real announce
+                IpAddress = ipAddress,
+                TransferPort = port,
+                LastSeen = DateTime.Now,
+                PackagedGameCount = 0,
+                IsManual = true
+            };
+
+            _peers[peerId] = peer;
+            LogService.Instance.Info($"Added manual peer: {ipAddress}", "LanDiscovery");
+            PeerDiscovered?.Invoke(this, peer);
+
+            // Optionally, we could try to send a unicast announce to this peer immediately
+            // But usually this is used for initiating transfers
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Failed to add manual peer {ipAddress}: {ex.Message}", ex, "LanDiscovery");
+        }
+    }
+
+    /// <summary>
     /// Sends a transfer request to a peer.
     /// </summary>
     public async Task<bool> SendTransferRequestAsync(PeerInfo peer, string gameName, long sizeBytes)
@@ -260,7 +295,8 @@ public class LanDiscoveryService : IDisposable
                 var now = DateTime.Now;
                 List<PeerInfo> lostPeers = new();
 
-                var stale = _peers.Where(p => (now - p.Value.LastSeen).TotalMilliseconds > PEER_TIMEOUT_MS)
+                // Only clean up non-manual peers
+                var stale = _peers.Where(p => !p.Value.IsManual && (now - p.Value.LastSeen).TotalMilliseconds > PEER_TIMEOUT_MS)
                                   .Select(p => p.Key)
                                   .ToList();
 
@@ -314,8 +350,9 @@ public class PeerInfo
     public int TransferPort { get; set; }
     public DateTime LastSeen { get; set; }
     public int PackagedGameCount { get; set; }
+    public bool IsManual { get; set; }
 
-    public string DisplayName => $"{HostName} ({IpAddress})";
+    public string DisplayName => IsManual ? $"{HostName} (Manual)" : $"{HostName} ({IpAddress})";
 }
 
 /// <summary>

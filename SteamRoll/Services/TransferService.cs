@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Buffers;
 
 
 namespace SteamRoll.Services;
@@ -232,9 +233,10 @@ public class TransferService : IDisposable
             // Initialize with skipped bytes so progress bar starts correctly if we're resuming/updating
             long totalProgressBytes = skippedBytes;
 
-            var buffer = new byte[BUFFER_SIZE];
-            var limiter = new BandwidthLimiter(_settingsService?.Settings.TransferSpeedLimit ?? 0);
+            var buffer = ArrayPool<byte>.Shared.Rent(BUFFER_SIZE);
+            var limiter = new BandwidthLimiter(() => _settingsService?.Settings.TransferSpeedLimit ?? 0);
             var startTime = DateTime.UtcNow;
+            var lastProgressTime = DateTime.MinValue;
 
             // Setup the output stream (either raw network stream or compressed wrapper)
             Stream outputStream = networkStream;
@@ -283,33 +285,41 @@ public class TransferService : IDisposable
                         sentBytes += bytesRead;
                         totalProgressBytes += bytesRead;
 
-                        // Calculate ETA based on actual transfer speed
-                        TimeSpan? eta = null;
-                        var elapsed = DateTime.UtcNow - startTime;
-                        if (elapsed.TotalSeconds > 2 && sentBytes > 0)
+                        var now = DateTime.UtcNow;
+                        if ((now - lastProgressTime).TotalMilliseconds >= 100)
                         {
-                            var bytesPerSecond = sentBytes / elapsed.TotalSeconds;
-                            if (bytesPerSecond > 0)
-                            {
-                                var remainingBytes = bytesToTransfer - sentBytes;
-                                eta = TimeSpan.FromSeconds(remainingBytes / bytesPerSecond);
-                            }
-                        }
+                            lastProgressTime = now;
 
-                        ProgressChanged?.Invoke(this, new TransferProgress
-                        {
-                            GameName = gameName,
-                            CurrentFile = fileInfo.RelativePath,
-                            BytesTransferred = totalProgressBytes,
-                            TotalBytes = totalSize,
-                            IsSending = true,
-                            EstimatedTimeRemaining = eta
-                        });
+                            // Calculate ETA based on actual transfer speed
+                            TimeSpan? eta = null;
+                            var elapsed = now - startTime;
+                            if (elapsed.TotalSeconds > 2 && sentBytes > 0)
+                            {
+                                var bytesPerSecond = sentBytes / elapsed.TotalSeconds;
+                                if (bytesPerSecond > 0)
+                                {
+                                    var remainingBytes = bytesToTransfer - sentBytes;
+                                    eta = TimeSpan.FromSeconds(remainingBytes / bytesPerSecond);
+                                }
+                            }
+
+                            ProgressChanged?.Invoke(this, new TransferProgress
+                            {
+                                GameName = gameName,
+                                CurrentFile = fileInfo.RelativePath,
+                                BytesTransferred = totalProgressBytes,
+                                TotalBytes = totalSize,
+                                IsSending = true,
+                                EstimatedTimeRemaining = eta
+                            });
+                        }
                     }
                 }
             }
             finally
             {
+                ArrayPool<byte>.Shared.Return(buffer);
+
                 // Ensure we finish the compression stream properly
                 if (gzipStream != null)
                 {
@@ -577,7 +587,7 @@ public class TransferService : IDisposable
 
             // Receive files
             long receivedBytes = previouslyReceivedBytes;
-            var buffer = new byte[BUFFER_SIZE];
+            var buffer = ArrayPool<byte>.Shared.Rent(BUFFER_SIZE);
 
             // Setup input stream (compressed or raw)
             Stream inputStream = networkStream;
@@ -589,8 +599,9 @@ public class TransferService : IDisposable
                 inputStream = gzipStream;
             }
 
-            // Throttle state saves
+            // Throttle state saves and progress updates
             DateTime lastStateSave = DateTime.UtcNow;
+            DateTime lastProgressTime = DateTime.MinValue;
 
             try
             {
@@ -674,14 +685,19 @@ public class TransferService : IDisposable
                         remaining -= bytesRead;
                         receivedBytes += bytesRead;
 
-                        ProgressChanged?.Invoke(this, new TransferProgress
+                        var progressNow = DateTime.UtcNow;
+                        if ((progressNow - lastProgressTime).TotalMilliseconds >= 100)
                         {
-                            GameName = gameName,
-                            CurrentFile = fileInfo.RelativePath,
-                            BytesTransferred = receivedBytes,
-                            TotalBytes = header.TotalSize,
-                            IsSending = false
-                        });
+                            lastProgressTime = progressNow;
+                            ProgressChanged?.Invoke(this, new TransferProgress
+                            {
+                                GameName = gameName,
+                                CurrentFile = fileInfo.RelativePath,
+                                BytesTransferred = receivedBytes,
+                                TotalBytes = header.TotalSize,
+                                IsSending = false
+                            });
+                        }
                     }
 
                     // Verify checksum if provided
@@ -714,6 +730,8 @@ public class TransferService : IDisposable
             }
             finally
             {
+                 ArrayPool<byte>.Shared.Return(buffer);
+
                  // No need to dispose reader stream specifically if it just wraps,
                  // but good practice if we want to ensure any internal buffers are cleared
                  if (gzipStream != null) await gzipStream.DisposeAsync();
@@ -1088,33 +1106,42 @@ public class TransferService : IDisposable
 /// </summary>
 public class BandwidthLimiter
 {
-    private readonly long _bytesPerSecond;
+    private readonly Func<long> _bytesPerSecondProvider;
     private double _tokens;
     private DateTime _lastUpdate;
     private const double MAX_TOKENS_MULTIPLIER = 1.0; // Max burst = 1 second worth
 
-    public BandwidthLimiter(long bytesPerSecond)
+    public BandwidthLimiter(long fixedBytesPerSecond) : this(() => fixedBytesPerSecond) { }
+
+    public BandwidthLimiter(Func<long> bytesPerSecondProvider)
     {
-        _bytesPerSecond = bytesPerSecond;
-        _tokens = bytesPerSecond; // Start full
+        _bytesPerSecondProvider = bytesPerSecondProvider;
+        var initialRate = _bytesPerSecondProvider();
+        _tokens = initialRate; // Start full
         _lastUpdate = DateTime.UtcNow;
     }
 
     public async Task WaitAsync(int bytes, CancellationToken ct)
     {
-        if (_bytesPerSecond <= 0) return; // No limit
+        var bytesPerSecond = _bytesPerSecondProvider();
+
+        if (bytesPerSecond <= 0) return; // No limit
 
         while (true)
         {
             ct.ThrowIfCancellationRequested();
+
+            // Re-fetch rate in loop in case it changes
+            bytesPerSecond = _bytesPerSecondProvider();
+            if (bytesPerSecond <= 0) return;
 
             var now = DateTime.UtcNow;
             var elapsed = (now - _lastUpdate).TotalSeconds;
             _lastUpdate = now;
 
             // Refill tokens
-            _tokens += elapsed * _bytesPerSecond;
-            var maxTokens = _bytesPerSecond * MAX_TOKENS_MULTIPLIER;
+            _tokens += elapsed * bytesPerSecond;
+            var maxTokens = bytesPerSecond * MAX_TOKENS_MULTIPLIER;
             if (_tokens > maxTokens) _tokens = maxTokens;
 
             if (_tokens >= bytes)
@@ -1125,7 +1152,7 @@ public class BandwidthLimiter
 
             // Not enough tokens, wait
             var deficit = bytes - _tokens;
-            var waitTimeSeconds = deficit / _bytesPerSecond;
+            var waitTimeSeconds = deficit / bytesPerSecond;
             var waitTimeMs = (int)(waitTimeSeconds * 1000);
 
             if (waitTimeMs > 0)
