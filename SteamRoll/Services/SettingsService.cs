@@ -204,9 +204,6 @@ public class AppSettings
     /// <summary>
     /// Whether Defender exclusions have been added.
     /// </summary>
-    /// <summary>
-    /// Whether Defender exclusions have been added.
-    /// </summary>
     public bool DefenderExclusionsAdded { get; set; } = false;
     
     /// <summary>

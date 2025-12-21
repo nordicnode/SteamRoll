@@ -483,6 +483,9 @@ public class TransferService : IDisposable
                 inputStream = gzipStream;
             }
 
+            // Throttle state saves
+            DateTime lastStateSave = DateTime.UtcNow;
+
             try
             {
                 foreach (var fileInfo in fileInfos)
@@ -584,11 +587,18 @@ public class TransferService : IDisposable
                         }
                     }
 
-                    // Mark file as completed and save state after each file
+                    // Mark file as completed
                     state.FilesCompleted++;
                     state.BytesReceived = receivedBytes;
                     state.CompletedFiles.Add(fileInfo.RelativePath);
-                    TransferState.Save(destPath, state);
+
+                    // Periodically save state (every 5 seconds or when finished)
+                    var now = DateTime.UtcNow;
+                    if ((now - lastStateSave).TotalSeconds >= 5 || state.FilesCompleted == state.TotalFiles)
+                    {
+                        TransferState.Save(destPath, state);
+                        lastStateSave = now;
+                    }
                 }
             }
             finally
