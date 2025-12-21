@@ -298,16 +298,22 @@ public class PackageBuilder
     /// </summary>
     private async Task CleanupFailedPackageAsync(string packageDir, bool packageStarted)
     {
-        if (!packageStarted || string.IsNullOrEmpty(packageDir) || !Directory.Exists(packageDir))
+        if (!packageStarted)
             return;
             
         try
         {
+            if (string.IsNullOrEmpty(packageDir))
+                return;
+
             ReportProgress("Cleaning up failed package...", 0);
             
-            // Delete folder
-            await Task.Run(() => Directory.Delete(packageDir, true));
-            LogService.Instance.Info($"Cleaned up failed package at {packageDir}", "PackageBuilder");
+            // Delete folder if it exists
+            if (Directory.Exists(packageDir))
+            {
+                await Task.Run(() => Directory.Delete(packageDir, true));
+                LogService.Instance.Info($"Cleaned up failed package at {packageDir}", "PackageBuilder");
+            }
             
             // Delete ZIP if it exists (it might have been created before failure)
             var folderName = System.IO.Path.GetFileName(packageDir);
@@ -1203,18 +1209,31 @@ public class PackageBuilder
             // or if it's a flat list of files.
             // SteamRoll packages created by us usually have "GameName/..." structure.
 
-            var uniqueRootFolders = archive.Entries
-                .Where(e => !string.IsNullOrEmpty(e.FullName) && e.FullName.Contains('/'))
-                .Select(e => e.FullName.Split('/')[0])
-                .Distinct()
-                .ToList();
+            // Detect if all entries are within a single root folder
+            var entries = archive.Entries.Where(e => !string.IsNullOrEmpty(e.FullName)).ToList();
+            string? commonRoot = null;
+
+            if (entries.Count > 0)
+            {
+                var firstPath = entries[0].FullName;
+                var parts = firstPath.Split('/');
+                if (parts.Length > 1)
+                {
+                    var potentialRoot = parts[0] + "/";
+                    // Check if all entries start with this root
+                    if (entries.All(e => e.FullName.StartsWith(potentialRoot, StringComparison.Ordinal)))
+                    {
+                        commonRoot = parts[0];
+                    }
+                }
+            }
 
             string targetDirName;
 
-            if (uniqueRootFolders.Count == 1)
+            if (commonRoot != null)
             {
-                // Single root folder in zip - use that name but ensure uniqueness
-                targetDirName = uniqueRootFolders[0];
+                // Single root folder in zip - use that name
+                targetDirName = commonRoot;
             }
             else
             {
@@ -1233,32 +1252,23 @@ public class PackageBuilder
             Directory.CreateDirectory(destPath);
             LogService.Instance.Info($"Importing package to {destPath}", "PackageBuilder");
 
-            // Extract
-            // If we detected a single root folder, we might want to strip it if we are creating the folder ourselves?
-            // SteamRoll ZIPs: Created with "GameName/" as root.
-            // If we just ExtractToDirectory, we get Dest/GameName/...
-            // But we calculated destPath as Root/GameName.
-            // So if we extract to destinationRoot, we get Root/GameName... which is correct.
-            // BUT if the zip name doesn't match the internal folder name, we might have issues if we want to rename it.
-            // Let's extract to the specific destPath we created, but handle the internal structure.
-
-            if (uniqueRootFolders.Count == 1)
+            if (commonRoot != null)
             {
-                // Zip has "GameName/file.txt"
-                // destPath is ".../GameName" (or ".../GameName (1)")
+                // Zip has "GameName/file.txt" structure
+                // Extract contents OF the root folder INTO destPath, stripping the root folder name
 
-                // If we extract to destinationRoot, we rely on the zip's internal folder name.
-                // If we want to support renaming (e.g. collision), we need to extract contents OF the root folder INTO destPath.
+                var rootPrefix = commonRoot + "/";
 
-                foreach (var entry in archive.Entries)
+                foreach (var entry in entries)
                 {
                     if (string.IsNullOrEmpty(entry.Name) && entry.FullName.EndsWith("/")) continue; // Skip directories
 
-                    // Remove first segment
-                    var parts = entry.FullName.Split('/', 2);
-                    if (parts.Length > 1)
+                    // Strip the root prefix
+                    if (entry.FullName.StartsWith(rootPrefix))
                     {
-                        var relativePath = parts[1];
+                        var relativePath = entry.FullName.Substring(rootPrefix.Length);
+                        if (string.IsNullOrEmpty(relativePath)) continue;
+
                         var fullOutputPath = Path.Combine(destPath, relativePath);
 
                         Directory.CreateDirectory(Path.GetDirectoryName(fullOutputPath)!);
@@ -1268,7 +1278,7 @@ public class PackageBuilder
             }
             else
             {
-                // Flat structure or messy - just extract everything into destPath
+                // Flat structure or mixed roots - extract everything into destPath as is
                 archive.ExtractToDirectory(destPath);
             }
 
