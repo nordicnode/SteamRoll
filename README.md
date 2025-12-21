@@ -21,23 +21,34 @@ It creates portable, LAN-ready game packages by automatically applying compatibi
         *   **Linux / Steam Deck**: Generates `launch.sh` scripts that handle Wine detection, path conversion, and `LD_LIBRARY_PATH` configuration.
     *   **Dependency Scripting**: Automatically detects redistributables (DirectX, VC++, PhysX) and generates an `install_deps.bat` for silent installation.
 *   **Rich Metadata**: Fetches game details (descriptions, release dates, ratings) from the Steam Store and generates a detailed `README.txt` and machine-readable `steamroll.json` for every package.
+*   **Resumable Packaging**: If a packaging operation is interrupted, SteamRoll can detect the partial state and resume from the last completed step (Copying, Interface Detection, etc.).
 
 ### 🚀 Advanced LAN Transfer
 *   **Zero-Config Discovery**: Automatically finds other SteamRoll clients on your local network via UDP broadcast (Port 27050).
-*   **Smart Sync (Differential Transfer)**: Uses a file-level transfer protocol to analyze the destination folder before sending. It intelligently skips files that match in size and hash, making it perfect for resuming interrupted transfers or pushing small game updates without re-sending the whole game. No temporary archives are created, making the process faster and more robust.
-*   **Smart Hashing**: intelligently uses existing package metadata to skip re-hashing unchanged files on the source, ensuring instant transfer initialization for large games.
-*   **Compression**: Optional GZip compression to reduce bandwidth usage during transfers.
+*   **Smart Sync (Differential Transfer)**: Uses a file-level transfer protocol to analyze the destination folder before sending. It intelligently skips files that match in size and hash, making it perfect for resuming interrupted transfers or pushing small game updates without re-sending the whole game.
+*   **Resumable Transfers**: Transfers can be paused or interrupted and resumed later. State is tracked via `.steamroll_transfer_state` to ensure seamless continuation.
+*   **Smart Hashing**: Intelligently uses existing package metadata to skip re-hashing unchanged files on the source, ensuring instant transfer initialization for large games.
+*   **Compression**: Optional GZip compression (negotiated via `STEAMROLL_TRANSFER_V2` protocol) to reduce bandwidth usage during transfers.
 *   **Integrity Verification**: Uses SHA-256 hashing to ensure every file is transferred correctly and matches the source.
 *   **Remote Library Browsing**: Browse the library of other SteamRoll peers on your network and request "Pull" transfers directly from their machine.
+*   **Repair from Peer**: Verify local game files against a peer's copy and download only the missing or corrupt files to repair a broken package.
+*   **Network Speed Test**: Built-in tool to measure raw transfer throughput between peers.
 *   **Bandwidth Control**: Configurable transfer speed limits to prevent network saturation.
 
+### ⚡ Batch Operations
+*   **Batch Packaging**: Select multiple games in the library and package them sequentially in one go.
+*   **Batch Transfer**: Select multiple packaged games and send them all to a peer in a single operation.
+
 ### 🛠️ Management & Safety
-*   **Library Scanning**: Automatically detects games across multiple Steam library folders.
+*   **Library Scanning**: Automatically detects games across multiple Steam library folders with caching for performance.
+*   **Health Checks & Diagnostics**:
+    *   **Diagnostics**: Analyzes packages for issues like architecture mismatches (32-bit vs 64-bit DLLs), missing Steam API files, or junk files (Redistributables).
+    *   **Library Cleanup**: Scans for and removes orphaned files that don't belong to any valid package to reclaim disk space.
 *   **Save Game Synchronization**:
-    *   **Backup & Restore**: Built-in tools to back up and restore game saves.
+    *   **Backup & Restore**: Built-in tools to back up and restore game saves to/from ZIP files.
     *   **P2P Sync**: Directly synchronize save games with a peer over the network without intermediate file steps.
 *   **Package Import**: Easily ingest external SteamRoll packages (ZIPs) via drag-and-drop or the Import button.
-*   **Update System**: Checks for updates to both the SteamRoll application and the Goldberg Emulator.
+*   **Update System**: Checks for updates to both the SteamRoll application and the Goldberg Emulator (supports GitHub fork for newer Steam SDKs).
 *   **Security**:
     *   **Defender Exclusion Helper**: An optional utility to safely add Windows Defender exclusions for SteamRoll folders to prevent false positives.
     *   **Path Validation**: Strict security checks during transfers to prevent directory traversal attacks.
@@ -74,6 +85,13 @@ Run **SteamRoll** on the computer where the games are installed. It will automat
 On the target PC, open the game folder:
 *   **Windows**: Run **`LAUNCH.bat`**.
 *   **Linux / Steam Deck**: Run **`launch.sh`** (ensure Wine is installed if running Windows executables).
+
+## ⌨️ Keyboard Shortcuts
+
+*   **Ctrl + F**: Focus Search Box
+*   **Ctrl + R**: Refresh Library
+*   **Ctrl + S**: Open Settings
+*   **Esc**: Cancel current operation
 
 ## ⚙️ Technical Details
 
