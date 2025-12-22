@@ -210,6 +210,12 @@ public class AppSettings
     public PackageMode DefaultPackageMode { get; set; } = PackageMode.Goldberg;
     
     /// <summary>
+    /// Default file hash mode for package integrity verification.
+    /// CriticalOnly provides best performance while still verifying Steam DLLs.
+    /// </summary>
+    public FileHashMode DefaultFileHashMode { get; set; } = FileHashMode.CriticalOnly;
+    
+    /// <summary>
     /// Whether to auto-analyze games on scan.
     /// </summary>
     public bool AutoAnalyzeOnScan { get; set; } = true;

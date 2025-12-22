@@ -68,33 +68,57 @@ public static class PackageVerifier
     /// <summary>
     /// Generates SHA256 hashes for key files in a package directory.
     /// </summary>
-    public static Dictionary<string, string> GenerateFileHashes(string packageDir)
+    /// <param name="packageDir">The package directory path.</param>
+    /// <param name="mode">The hashing mode to use. Defaults to CriticalOnly for performance.</param>
+    public static Dictionary<string, string> GenerateFileHashes(string packageDir, FileHashMode mode = FileHashMode.CriticalOnly)
     {
+        // Skip hashing entirely if mode is None
+        if (mode == FileHashMode.None)
+        {
+            LogService.Instance.Debug("File hashing skipped (mode: None)", "PackageVerifier");
+            return new Dictionary<string, string>();
+        }
+
         var hashes = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
-        var extensions = new[] { ".exe", ".dll" };
 
         try
         {
-            var files = Directory.EnumerateFiles(packageDir, "*.*", SearchOption.AllDirectories);
+            IEnumerable<string> files;
+
+            if (mode == FileHashMode.CriticalOnly)
+            {
+                // Only hash Steam-related DLLs for faster package creation
+                var criticalPatterns = new[] { "steam_api.dll", "steam_api64.dll" };
+                files = criticalPatterns
+                    .SelectMany(pattern => Directory.GetFiles(packageDir, pattern, SearchOption.AllDirectories))
+                    .Distinct();
+                
+                LogService.Instance.Debug($"CriticalOnly mode: hashing {files.Count()} Steam DLLs", "PackageVerifier");
+            }
+            else
+            {
+                // All mode: hash all .exe and .dll files
+                var extensions = new[] { ".exe", ".dll" };
+                files = Directory.EnumerateFiles(packageDir, "*.*", SearchOption.AllDirectories)
+                    .Where(f => extensions.Contains(Path.GetExtension(f).ToLowerInvariant()));
+                
+                LogService.Instance.Debug($"All mode: hashing all executables and DLLs", "PackageVerifier");
+            }
 
             Parallel.ForEach(files, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, (file) =>
             {
-                var ext = System.IO.Path.GetExtension(file).ToLowerInvariant();
-                if (extensions.Contains(ext))
+                // Use forward slashes for cross-platform compatibility
+                var relativePath = Path.GetRelativePath(packageDir, file).Replace('\\', '/');
+                try
                 {
-                    // Use forward slashes for cross-platform compatibility
-                    var relativePath = System.IO.Path.GetRelativePath(packageDir, file).Replace('\\', '/');
-                    try
-                    {
-                        using var sha256 = System.Security.Cryptography.SHA256.Create();
-                        using var stream = File.OpenRead(file);
-                        var hashBytes = sha256.ComputeHash(stream);
-                        hashes[relativePath] = Convert.ToHexString(hashBytes).ToLowerInvariant();
-                    }
-                    catch (Exception ex)
-                    {
-                         LogService.Instance.Warning($"Error generating hash for {file}: {ex.Message}", "PackageVerifier");
-                    }
+                    using var sha256 = System.Security.Cryptography.SHA256.Create();
+                    using var stream = File.OpenRead(file);
+                    var hashBytes = sha256.ComputeHash(stream);
+                    hashes[relativePath] = Convert.ToHexString(hashBytes).ToLowerInvariant();
+                }
+                catch (Exception ex)
+                {
+                    LogService.Instance.Warning($"Error generating hash for {file}: {ex.Message}", "PackageVerifier");
                 }
             });
         }
@@ -106,3 +130,4 @@ public static class PackageVerifier
         return new Dictionary<string, string>(hashes);
     }
 }
+

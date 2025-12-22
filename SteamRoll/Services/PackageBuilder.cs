@@ -242,7 +242,7 @@ public class PackageBuilder
                     ? _creamApiService.GetInstalledVersion() 
                     : _goldbergService.GetInstalledVersion();
                 
-                _metadataGenerator.CreatePackageMetadata(packageDir, game, emulatorApplied, options.Mode, emulatorVersion, storeDetails);
+                _metadataGenerator.CreatePackageMetadata(packageDir, game, emulatorApplied, options.Mode, emulatorVersion, storeDetails, options.HashMode);
                 
                 // Checkpoint
                 SavePackageState(state);

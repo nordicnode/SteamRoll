@@ -13,7 +13,8 @@ public class PackageMetadataGenerator
     /// Creates package metadata and README.
     /// </summary>
     public void CreatePackageMetadata(string packageDir, InstalledGame game, bool emulatorApplied,
-        PackageMode mode = PackageMode.Goldberg, string? emulatorVersion = null, SteamGameDetails? storeDetails = null)
+        PackageMode mode = PackageMode.Goldberg, string? emulatorVersion = null, SteamGameDetails? storeDetails = null,
+        FileHashMode hashMode = FileHashMode.CriticalOnly)
     {
         var modeName = mode == PackageMode.CreamApi ? "CreamAPI" : "Goldberg";
         var versionDisplay = !string.IsNullOrEmpty(emulatorVersion) ? emulatorVersion : "unknown";
@@ -149,7 +150,7 @@ public class PackageMetadataGenerator
                 EmulatorMode = mode.ToString(),
                 EmulatorVersion = versionDisplay,
                 OriginalSize = game.SizeOnDisk,
-                FileHashes = GenerateFileHashes(packageDir)
+                FileHashes = GenerateFileHashes(packageDir, hashMode)
             };
 
             var options = new JsonSerializerOptions { WriteIndented = true };
@@ -165,9 +166,9 @@ public class PackageMetadataGenerator
     /// <summary>
     /// Generates SHA256 hashes for key files in a package directory.
     /// </summary>
-    private Dictionary<string, string> GenerateFileHashes(string packageDir)
+    private Dictionary<string, string> GenerateFileHashes(string packageDir, FileHashMode mode)
     {
-        return PackageVerifier.GenerateFileHashes(packageDir);
+        return PackageVerifier.GenerateFileHashes(packageDir, mode);
     }
 
     private static string WordWrap(string text, int width)

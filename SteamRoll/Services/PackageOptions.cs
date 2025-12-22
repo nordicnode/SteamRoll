@@ -3,6 +3,29 @@ using System.IO.Compression;
 namespace SteamRoll.Services;
 
 /// <summary>
+/// Controls which files are hashed during package metadata generation.
+/// </summary>
+public enum FileHashMode
+{
+    /// <summary>
+    /// Skip file hashing entirely for fastest package creation.
+    /// </summary>
+    None,
+    
+    /// <summary>
+    /// Only hash critical Steam-related files (steam_api*.dll).
+    /// Best balance of speed and integrity verification.
+    /// </summary>
+    CriticalOnly,
+    
+    /// <summary>
+    /// Hash all .exe and .dll files.
+    /// Most thorough but slowest for large games.
+    /// </summary>
+    All
+}
+
+/// <summary>
 /// Options for package creation.
 /// </summary>
 public class PackageOptions
@@ -11,6 +34,12 @@ public class PackageOptions
     /// Whether to include DLC content.
     /// </summary>
     public bool IncludeDlc { get; set; } = true;
+    
+    /// <summary>
+    /// Controls which files are hashed for integrity verification.
+    /// Default is CriticalOnly for faster package creation.
+    /// </summary>
+    public FileHashMode HashMode { get; set; } = FileHashMode.CriticalOnly;
 
     /// <summary>
     /// Whether to compress the package.

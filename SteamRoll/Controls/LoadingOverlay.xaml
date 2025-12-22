@@ -56,10 +56,11 @@
                 </Rectangle.Fill>
             </Rectangle>
             
-            <!-- Centered card container -->
+            <!-- Centered card container - Fixed size to prevent jarring resize -->
             <Border HorizontalAlignment="Center" VerticalAlignment="Center"
                     Background="#2A161B22" CornerRadius="20" Padding="48,40"
-                    BorderBrush="#40A371F7" BorderThickness="1">
+                    BorderBrush="#40A371F7" BorderThickness="1"
+                    Width="420">
                 <Border.Effect>
                     <DropShadowEffect BlurRadius="40" ShadowDepth="0" Opacity="0.4" Color="#A371F7"/>
                 </Border.Effect>
@@ -115,10 +116,11 @@
                         </Border>
                     </Grid>
                     
-                    <!-- Status message -->
+                    <!-- Status message - Fixed height, text trimming to prevent resize -->
                     <TextBlock x:Name="StatusText" Text="Processing..." FontSize="18" FontWeight="SemiBold"
-                               Foreground="#F0F6FC" TextAlignment="Center" TextWrapping="Wrap"
-                               MaxWidth="350"
+                               Foreground="#F0F6FC" TextAlignment="Center" 
+                               TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"
+                               Width="320" Height="26"
                                HorizontalAlignment="Center" Margin="0,0,0,8"/>
                     
                     <!-- Progress percentage -->
