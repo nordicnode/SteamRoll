@@ -270,44 +270,66 @@ public class PeParser
     }
 
     /// <summary>
-    /// Searches the file for specific byte patterns/strings.
+    /// Searches the file for specific byte patterns/strings using buffered reading.
     /// </summary>
     public bool ContainsString(string searchString, bool caseInsensitive = true)
     {
-        if (FilePath == null) return false;
+        if (FilePath == null || string.IsNullOrEmpty(searchString)) return false;
 
         try
         {
-            var bytes = File.ReadAllBytes(FilePath);
+            using var fs = new FileStream(FilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             var searchBytes = Encoding.ASCII.GetBytes(searchString);
             var searchBytesLower = caseInsensitive ? 
                 Encoding.ASCII.GetBytes(searchString.ToLowerInvariant()) : null;
 
-            for (int i = 0; i <= bytes.Length - searchBytes.Length; i++)
+            // Buffer size: 64KB
+            const int bufferSize = 64 * 1024;
+            var buffer = new byte[bufferSize];
+            // We need to keep the overlap of searchString.Length - 1 to ensure we don't miss a string crossing buffer boundary
+            int overlap = searchBytes.Length - 1;
+            int bytesRead;
+            int offset = 0;
+
+            while ((bytesRead = fs.Read(buffer, offset, buffer.Length - offset)) > 0)
             {
-                bool match = true;
-                for (int j = 0; j < searchBytes.Length; j++)
+                int validBytes = offset + bytesRead;
+
+                // Scan the buffer
+                for (int i = 0; i <= validBytes - searchBytes.Length; i++)
                 {
-                    var b = bytes[i + j];
-                    if (caseInsensitive)
+                    bool match = true;
+                    for (int j = 0; j < searchBytes.Length; j++)
                     {
-                        // Simple lowercase for ASCII letters
-                        if (b >= 'A' && b <= 'Z') b = (byte)(b + 32);
+                        var b = buffer[i + j];
+                        if (caseInsensitive)
+                        {
+                            if (b >= 'A' && b <= 'Z') b = (byte)(b + 32);
+                        }
+
+                        var target = caseInsensitive ? searchBytesLower![j] : searchBytes[j];
+                        if (b != target)
+                        {
+                            match = false;
+                            break;
+                        }
                     }
-                    
-                    var target = caseInsensitive ? searchBytesLower![j] : searchBytes[j];
-                    if (b != target)
-                    {
-                        match = false;
-                        break;
-                    }
+                    if (match) return true;
                 }
-                if (match) return true;
+
+                // Prepare for next chunk
+                if (validBytes < buffer.Length) break; // End of file
+
+                // Move the overlap to the beginning of the buffer
+                if (overlap > 0)
+                {
+                    Array.Copy(buffer, buffer.Length - overlap, buffer, 0, overlap);
+                }
+                offset = overlap;
             }
         }
         catch (Exception ex)
         {
-            // Best effort search - log but don't fail
             LogService.Instance.Debug($"PeParser.ContainsString error: {ex.Message}", "PeParser");
         }
 

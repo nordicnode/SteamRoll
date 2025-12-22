@@ -191,6 +191,12 @@ public class PackageFileHandler
 
     private void ThrottleProgress(string status, int percentage)
     {
+        // Simple check before locking to avoid contention on every file
+        if ((DateTime.UtcNow - _lastReportTime).TotalMilliseconds < 100 && percentage < 100)
+        {
+            return;
+        }
+
         var now = DateTime.UtcNow;
         lock (_progressLock)
         {
