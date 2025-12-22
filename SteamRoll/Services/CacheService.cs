@@ -127,7 +127,12 @@ public class CacheService
             IsPackaged = game.IsPackaged,
             PackagePath = game.PackagePath,
             LastPackaged = game.LastPackaged,
-            IsReceivedPackage = game.IsReceivedPackage
+            IsReceivedPackage = game.IsReceivedPackage,
+            
+            // Review Scores
+            ReviewPositivePercent = game.ReviewPositivePercent,
+            MetacriticScore = game.MetacriticScore,
+            ReviewsFetched = game.ReviewPositivePercent.HasValue || game.MetacriticScore.HasValue
         };
         
         _cache.Games[game.AppId] = cached;
@@ -179,6 +184,13 @@ public class CacheService
         game.PackagePath = cached.PackagePath;
         game.LastPackaged = cached.LastPackaged;
         game.IsReceivedPackage = cached.IsReceivedPackage;
+        
+        // Apply review scores from cache
+        if (cached.ReviewsFetched)
+        {
+            game.ReviewPositivePercent = cached.ReviewPositivePercent;
+            game.MetacriticScore = cached.MetacriticScore;
+        }
         
         return true;
     }
@@ -242,6 +254,11 @@ public class CachedGame
     public string? PackagePath { get; set; }
     public DateTime? LastPackaged { get; set; }
     public bool IsReceivedPackage { get; set; }
+    
+    // Review Scores (from Steam Store)
+    public int? ReviewPositivePercent { get; set; }
+    public int? MetacriticScore { get; set; }
+    public bool ReviewsFetched { get; set; }
 }
 
 /// <summary>

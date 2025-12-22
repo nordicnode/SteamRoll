@@ -796,7 +796,7 @@
                         <DataTemplate>
                             <Border Style="{DynamicResource GameCard}" Margin="8" Cursor="Hand"
                                     MouseLeftButtonUp="GameCard_Click" Tag="{Binding}"
-                                    ToolTip="{Binding DetailedTooltip}" ClipToBounds="True">
+                                    ClipToBounds="True">
                                 <Border.Triggers>
                                     <EventTrigger RoutedEvent="Loaded">
                                         <BeginStoryboard>

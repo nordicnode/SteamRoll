@@ -27,11 +27,45 @@ public partial class MainWindow : Window
     private readonly SaveGameService _saveGameService;
     private readonly UpdateService _updateService;
     private readonly IntegrityService _integrityService;
+    private readonly LibraryManager _libraryManager;
     private CancellationTokenSource? _currentOperationCts;
     private CancellationTokenSource? _scanCts;
     private List<InstalledGame> _allGames = new();
     private readonly object _gamesLock = new(); // Thread-safety lock for _allGames modifications
     private string _outputPath;
+
+    /// <summary>
+    /// Gets a thread-safe snapshot of all games for read operations.
+    /// </summary>
+    private List<InstalledGame> GetGamesSnapshot()
+    {
+        lock (_gamesLock)
+        {
+            return _allGames.ToList();
+        }
+    }
+    
+    /// <summary>
+    /// Gets a game by AppId in a thread-safe manner.
+    /// </summary>
+    private InstalledGame? FindGameByAppId(int appId)
+    {
+        lock (_gamesLock)
+        {
+            return _allGames.FirstOrDefault(g => g.AppId == appId);
+        }
+    }
+    
+    /// <summary>
+    /// Finds a game by predicate in a thread-safe manner.
+    /// </summary>
+    private InstalledGame? FindGame(Func<InstalledGame, bool> predicate)
+    {
+        lock (_gamesLock)
+        {
+            return _allGames.FirstOrDefault(predicate);
+        }
+    }
 
 
     public MainWindow()
@@ -54,6 +88,12 @@ public partial class MainWindow : Window
         _packageScanner = new PackageScanner(_settingsService);
         _cacheService = new CacheService();
         _packageBuilder = new PackageBuilder(_goldbergService, _settingsService, _dlcService);
+        
+        // Initialize LibraryManager for library operations
+        _libraryManager = new LibraryManager(
+            _steamLocator, _libraryScanner, _packageScanner, 
+            _cacheService, _dlcService, _settingsService);
+        _libraryManager.ProgressChanged += status => Dispatcher.Invoke(() => StatusText.Text = status);
         
         // Set output path from settings
         _outputPath = _settingsService.Settings.OutputPath;
@@ -158,7 +198,7 @@ public partial class MainWindow : Window
     
     private async Task ResumePackage(PackageState state)
     {
-        var game = _allGames.FirstOrDefault(g => g.AppId == state.AppId);
+        var game = FindGameByAppId(state.AppId);
         
         // If game not found in library (e.g. library path changed), try to construct minimalist object
         if (game == null)
@@ -514,6 +554,18 @@ public partial class MainWindow : Window
             s.WindowState = WindowState.ToString();
         });
         
+        // Unsubscribe from events to prevent memory leaks
+        _updateService.UpdateAvailable -= OnUpdateAvailable;
+        _packageBuilder.ProgressChanged -= OnPackageProgress;
+        _transferService.ProgressChanged -= OnTransferProgress;
+        _transferService.TransferComplete -= OnTransferComplete;
+        _transferService.TransferApprovalRequested -= OnTransferApprovalRequested;
+        _transferService.LocalLibraryRequested -= OnLocalLibraryRequested;
+        _transferService.PullPackageRequested -= OnPullPackageRequested;
+        _lanDiscoveryService.PeerDiscovered -= OnPeerDiscovered;
+        _lanDiscoveryService.PeerLost -= OnPeerLost;
+        _lanDiscoveryService.TransferRequested -= OnTransferRequested;
+        
         // Clean up LAN services
         _lanDiscoveryService.Stop();
         _transferService.StopListening();
@@ -620,7 +672,7 @@ public partial class MainWindow : Window
                         finally
                         {
                             // Cleanup temp zip
-                            try { File.Delete(result.Path); } catch { }
+                            try { File.Delete(result.Path); } catch (Exception ex) { LogService.Instance.Debug($"Could not delete temp file: {ex.Message}", "MainWindow"); }
                         }
                         return;
                     }
@@ -787,9 +839,7 @@ public partial class MainWindow : Window
         GamesList.Visibility = Visibility.Collapsed;
         GamesListView.Visibility = Visibility.Collapsed;
 
-        StatusText.Text = "Scanning Steam libraries...";
-
-        var steamPath = _steamLocator.GetSteamInstallPath();
+        var steamPath = _libraryManager.GetSteamPath();
         if (steamPath == null)
         {
             SkeletonView.Visibility = Visibility.Collapsed;
@@ -800,76 +850,47 @@ public partial class MainWindow : Window
 
         try
         {
-            // Get cache stats
-            var (cachedCount, _) = _cacheService.GetStats();
-            
-            // Run scan on background thread
-            var scannedGames = await Task.Run(() => _libraryScanner.ScanAllLibraries(), ct);
+            // Use LibraryManager to scan libraries
+            var scanResult = await _libraryManager.ScanLibrariesAsync(ct);
             ct.ThrowIfCancellationRequested();
-
+            
+            // Update local reference for UI (sync with manager)
             lock (_gamesLock)
             {
-                _allGames = scannedGames;
+                _allGames = scanResult.AllGames;
             }
-            
-            // Apply cache to games - separate into cached and uncached
-            var gamesToAnalyze = new List<InstalledGame>();
-            var cachedGames = 0;
-            
-            foreach (var game in scannedGames)
-            {
-                if (_cacheService.ApplyCachedData(game))
-                {
-                    cachedGames++;
-                }
-                else
-                {
-                    gamesToAnalyze.Add(game);
-                }
-            }
-
-            StatusText.Text = $"Found {scannedGames.Count} games ({cachedGames} cached, {gamesToAnalyze.Count} to analyze)...";
             
             // Only analyze games not in cache
-            if (gamesToAnalyze.Count > 0)
+            if (scanResult.GamesToAnalyze.Count > 0)
             {
-                await AnalyzeGamesForDrmAsync(gamesToAnalyze);
+                await _libraryManager.AnalyzeGamesForDrmAsync(scanResult.GamesToAnalyze, ct);
             }
             ct.ThrowIfCancellationRequested();
             
             // Check for existing packages
-            CheckExistingPackages(scannedGames);
+            _libraryManager.CheckExistingPackages(scanResult.AllGames);
             
             // Show games immediately
-            ApplyFilters(); // Apply initial sorting and filtering logic
-            UpdateStats(scannedGames);
+            ApplyFilters();
+            UpdateStats(scanResult.AllGames);
             
             // Save updated cache
-            foreach (var game in scannedGames)
-            {
-                _cacheService.UpdateCache(game);
-            }
-            _cacheService.SaveCache();
+            _libraryManager.SaveCache(scanResult.AllGames);
             
             // Fetch DLC info for games without it (in background)
-            // Note: Using ToList() creates a snapshot for thread-safe background processing
-            List<InstalledGame> gamesNeedingDlc;
-            lock (_gamesLock)
-            {
-                gamesNeedingDlc = _allGames.Where(g => !g.DlcFetched).ToList();
-            }
+            var gamesNeedingDlc = _libraryManager.GetGamesNeedingDlc();
             if (gamesNeedingDlc.Count > 0)
             {
                 StatusText.Text = $"Fetching DLC for {gamesNeedingDlc.Count} games...";
-                SafeFireAndForget(FetchDlcForGamesAsync(gamesNeedingDlc), "DLC Fetch");
+                SafeFireAndForget(_libraryManager.FetchDlcForGamesAsync(gamesNeedingDlc, ct), "DLC Fetch");
             }
 
             // Start Store Data Fetch (Reviews/Metacritic)
-            SafeFireAndForget(EnrichGamesWithStoreDataAsync(_allGames, ct), "Store Enrich");
+            SafeFireAndForget(_libraryManager.EnrichWithStoreDataAsync(_libraryManager.GetGamesSnapshot(), ct), "Store Enrich");
             
-            var packageableCount = scannedGames.Count(g => g.IsPackageable);
-            var packagedCount = scannedGames.Count(g => g.IsPackaged);
-            StatusText.Text = $"✓ {scannedGames.Count} games • {packageableCount} ready • {packagedCount} packaged";
+            var packageableCount = scanResult.AllGames.Count(g => g.IsPackageable);
+            var packagedCount = scanResult.AllGames.Count(g => g.IsPackaged);
+            StatusText.Text = $"✓ {scanResult.AllGames.Count} games • {packageableCount} ready • {packagedCount} packaged";
             SkeletonView.Visibility = Visibility.Collapsed;
         }
         catch (OperationCanceledException)
@@ -884,8 +905,10 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task EnrichGamesWithStoreDataAsync(List<InstalledGame> games, CancellationToken ct)
+    private async Task EnrichGamesWithStoreDataAsync(List<InstalledGame> games, CancellationToken ct, bool forceRefresh = false)
     {
+        var enrichedCount = 0;
+        
         // Process in batches
         foreach (var game in games)
         {
@@ -894,8 +917,8 @@ public partial class MainWindow : Window
 
             try
             {
-                // Verify we don't already have data
-                if (game.HasReviewScore || game.HasMetacriticScore) continue;
+                // Skip games that already have cached review data (unless forcing refresh)
+                if (!forceRefresh && (game.HasReviewScore || game.HasMetacriticScore)) continue;
 
                 var details = await SteamStoreService.Instance.GetGameDetailsAsync(game.AppId, ct);
                 if (details != null)
@@ -906,6 +929,10 @@ public partial class MainWindow : Window
                         game.ReviewDescription = details.ReviewDescription;
                         game.MetacriticScore = details.MetacriticScore;
                     });
+                    enrichedCount++;
+                    
+                    // Update cache for this game
+                    _cacheService.UpdateCache(game);
                 }
                 
                 await Task.Delay(50, ct); 
@@ -914,6 +941,13 @@ public partial class MainWindow : Window
             {
                  LogService.Instance.Debug($"Failed to enrich {game.Name}: {ex.Message}", "StoreEnricher");
             }
+        }
+        
+        // Save cache if we enriched any games
+        if (enrichedCount > 0)
+        {
+            _cacheService.SaveCache();
+            LogService.Instance.Info($"Enriched and cached review data for {enrichedCount} games", "StoreEnricher");
         }
     }
 
@@ -1501,7 +1535,7 @@ public partial class MainWindow : Window
         var filterUpdate = FilterUpdateBtn.IsChecked == true;
         var filterFavorites = FilterFavoritesBtn.IsChecked == true;
         
-        var filtered = _allGames.AsEnumerable();
+        var filtered = GetGamesSnapshot().AsEnumerable();
         
         // Apply search filter
         if (isSearchActive)
@@ -1527,44 +1561,42 @@ public partial class MainWindow : Window
         if (filterFavorites)
             filtered = filtered.Where(g => g.IsFavorite);
 
-        // Apply Sorting
+        // Apply Sorting - combine favorites pinning with primary sort in single pass
+        // If we are NOT filtering BY favorites, pin favorites to top first
+        var pinFavorites = !filterFavorites;
+        
         if (SortBox.SelectedItem is ComboBoxItem item && item.Tag is string sortType)
         {
-            filtered = sortType switch
+            // Use a combined sort: favorites first (if pinning), then by selected sort type
+            if (pinFavorites)
             {
-                "Size" => filtered.OrderByDescending(g => g.SizeOnDisk),
-                "LastPlayed" => filtered.OrderByDescending(g => g.LastPlayed),
-                "ReviewScore" => filtered.OrderByDescending(g => g.ReviewPositivePercent ?? 0),
-                "ReleaseDate" => filtered.OrderByDescending(g => g.BuildId), // Approximate release date via BuildId for now
-                _ => filtered.OrderBy(g => g.Name)
-            };
+                filtered = sortType switch
+                {
+                    "Size" => filtered.OrderByDescending(g => g.IsFavorite).ThenByDescending(g => g.SizeOnDisk),
+                    "LastPlayed" => filtered.OrderByDescending(g => g.IsFavorite).ThenByDescending(g => g.LastPlayed),
+                    "ReviewScore" => filtered.OrderByDescending(g => g.IsFavorite).ThenByDescending(g => g.ReviewPositivePercent ?? 0),
+                    "ReleaseDate" => filtered.OrderByDescending(g => g.IsFavorite).ThenByDescending(g => g.BuildId),
+                    _ => filtered.OrderByDescending(g => g.IsFavorite).ThenBy(g => g.Name)
+                };
+            }
+            else
+            {
+                filtered = sortType switch
+                {
+                    "Size" => filtered.OrderByDescending(g => g.SizeOnDisk),
+                    "LastPlayed" => filtered.OrderByDescending(g => g.LastPlayed),
+                    "ReviewScore" => filtered.OrderByDescending(g => g.ReviewPositivePercent ?? 0),
+                    "ReleaseDate" => filtered.OrderByDescending(g => g.BuildId),
+                    _ => filtered.OrderBy(g => g.Name)
+                };
+            }
         }
         else
         {
-            filtered = filtered.OrderBy(g => g.Name);
-        }
-
-        // Favorites always on top if not specifically sorting?
-        // For now, let's keep it simple and just respect the sort.
-        // Although the user asked for "Favorites would be pinned to the top".
-        // Let's implement that: Favorites first, then secondary sort.
-        if (!filterFavorites) // If we are filtering BY favorites, everything is a favorite, so no need to pin.
-        {
-             filtered = filtered.OrderByDescending(g => g.IsFavorite).ThenBy(g => 1); // Helper to keep stable sort? No, LINQ OrderBy is stable.
-
-             // Re-applying the primary sort as ThenBy
-             if (SortBox.SelectedItem is ComboBoxItem item2 && item2.Tag is string sortType2)
-             {
-                 var ordered = filtered.OrderByDescending(g => g.IsFavorite);
-                 filtered = sortType2 switch
-                 {
-                     "Size" => ordered.ThenByDescending(g => g.SizeOnDisk),
-                     "LastPlayed" => ordered.ThenByDescending(g => g.LastPlayed),
-                     "ReviewScore" => ordered.ThenByDescending(g => g.ReviewPositivePercent ?? 0),
-                     "ReleaseDate" => ordered.ThenByDescending(g => g.BuildId),
-                     _ => ordered.ThenBy(g => g.Name)
-                 };
-             }
+            // Default sort by name, with favorites pinned if not filtering by favorites
+            filtered = pinFavorites 
+                ? filtered.OrderByDescending(g => g.IsFavorite).ThenBy(g => g.Name)
+                : filtered.OrderBy(g => g.Name);
         }
         
         UpdateGamesList(filtered.ToList());
@@ -2117,7 +2149,7 @@ public partial class MainWindow : Window
         
         if (game.IsPackaged && !string.IsNullOrEmpty(game.PackagePath))
         {
-            try { Process.Start("explorer.exe", game.PackagePath); } catch { }
+            try { Process.Start("explorer.exe", game.PackagePath); } catch (Exception ex) { LogService.Instance.Debug($"Could not open package folder: {ex.Message}", "MainWindow"); }
         }
         else
         {
@@ -2329,7 +2361,7 @@ public partial class MainWindow : Window
         var game = GetGameFromContextMenu(sender);
         if (game != null)
         {
-            try { Process.Start("explorer.exe", game.InstallDir); } catch { }
+            try { Process.Start("explorer.exe", game.InstallDir); } catch (Exception ex) { LogService.Instance.Debug($"Could not open install folder: {ex.Message}", "MainWindow"); }
         }
     }
     
@@ -2459,7 +2491,7 @@ public partial class MainWindow : Window
         if (game != null)
         {
             var url = $"https://store.steampowered.com/app/{game.AppId}";
-            try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
+            try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch (Exception ex) { LogService.Instance.Debug($"Could not open Steam store: {ex.Message}", "MainWindow"); }
         }
     }
     
@@ -2490,16 +2522,16 @@ public partial class MainWindow : Window
     
     private List<RemoteGame> OnLocalLibraryRequested()
     {
-        // Return only packaged games
-        return _allGames.Where(g => g.IsPackaged && !string.IsNullOrEmpty(g.PackagePath))
+        // Return only packaged games (thread-safe snapshot)
+        return GetGamesSnapshot().Where(g => g.IsPackaged && !string.IsNullOrEmpty(g.PackagePath))
             .Select(g => new RemoteGame { Name = g.Name, SizeBytes = g.SizeOnDisk })
             .ToList();
     }
 
     private async Task OnPullPackageRequested(string gameName, string targetIp, int targetPort)
     {
-        // Find the requested game
-        var game = _allGames.FirstOrDefault(g => g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase) && g.IsPackaged);
+        // Find the requested game (thread-safe)
+        var game = FindGame(g => g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase) && g.IsPackaged);
 
         if (game != null && !string.IsNullOrEmpty(game.PackagePath))
         {

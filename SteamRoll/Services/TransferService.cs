@@ -1251,8 +1251,9 @@ public class TransferService : IDisposable
             var actualHash = ComputeSha256(filePath);
             return string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase);
         }
-        catch
+        catch (Exception ex)
         {
+            LogService.Instance.Debug($"SHA256 verification failed for {filePath}: {ex.Message}", "TransferService");
             return false;
         }
     }
@@ -1585,8 +1586,9 @@ public class TransferState
             
             return state;
         }
-        catch
+        catch (Exception ex)
         {
+            LogService.Instance.Debug($"Could not load transfer state: {ex.Message}", "TransferService");
             return null;
         }
     }
@@ -1604,7 +1606,10 @@ public class TransferState
                 File.Delete(statePath);
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            LogService.Instance.Debug($"Could not delete transfer state: {ex.Message}", "TransferService");
+        }
     }
     
     /// <summary>

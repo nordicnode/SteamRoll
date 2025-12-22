@@ -371,7 +371,10 @@ public partial class GameDetailsView : UserControl
                 UseShellExecute = true
             });
         }
-        catch { }
+        catch (Exception ex)
+        {
+            LogService.Instance.Debug($"Could not open Steam Store: {ex.Message}", "GameDetailsView");
+        }
     }
 
     private void OpenSteamDb_Click(object sender, RoutedEventArgs e)
@@ -385,7 +388,10 @@ public partial class GameDetailsView : UserControl
                 UseShellExecute = true
             });
         }
-        catch { }
+        catch (Exception ex)
+        {
+            LogService.Instance.Debug($"Could not open SteamDB: {ex.Message}", "GameDetailsView");
+        }
     }
 
     private void VerifyIntegrity_Click(object sender, RoutedEventArgs e)

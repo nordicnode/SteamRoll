@@ -11,6 +11,18 @@ namespace SteamRoll.Models;
 /// </summary>
 public class InstalledGame : INotifyPropertyChanged
 {
+    // Static cached brushes to avoid creating new instances on every property access
+    private static readonly Brush GreenBrush = new SolidColorBrush(Color.FromRgb(0x3F, 0xB9, 0x50));
+    private static readonly Brush YellowBrush = new SolidColorBrush(Color.FromRgb(0xD2, 0x99, 0x22));
+    private static readonly Brush RedBrush = new SolidColorBrush(Color.FromRgb(0xF8, 0x51, 0x49));
+    
+    static InstalledGame()
+    {
+        // Freeze brushes for thread-safety and performance
+        GreenBrush.Freeze();
+        YellowBrush.Freeze();
+        RedBrush.Freeze();
+    }
     public event PropertyChangedEventHandler? PropertyChanged;
 
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
@@ -246,9 +258,9 @@ public class InstalledGame : INotifyPropertyChanged
 
     public Brush ReviewScoreColor => ReviewPositivePercent switch
     {
-        >= 70 => new SolidColorBrush(Color.FromRgb(0x3F, 0xB9, 0x50)), // Green
-        >= 40 => new SolidColorBrush(Color.FromRgb(0xD2, 0x99, 0x22)), // Yellow
-        _ => new SolidColorBrush(Color.FromRgb(0xF8, 0x51, 0x49))      // Red
+        >= 70 => GreenBrush,
+        >= 40 => YellowBrush,
+        _ => RedBrush
     };
 
     private int? _metacriticScore;
@@ -271,9 +283,9 @@ public class InstalledGame : INotifyPropertyChanged
 
     public Brush MetacriticScoreColor => MetacriticScore switch
     {
-        >= 75 => new SolidColorBrush(Color.FromRgb(0x3F, 0xB9, 0x50)), // Green
-        >= 50 => new SolidColorBrush(Color.FromRgb(0xD2, 0x99, 0x22)), // Yellow
-        _ => new SolidColorBrush(Color.FromRgb(0xF8, 0x51, 0x49))      // Red
+        >= 75 => GreenBrush,
+        >= 50 => YellowBrush,
+        _ => RedBrush
     };
 
     // ============================================

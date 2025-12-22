@@ -33,6 +33,9 @@ public class SettingsService
                 var json = File.ReadAllText(SettingsPath);
                 _settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
                 LogService.Instance.Info($"Settings loaded from {SettingsPath}", "Settings");
+                
+                // Validate loaded settings
+                ValidateSettings();
             }
             else
             {
@@ -45,6 +48,56 @@ public class SettingsService
         {
             LogService.Instance.Error($"Error loading settings", ex, "Settings");
             _settings = new AppSettings();
+        }
+    }
+    
+    /// <summary>
+    /// Validates loaded settings and resets invalid values to defaults.
+    /// </summary>
+    private void ValidateSettings()
+    {
+        var defaults = new AppSettings();
+        var needsSave = false;
+        
+        // Validate port numbers (1-65535)
+        if (_settings.LanDiscoveryPort < 1 || _settings.LanDiscoveryPort > 65535)
+        {
+            LogService.Instance.Warning($"Invalid LanDiscoveryPort {_settings.LanDiscoveryPort}, resetting to default", "Settings");
+            _settings.LanDiscoveryPort = defaults.LanDiscoveryPort;
+            needsSave = true;
+        }
+        
+        if (_settings.TransferPort < 1 || _settings.TransferPort > 65535)
+        {
+            LogService.Instance.Warning($"Invalid TransferPort {_settings.TransferPort}, resetting to default", "Settings");
+            _settings.TransferPort = defaults.TransferPort;
+            needsSave = true;
+        }
+        
+        // Validate window dimensions
+        if (_settings.WindowWidth < 400 || _settings.WindowWidth > 10000)
+        {
+            _settings.WindowWidth = defaults.WindowWidth;
+            needsSave = true;
+        }
+        
+        if (_settings.WindowHeight < 300 || _settings.WindowHeight > 10000)
+        {
+            _settings.WindowHeight = defaults.WindowHeight;
+            needsSave = true;
+        }
+        
+        // Validate transfer speed limit (0 = unlimited, or positive value)
+        if (_settings.TransferSpeedLimit < 0)
+        {
+            _settings.TransferSpeedLimit = 0;
+            needsSave = true;
+        }
+        
+        if (needsSave)
+        {
+            Save();
+            LogService.Instance.Info("Settings were corrected and saved", "Settings");
         }
     }
     

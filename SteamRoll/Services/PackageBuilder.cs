@@ -792,7 +792,10 @@ public class PackageBuilder
                     {
                         Directory.Delete(dir);
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        LogService.Instance.Debug($"Could not delete empty directory {dir}: {ex.Message}", "PackageBuilder");
+                    }
                 }
             }
         }, ct);
@@ -1202,7 +1205,10 @@ public class PackageBuilder
                 File.Delete(progressPath);
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            LogService.Instance.Debug($"Could not clear package state: {ex.Message}", "PackageBuilder");
+        }
     }
     
     /// <summary>

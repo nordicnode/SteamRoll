@@ -44,7 +44,7 @@ public class LanDiscoveryService : IDisposable
     public LanDiscoveryService()
     {
         _localHostName = Environment.MachineName;
-        _transferPort = 27051; // Default transfer port
+        _transferPort = AppConstants.DEFAULT_TRANSFER_PORT; // Default transfer port
     }
 
 

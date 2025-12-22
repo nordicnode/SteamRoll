@@ -86,7 +86,10 @@ public class PackageScanner
             // Approximate size
              size = new DirectoryInfo(packagePath).EnumerateFiles("*", SearchOption.AllDirectories).Sum(fi => fi.Length);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            LogService.Instance.Debug($"Could not calculate package size for {packagePath}: {ex.Message}", "PackageScanner");
+        }
 
         var game = new InstalledGame
         {

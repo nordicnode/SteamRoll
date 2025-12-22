@@ -321,9 +321,10 @@ public class DrmDetector
                     result.AddDrm(DrmType.SteamStub, $"Steam API found: {fileName}");
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Permission issues on some folders
+                // Permission issues on some folders are expected
+                LogService.Instance.Debug($"Could not scan for {fileName}: {ex.Message}", "DrmDetector");
             }
         }
         
@@ -336,7 +337,10 @@ public class DrmDetector
                 var files = Directory.GetFiles(gamePath, fileName, SearchOption.AllDirectories);
                 result.SteamApiPaths.AddRange(files);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogService.Instance.Debug($"Could not scan for {fileName}: {ex.Message}", "DrmDetector");
+            }
         }
     }
 
@@ -344,10 +348,8 @@ public class DrmDetector
     {
         try
         {
-            // Check for common DRM-related files
-            var files = Directory.GetFiles(gamePath, "*", SearchOption.AllDirectories);
-            
-            foreach (var file in files)
+            // Check for common DRM-related files using lazy enumeration for memory efficiency
+            foreach (var file in Directory.EnumerateFiles(gamePath, "*", SearchOption.AllDirectories))
             {
                 var fileName = System.IO.Path.GetFileName(file).ToLowerInvariant();
 
@@ -365,9 +367,10 @@ public class DrmDetector
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Best effort
+            // Best effort - log but continue
+            LogService.Instance.Debug($"Could not scan DRM files in {gamePath}: {ex.Message}", "DrmDetector");
         }
     }
 }

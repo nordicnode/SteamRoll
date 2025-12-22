@@ -119,7 +119,10 @@ public partial class GameDetailsWindow : Window
                         var bitmap = new BitmapImage(new Uri(details.BackgroundImage));
                         BackgroundImage.Source = bitmap;
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        LogService.Instance.Debug($"Could not load background image: {ex.Message}", "GameDetailsWindow");
+                    }
                 }
                 
                 // Load header image
@@ -130,7 +133,10 @@ public partial class GameDetailsWindow : Window
                         var bitmap = new BitmapImage(new Uri(details.HeaderImage));
                         HeaderImageBrush.ImageSource = bitmap;
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        LogService.Instance.Debug($"Could not load header image: {ex.Message}", "GameDetailsWindow");
+                    }
                 }
                 
                 // Load screenshots
@@ -437,7 +443,10 @@ public partial class GameDetailsWindow : Window
                 UseShellExecute = true
             });
         }
-        catch { }
+        catch (Exception ex)
+        {
+            LogService.Instance.Debug($"Could not open Steam Store: {ex.Message}", "GameDetailsWindow");
+        }
     }
 
     private void OpenSteamDb_Click(object sender, RoutedEventArgs e)
@@ -450,7 +459,10 @@ public partial class GameDetailsWindow : Window
                 UseShellExecute = true
             });
         }
-        catch { }
+        catch (Exception ex)
+        {
+            LogService.Instance.Debug($"Could not open SteamDB: {ex.Message}", "GameDetailsWindow");
+        }
     }
 
     private void Close_Click(object sender, RoutedEventArgs e)
@@ -467,7 +479,10 @@ public partial class GameDetailsWindow : Window
             {
                 Process.Start("explorer.exe", _game.PackagePath);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogService.Instance.Debug($"Could not open package folder: {ex.Message}", "GameDetailsWindow");
+            }
         }
         else
         {
