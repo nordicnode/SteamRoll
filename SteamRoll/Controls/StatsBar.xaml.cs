@@ -6,12 +6,12 @@ namespace SteamRoll.Controls;
 public partial class StatsBar : UserControl
 {
     // Events for filters and sorting
-    public event RoutedEventHandler FilterFavoritesClicked;
-    public event RoutedEventHandler FilterReadyClicked;
-    public event RoutedEventHandler FilterPackagedClicked;
-    public event RoutedEventHandler FilterDlcClicked;
-    public event RoutedEventHandler FilterUpdateClicked;
-    public event SelectionChangedEventHandler SortBoxSelectionChanged;
+    public event RoutedEventHandler? FilterFavoritesClicked;
+    public event RoutedEventHandler? FilterReadyClicked;
+    public event RoutedEventHandler? FilterPackagedClicked;
+    public event RoutedEventHandler? FilterDlcClicked;
+    public event RoutedEventHandler? FilterUpdateClicked;
+    public event SelectionChangedEventHandler? SortBoxSelectionChanged;
 
     public StatsBar()
     {

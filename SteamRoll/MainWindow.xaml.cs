@@ -944,9 +944,10 @@ public partial class MainWindow : Window
             }
 
             // Apply cache if possible to get better metadata (images, etc)
+            // Skip path validation since package path differs from original install path
             foreach (var game in scannedPackages)
             {
-                _cacheService.ApplyCachedData(game);
+                _cacheService.ApplyCachedData(game, skipPathValidation: true);
             }
 
             UpdateGamesList(scannedPackages);

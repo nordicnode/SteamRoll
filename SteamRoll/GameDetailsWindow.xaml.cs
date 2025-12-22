@@ -233,7 +233,7 @@ public partial class GameDetailsWindow : Window
         // Package status
         if (_game.IsPackaged)
         {
-            PackageBtn.Content = "📂 Open Package";
+            PackageBtn.Content = "📂 Open";
             PackageActionsPanel.Visibility = Visibility.Visible;
         }
     }

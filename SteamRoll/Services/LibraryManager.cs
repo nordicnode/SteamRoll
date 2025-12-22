@@ -166,12 +166,23 @@ public class LibraryManager
         {
             foreach (var dir in Directory.GetDirectories(outputPath))
             {
-                var appIdPath = System.IO.Path.Combine(dir, "steam_settings", "steam_appid.txt");
-                if (File.Exists(appIdPath))
+                // Check both root and steam_settings directory for AppId
+                // GoldbergService writes to root, but some packages have it in steam_settings
+                var appIdPaths = new[]
                 {
-                    if (int.TryParse(File.ReadAllText(appIdPath).Trim(), out var appId))
+                    System.IO.Path.Combine(dir, "steam_appid.txt"),  // Root (where GoldbergService puts it)
+                    System.IO.Path.Combine(dir, "steam_settings", "steam_appid.txt")  // steam_settings subdirectory
+                };
+                
+                foreach (var appIdPath in appIdPaths)
+                {
+                    if (File.Exists(appIdPath))
                     {
-                        packageDirs[appId] = dir;
+                        if (int.TryParse(File.ReadAllText(appIdPath).Trim(), out var appId))
+                        {
+                            packageDirs[appId] = dir;
+                            break; // Found it, no need to check further
+                        }
                     }
                 }
             }

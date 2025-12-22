@@ -26,16 +26,16 @@ public partial class WindowHeader : UserControl
     }
 
     // Events
-    public event RoutedEventHandler LibraryClicked;
-    public event RoutedEventHandler PackagesClicked;
-    public event RoutedEventHandler RefreshClicked;
-    public event RoutedEventHandler OpenOutputClicked;
-    public event RoutedEventHandler ImportPackageClicked;
-    public event RoutedEventHandler SettingsClicked;
-    public event RoutedEventHandler BrowsePeerClicked;
-    public event RoutedEventHandler ViewModeToggleClicked;
-    public event RoutedEventHandler SelectModeToggleClicked;
-    public event TextChangedEventHandler SearchTextChanged;
+    public event RoutedEventHandler? LibraryClicked;
+    public event RoutedEventHandler? PackagesClicked;
+    public event RoutedEventHandler? RefreshClicked;
+    public event RoutedEventHandler? OpenOutputClicked;
+    public event RoutedEventHandler? ImportPackageClicked;
+    public event RoutedEventHandler? SettingsClicked;
+    public event RoutedEventHandler? BrowsePeerClicked;
+    public event RoutedEventHandler? ViewModeToggleClicked;
+    public event RoutedEventHandler? SelectModeToggleClicked;
+    public event TextChangedEventHandler? SearchTextChanged;
 
     public WindowHeader()
     {

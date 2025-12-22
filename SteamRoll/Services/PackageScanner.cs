@@ -53,8 +53,13 @@ public class PackageScanner
 
     private InstalledGame? ParsePackage(string packagePath)
     {
-        // A valid package must have LAUNCH.bat
-        if (!File.Exists(System.IO.Path.Combine(packagePath, "LAUNCH.bat")))
+        // A valid package should have LAUNCH.bat OR Goldberg markers
+        var hasLaunchBat = File.Exists(System.IO.Path.Combine(packagePath, "LAUNCH.bat"));
+        var hasSteamSettings = Directory.Exists(System.IO.Path.Combine(packagePath, "steam_settings"));
+        var hasSteamAppId = File.Exists(System.IO.Path.Combine(packagePath, "steam_appid.txt"));
+        var hasSteamrollJson = File.Exists(System.IO.Path.Combine(packagePath, "steamroll.json"));
+        
+        if (!hasLaunchBat && !hasSteamSettings && !hasSteamAppId && !hasSteamrollJson)
         {
             return null;
         }
@@ -63,14 +68,35 @@ public class PackageScanner
         int appId = 0;
         string name = dirName;
 
-        // Try to find AppID from steam_settings (Goldberg)
-        var appIdPath = System.IO.Path.Combine(packagePath, "steam_settings", "steam_appid.txt");
-        if (File.Exists(appIdPath))
+        // Try to find AppID - check both root and steam_settings directory
+        // GoldbergService writes to root, but some packages have it in steam_settings
+        var appIdPaths = new[]
         {
-            if (int.TryParse(File.ReadAllText(appIdPath).Trim(), out var id))
+            System.IO.Path.Combine(packagePath, "steam_appid.txt"),  // Root (where GoldbergService puts it)
+            System.IO.Path.Combine(packagePath, "steam_settings", "steam_appid.txt")  // steam_settings subdirectory
+        };
+        
+        foreach (var appIdPath in appIdPaths)
+        {
+            if (File.Exists(appIdPath))
             {
-                appId = id;
+                var content = File.ReadAllText(appIdPath).Trim();
+                if (int.TryParse(content, out var id))
+                {
+                    appId = id;
+                    LogService.Instance.Debug($"Found AppId {appId} for package {name} at {appIdPath}", "PackageScanner");
+                    break;
+                }
+                else
+                {
+                    LogService.Instance.Warning($"Could not parse AppId from {appIdPath}: '{content}'", "PackageScanner");
+                }
             }
+        }
+        
+        if (appId == 0)
+        {
+            LogService.Instance.Warning($"No steam_appid.txt found for package {name}", "PackageScanner");
         }
 
         bool isReceived = false;

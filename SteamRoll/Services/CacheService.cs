@@ -142,16 +142,22 @@ public class CacheService
     /// Applies cached data to an InstalledGame object.
     /// Returns true if cache was applied, false if rescan needed.
     /// </summary>
-    public bool ApplyCachedData(InstalledGame game)
+    /// <param name="game">The game to apply cache to</param>
+    /// <param name="skipPathValidation">Skip path validation (useful for packages where path differs from original)</param>
+    public bool ApplyCachedData(InstalledGame game, bool skipPathValidation = false)
     {
         var cached = GetCachedGame(game.AppId);
         if (cached == null) return false;
         
         // Verify the cache is still valid (same path, similar size)
-        if (cached.InstallPath != game.FullPath ||
-            Math.Abs(cached.SizeOnDisk - game.SizeOnDisk) > 100_000_000) // >100MB difference = rescan
+        // Skip path validation for packages since they're in a different location
+        if (!skipPathValidation)
         {
-            return false;
+            if (cached.InstallPath != game.FullPath ||
+                Math.Abs(cached.SizeOnDisk - game.SizeOnDisk) > 100_000_000) // >100MB difference = rescan
+            {
+                return false;
+            }
         }
         
         // Apply DRM analysis from cache

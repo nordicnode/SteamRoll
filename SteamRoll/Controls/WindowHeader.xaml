@@ -158,8 +158,7 @@
                     <!-- Browse Peer Library Button -->
                     <Button Click="BrowsePeerButton_Click"
                             Padding="12,8" Cursor="Hand"
-                            Background="#1A58A6FF" BorderThickness="1" BorderBrush="#58A6FF"
-                            Visibility="{Binding HasPeers, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            Background="#1A58A6FF" BorderThickness="1" BorderBrush="#58A6FF">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border x:Name="border" Background="{TemplateBinding Background}"

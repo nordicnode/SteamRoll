@@ -108,14 +108,14 @@
             <ItemsControl x:Name="GamesList">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <UniformGrid Columns="6"/>
+                        <WrapPanel Orientation="Horizontal"/>
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Border Style="{DynamicResource GameCard}" Margin="8" Cursor="Hand"
                                 MouseLeftButtonUp="GameCard_Click" Tag="{Binding}"
-                                ClipToBounds="True">
+                                ClipToBounds="True" Width="240" MaxHeight="340" VerticalAlignment="Top">
                             <Border.Triggers>
                                 <EventTrigger RoutedEvent="Loaded">
                                     <BeginStoryboard>
@@ -137,7 +137,7 @@
                                             <Style TargetType="MenuItem">
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding IsPackaged}" Value="True">
-                                                        <Setter Property="Header" Value="📂 Open Package"/>
+                                                        <Setter Property="Header" Value="📂 Open"/>
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>

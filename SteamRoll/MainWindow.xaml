@@ -230,7 +230,7 @@
             <Setter Property="Text" Value="Create Package"/>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsPackaged}" Value="True">
-                    <Setter Property="Text" Value="Open Package"/>
+                    <Setter Property="Text" Value="Open"/>
                 </DataTrigger>
             </Style.Triggers>
         </Style>

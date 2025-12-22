@@ -9,30 +9,30 @@ namespace SteamRoll.Controls;
 public partial class GameLibraryView : UserControl
 {
     // Events
-    public event RoutedEventHandler RefreshClicked;
-    public event MouseButtonEventHandler GameCardClicked;
-    public event RoutedEventHandler FavoriteToggled;
-    public event RoutedEventHandler GameSelectionClicked;
+    public event RoutedEventHandler? RefreshClicked;
+    public event MouseButtonEventHandler? GameCardClicked;
+    public event RoutedEventHandler? FavoriteToggled;
+    public event RoutedEventHandler? GameSelectionClicked;
 
     // Batch Events
-    public event RoutedEventHandler BatchPackageClicked;
-    public event RoutedEventHandler BatchClearClicked;
-    public event RoutedEventHandler BatchSendToPeerClicked;
+    public event RoutedEventHandler? BatchPackageClicked;
+    public event RoutedEventHandler? BatchClearClicked;
+    public event RoutedEventHandler? BatchSendToPeerClicked;
 
     // Item Action Events (from context menu or buttons)
-    public event RoutedEventHandler PackageGameClicked;
-    public event RoutedEventHandler SendGameToPeerClicked;
-    public event RoutedEventHandler ContextMenuFavoriteClicked;
-    public event RoutedEventHandler ContextMenuBackupSaveClicked;
-    public event RoutedEventHandler ContextMenuDeletePackageClicked;
-    public event RoutedEventHandler ContextMenuSyncSavesClicked;
-    public event RoutedEventHandler ContextMenuAdvancedConfigClicked;
-    public event RoutedEventHandler ContextMenuOpenInstallFolderClicked;
-    public event RoutedEventHandler ContextMenuVerifyIntegrityClicked;
-    public event RoutedEventHandler ContextMenuRepairFromPeerClicked;
-    public event RoutedEventHandler ContextMenuOpenSteamStoreClicked;
-    public event RoutedEventHandler ContextMenuCreatePackageClicked;
-    public event RoutedEventHandler ContextMenuViewDetailsClicked;
+    public event RoutedEventHandler? PackageGameClicked;
+    public event RoutedEventHandler? SendGameToPeerClicked;
+    public event RoutedEventHandler? ContextMenuFavoriteClicked;
+    public event RoutedEventHandler? ContextMenuBackupSaveClicked;
+    public event RoutedEventHandler? ContextMenuDeletePackageClicked;
+    public event RoutedEventHandler? ContextMenuSyncSavesClicked;
+    public event RoutedEventHandler? ContextMenuAdvancedConfigClicked;
+    public event RoutedEventHandler? ContextMenuOpenInstallFolderClicked;
+    public event RoutedEventHandler? ContextMenuVerifyIntegrityClicked;
+    public event RoutedEventHandler? ContextMenuRepairFromPeerClicked;
+    public event RoutedEventHandler? ContextMenuOpenSteamStoreClicked;
+    public event RoutedEventHandler? ContextMenuCreatePackageClicked;
+    public event RoutedEventHandler? ContextMenuViewDetailsClicked;
 
     public GameLibraryView()
     {
