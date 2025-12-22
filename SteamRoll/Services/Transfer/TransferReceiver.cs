@@ -69,6 +69,16 @@ public class TransferReceiver
             var fileInfos = await TransferUtils.ReceiveJsonAsync<List<TransferFileInfo>>(networkStream, ct);
             if (fileInfos == null) return;
 
+            // Validate header integrity
+            long calculatedTotalSize = fileInfos.Sum(f => f.Size);
+            if (calculatedTotalSize != header.TotalSize)
+            {
+                var msg = $"Header integrity check failed. Claimed size: {header.TotalSize}, Actual: {calculatedTotalSize}";
+                LogService.Instance.Warning($"Rejected transfer: {msg}", "TransferReceiver");
+                await TransferUtils.SendJsonAsync(networkStream, new TransferAck { Accepted = false, Reason = msg }, ct);
+                return;
+            }
+
             // Sanitize GameName from header to prevent path traversal
             var gameName = FormatUtils.SanitizeFileName(header.GameName ?? "Unknown");
 
@@ -195,7 +205,8 @@ public class TransferReceiver
                                     {
                                         if (!string.IsNullOrEmpty(fileInfo.Sha256))
                                         {
-                                            var computedHash = ComputeSha256(localPath);
+                                            // Offload synchronous hashing to prevent blocking the thread pool
+                                            var computedHash = await Task.Run(() => ComputeSha256(localPath), ct);
                                             if (string.Equals(computedHash, fileInfo.Sha256, StringComparison.OrdinalIgnoreCase))
                                             {
                                                 matches = true;
