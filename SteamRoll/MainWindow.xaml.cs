@@ -803,6 +803,15 @@ public partial class MainWindow : Window
         }
     }
 
+    private void TransfersButton_Click(object sender, RoutedEventArgs e)
+    {
+        var transfersWindow = new TransferManagerWindow
+        {
+            Owner = this
+        };
+        transfersWindow.Show();
+    }
+
 
 
 

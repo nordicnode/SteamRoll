@@ -1,0 +1,114 @@
+<Window x:Class="SteamRoll.Controls.TransferRequestDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Incoming Transfer" 
+        Width="420" Height="280"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent">
+
+    <Border Background="{DynamicResource BackgroundMediumBrush}"
+            BorderBrush="{DynamicResource BorderSubtleBrush}"
+            BorderThickness="1"
+            CornerRadius="12">
+        <Grid Margin="24">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Header -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,20">
+                <TextBlock Text="📥" FontSize="24" VerticalAlignment="Center"/>
+                <TextBlock Text="Incoming Transfer Request" 
+                           FontSize="18" 
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextPrimaryBrush}"
+                           VerticalAlignment="Center"
+                           Margin="12,0,0,0"/>
+            </StackPanel>
+
+            <!-- Content -->
+            <Border Grid.Row="1" 
+                    Background="{DynamicResource BackgroundLightBrush}"
+                    CornerRadius="8"
+                    Padding="16">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="80"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Game Image -->
+                    <Border Grid.Column="0" 
+                            CornerRadius="6" 
+                            Width="70" 
+                            Height="70"
+                            VerticalAlignment="Top">
+                        <Border.Background>
+                            <ImageBrush x:Name="GameImageBrush" Stretch="UniformToFill"/>
+                        </Border.Background>
+                    </Border>
+
+                    <!-- Game Info -->
+                    <StackPanel Grid.Column="1" Margin="16,0,0,0">
+                        <TextBlock x:Name="GameNameText"
+                                   Text="Game Name"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   TextTrimming="CharacterEllipsis"/>
+                        
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <TextBlock Text="💾" FontSize="14" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="SizeText"
+                                       Text="Size: 0 MB"
+                                       FontSize="13"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Margin="6,0,0,0"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                            <TextBlock Text="📁" FontSize="14" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="FilesText"
+                                       Text="Files: 0"
+                                       FontSize="13"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Margin="6,0,0,0"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <TextBlock x:Name="PeerText"
+                                   Text="From: Peer"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource TextMutedBrush}"
+                                   Margin="0,10,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Buttons -->
+            <Grid Grid.Row="2" Margin="0,20,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <Button Grid.Column="0"
+                        Content="✗ Decline"
+                        Style="{DynamicResource SecondaryButton}"
+                        Click="DeclineButton_Click"/>
+
+                <Button Grid.Column="2"
+                        Content="✓ Accept"
+                        Style="{DynamicResource PrimaryButton}"
+                        Click="AcceptButton_Click"/>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

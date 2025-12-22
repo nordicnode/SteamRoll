@@ -309,8 +309,9 @@ public class InstalledGame : INotifyPropertyChanged
 
     /// <summary>
     /// Compatibility score (0.0 - 1.0) for Goldberg Emulator.
+    /// Already-packaged games (including received) are considered fully compatible.
     /// </summary>
-    public float CompatibilityScore => DrmAnalysis?.CompatibilityScore ?? 0.5f;
+    public float CompatibilityScore => IsPackaged ? 1.0f : (DrmAnalysis?.CompatibilityScore ?? 0.5f);
 
     /// <summary>
     /// Whether this game is compatible with Goldberg Emulator.
@@ -326,14 +327,16 @@ public class InstalledGame : INotifyPropertyChanged
     /// <summary>
     /// Human-readable explanation of compatibility.
     /// </summary>
-    public string CompatibilityReason => 
-        DrmAnalysis?.CompatibilityReason ?? "Not yet analyzed";
+    public string CompatibilityReason =>
+        IsPackaged ? (IsReceivedPackage ? "Received from peer - ready to play" : "Already packaged") : 
+        (DrmAnalysis?.CompatibilityReason ?? "Not yet analyzed");
 
     /// <summary>
     /// Whether this game can be packaged with current implementation.
+    /// Already-packaged games are considered packageable (they're ready to use).
     /// </summary>
-    public bool IsPackageable => IsFullyInstalled && 
-        (IsGoldbergCompatible || Recommendation == PackageRecommendation.DirectCopy);
+    public bool IsPackageable => IsPackaged || 
+        (IsFullyInstalled && (IsGoldbergCompatible || Recommendation == PackageRecommendation.DirectCopy));
 
     /// <summary>
     /// Whether DRM analysis has been performed.

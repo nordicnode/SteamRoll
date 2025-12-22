@@ -138,6 +138,14 @@
                             <TextBlock Text="Select"/>
                         </StackPanel>
                     </ToggleButton>
+                    <Button x:Name="TransfersBtn"
+                            Style="{DynamicResource SecondaryButton}"
+                            Click="TransfersButton_Click" Margin="0,0,12,0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📡" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
+                            <TextBlock x:Name="TransfersText" Text="Transfers"/>
+                        </StackPanel>
+                    </Button>
                     <Button Style="{DynamicResource SecondaryButton}"
                             Click="SettingsButton_Click" Margin="0,0,12,0">
                         <StackPanel Orientation="Horizontal">

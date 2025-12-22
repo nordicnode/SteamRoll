@@ -32,6 +32,7 @@ public partial class WindowHeader : UserControl
     public event RoutedEventHandler? OpenOutputClicked;
     public event RoutedEventHandler? ImportPackageClicked;
     public event RoutedEventHandler? SettingsClicked;
+    public event RoutedEventHandler? TransfersClicked;
     public event RoutedEventHandler? BrowsePeerClicked;
     public event RoutedEventHandler? ViewModeToggleClicked;
     public event RoutedEventHandler? SelectModeToggleClicked;
@@ -70,6 +71,11 @@ public partial class WindowHeader : UserControl
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
         SettingsClicked?.Invoke(this, e);
+    }
+
+    private void TransfersButton_Click(object sender, RoutedEventArgs e)
+    {
+        TransfersClicked?.Invoke(this, e);
     }
 
     private void BrowsePeerButton_Click(object sender, RoutedEventArgs e)

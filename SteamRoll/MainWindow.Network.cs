@@ -9,6 +9,9 @@ namespace SteamRoll;
 
 public partial class MainWindow
 {
+    // Track active transfer IDs for TransferManager
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Guid> _activeTransferIds = new();
+
     private void UpdateNetworkStatus()
     {
         var peerCount = _lanDiscoveryService.GetPeers().Count;
@@ -43,11 +46,42 @@ public partial class MainWindow
         {
             var direction = progress.IsSending ? "📤 Sending" : "📥 Receiving";
             StatusText.Text = $"{direction} {progress.GameName}: {progress.FormattedProgress}";
+            
+            // Track in TransferManager
+            var key = $"{progress.GameName}_{progress.IsSending}";
+            if (!_activeTransferIds.TryGetValue(key, out var transferId))
+            {
+                // Start tracking this transfer
+                var game = _allGames.FirstOrDefault(g => 
+                    g.Name.Equals(progress.GameName, StringComparison.OrdinalIgnoreCase));
+                var appId = game?.AppId ?? 0;
+                
+                // Estimate file count from the transfer (we don't have exact count in progress)
+                var transferInfo = TransferManager.Instance.StartTransfer(
+                    progress.GameName, 
+                    progress.TotalBytes, 
+                    1, // File count not available in progress, use 1 as placeholder
+                    progress.IsSending,
+                    appId
+                );
+                _activeTransferIds[key] = transferInfo.Id;
+                transferId = transferInfo.Id;
+            }
+            
+            // Update progress - use BytesTransferred (the actual property name)
+            TransferManager.Instance.UpdateProgress(transferId, progress.BytesTransferred, 0);
         });
     }
 
     private void OnTransferComplete(object? sender, TransferResult result)
     {
+        // Complete transfer tracking
+        var key = $"{result.GameName}_{!result.WasReceived}";
+        if (_activeTransferIds.TryRemove(key, out var transferId))
+        {
+            TransferManager.Instance.CompleteTransfer(transferId, result.Success, result.Success ? null : "Transfer failed");
+        }
+        
         Dispatcher.Invoke(async () =>
         {
             if (result.Success)
@@ -136,21 +170,24 @@ public partial class MainWindow
     {
         Dispatcher.Invoke(() =>
         {
-            var message = $"📥 Incoming game transfer request:\n\n" +
-                          $"Game: {e.GameName}\n" +
-                          $"Size: {e.FormattedSize}\n" +
-                          $"Files: {e.FileCount}\n\n" +
-                          "Do you want to accept this transfer?";
+            // Try to extract AppId from game name if the game exists in our library
+            var existingGame = _allGames.FirstOrDefault(g => 
+                g.Name.Equals(e.GameName, StringComparison.OrdinalIgnoreCase));
+            var appId = existingGame?.AppId ?? 0;
 
-            var result = MessageBox.Show(
-                message,
-                "Incoming Transfer Request",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question,
-                MessageBoxResult.No
-            );
+            var dialog = new TransferRequestDialog(
+                e.GameName,
+                e.FormattedSize,
+                e.FileCount,
+                null, // TODO: Add peer name when available
+                appId
+            )
+            {
+                Owner = this
+            };
 
-            var approved = (result == MessageBoxResult.Yes);
+            var result = dialog.ShowDialog();
+            var approved = result == true && dialog.Accepted;
             e.SetApproval(approved);
 
             if (approved)
@@ -165,6 +202,7 @@ public partial class MainWindow
             }
         });
     }
+
 
     private void OnTransferRequested(object? sender, TransferRequest request)
     {

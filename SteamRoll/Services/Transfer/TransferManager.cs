@@ -1,0 +1,359 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+
+namespace SteamRoll.Services.Transfer;
+
+/// <summary>
+/// Status of a transfer.
+/// </summary>
+public enum TransferStatus
+{
+    Pending,
+    Active,
+    Completed,
+    Failed,
+    Cancelled
+}
+
+/// <summary>
+/// Information about a transfer for tracking and display.
+/// </summary>
+public class TransferInfo : INotifyPropertyChanged
+{
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    /// <summary>
+    /// Unique identifier for this transfer.
+    /// </summary>
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    /// <summary>
+    /// Name of the game being transferred.
+    /// </summary>
+    public string GameName { get; set; } = "";
+
+    /// <summary>
+    /// App ID of the game (for loading images).
+    /// </summary>
+    public int AppId { get; set; }
+
+    /// <summary>
+    /// Total size in bytes.
+    /// </summary>
+    public long TotalBytes { get; set; }
+
+    private long _transferredBytes;
+    /// <summary>
+    /// Bytes transferred so far.
+    /// </summary>
+    public long TransferredBytes
+    {
+        get => _transferredBytes;
+        set
+        {
+            if (_transferredBytes != value)
+            {
+                _transferredBytes = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ProgressPercent));
+                OnPropertyChanged(nameof(ProgressDisplay));
+                OnPropertyChanged(nameof(SpeedDisplay));
+                OnPropertyChanged(nameof(TimeRemainingDisplay));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Total number of files in the transfer.
+    /// </summary>
+    public int TotalFiles { get; set; }
+
+    private int _transferredFiles;
+    /// <summary>
+    /// Number of files transferred so far.
+    /// </summary>
+    public int TransferredFiles
+    {
+        get => _transferredFiles;
+        set
+        {
+            if (_transferredFiles != value)
+            {
+                _transferredFiles = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(FilesDisplay));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether this is an outgoing (sending) transfer.
+    /// </summary>
+    public bool IsSending { get; set; }
+
+    private TransferStatus _status = TransferStatus.Pending;
+    /// <summary>
+    /// Current status of the transfer.
+    /// </summary>
+    public TransferStatus Status
+    {
+        get => _status;
+        set
+        {
+            if (_status != value)
+            {
+                _status = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(StatusDisplay));
+                OnPropertyChanged(nameof(IsActive));
+            }
+        }
+    }
+
+    /// <summary>
+    /// When the transfer started.
+    /// </summary>
+    public DateTime StartTime { get; set; } = DateTime.Now;
+
+    /// <summary>
+    /// When the transfer ended (if completed/failed).
+    /// </summary>
+    public DateTime? EndTime { get; set; }
+
+    /// <summary>
+    /// Error message if the transfer failed.
+    /// </summary>
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// Name of the peer involved in the transfer.
+    /// </summary>
+    public string? PeerName { get; set; }
+
+    // Calculated properties
+
+    /// <summary>
+    /// Progress as a percentage (0-100).
+    /// </summary>
+    public double ProgressPercent => TotalBytes > 0 ? (TransferredBytes * 100.0 / TotalBytes) : 0;
+
+    /// <summary>
+    /// Progress display string.
+    /// </summary>
+    public string ProgressDisplay => $"{FormatUtils.FormatBytes(TransferredBytes)} / {FormatUtils.FormatBytes(TotalBytes)}";
+
+    /// <summary>
+    /// Files progress display.
+    /// </summary>
+    public string FilesDisplay => $"{TransferredFiles:N0} / {TotalFiles:N0} files";
+
+    /// <summary>
+    /// Transfer speed display.
+    /// </summary>
+    public string SpeedDisplay
+    {
+        get
+        {
+            var elapsed = DateTime.Now - StartTime;
+            if (elapsed.TotalSeconds < 1 || TransferredBytes == 0) return "Calculating...";
+            var bytesPerSecond = TransferredBytes / elapsed.TotalSeconds;
+            return $"{FormatUtils.FormatBytes((long)bytesPerSecond)}/s";
+        }
+    }
+
+    /// <summary>
+    /// Estimated time remaining display.
+    /// </summary>
+    public string TimeRemainingDisplay
+    {
+        get
+        {
+            var elapsed = DateTime.Now - StartTime;
+            if (elapsed.TotalSeconds < 1 || TransferredBytes == 0) return "";
+            var bytesPerSecond = TransferredBytes / elapsed.TotalSeconds;
+            if (bytesPerSecond < 1) return "";
+            var remainingBytes = TotalBytes - TransferredBytes;
+            var remainingSeconds = remainingBytes / bytesPerSecond;
+            var ts = TimeSpan.FromSeconds(remainingSeconds);
+            if (ts.TotalHours >= 1) return $"{ts.Hours}h {ts.Minutes}m remaining";
+            if (ts.TotalMinutes >= 1) return $"{ts.Minutes}m {ts.Seconds}s remaining";
+            return $"{ts.Seconds}s remaining";
+        }
+    }
+
+    /// <summary>
+    /// Whether the transfer is currently active.
+    /// </summary>
+    public bool IsActive => Status == TransferStatus.Active || Status == TransferStatus.Pending;
+
+    /// <summary>
+    /// Human-readable status for display.
+    /// </summary>
+    public string StatusDisplay => Status switch
+    {
+        TransferStatus.Pending => "⏳ Pending",
+        TransferStatus.Active => IsSending ? "📤 Sending" : "📥 Receiving",
+        TransferStatus.Completed => "✓ Completed",
+        TransferStatus.Failed => "✗ Failed",
+        TransferStatus.Cancelled => "⊘ Cancelled",
+        _ => "Unknown"
+    };
+
+    /// <summary>
+    /// Direction icon for display.
+    /// </summary>
+    public string DirectionIcon => IsSending ? "📤" : "📥";
+
+    /// <summary>
+    /// Header image URL from Steam CDN.
+    /// </summary>
+    public string HeaderImageUrl => AppId > 0 
+        ? $"https://steamcdn-a.akamaihd.net/steam/apps/{AppId}/capsule_184x69.jpg" 
+        : "";
+}
+
+/// <summary>
+/// Singleton service for tracking all transfers.
+/// </summary>
+public class TransferManager : INotifyPropertyChanged
+{
+    private static readonly Lazy<TransferManager> _instance = new(() => new TransferManager());
+    public static TransferManager Instance => _instance.Value;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    private const int MaxHistoryItems = 50;
+
+    /// <summary>
+    /// Currently active transfers.
+    /// </summary>
+    public ObservableCollection<TransferInfo> ActiveTransfers { get; } = new();
+
+    /// <summary>
+    /// Completed transfers (history).
+    /// </summary>
+    public ObservableCollection<TransferInfo> CompletedTransfers { get; } = new();
+
+    /// <summary>
+    /// Whether there are any active transfers.
+    /// </summary>
+    public bool HasActiveTransfers => ActiveTransfers.Count > 0;
+
+    /// <summary>
+    /// Total number of active transfers.
+    /// </summary>
+    public int ActiveCount => ActiveTransfers.Count;
+
+    private TransferManager()
+    {
+        ActiveTransfers.CollectionChanged += (s, e) =>
+        {
+            OnPropertyChanged(nameof(HasActiveTransfers));
+            OnPropertyChanged(nameof(ActiveCount));
+        };
+    }
+
+    /// <summary>
+    /// Creates and starts tracking a new transfer.
+    /// </summary>
+    public TransferInfo StartTransfer(string gameName, long totalBytes, int totalFiles, bool isSending, int appId = 0, string? peerName = null)
+    {
+        var transfer = new TransferInfo
+        {
+            GameName = gameName,
+            TotalBytes = totalBytes,
+            TotalFiles = totalFiles,
+            IsSending = isSending,
+            AppId = appId,
+            PeerName = peerName,
+            Status = TransferStatus.Active,
+            StartTime = DateTime.Now
+        };
+
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        {
+            ActiveTransfers.Add(transfer);
+        });
+
+        return transfer;
+    }
+
+    /// <summary>
+    /// Updates progress for a transfer.
+    /// </summary>
+    public void UpdateProgress(Guid transferId, long transferredBytes, int transferredFiles)
+    {
+        var transfer = ActiveTransfers.FirstOrDefault(t => t.Id == transferId);
+        if (transfer != null)
+        {
+            transfer.TransferredBytes = transferredBytes;
+            transfer.TransferredFiles = transferredFiles;
+        }
+    }
+
+    /// <summary>
+    /// Marks a transfer as completed.
+    /// </summary>
+    public void CompleteTransfer(Guid transferId, bool success, string? errorMessage = null)
+    {
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        {
+            var transfer = ActiveTransfers.FirstOrDefault(t => t.Id == transferId);
+            if (transfer != null)
+            {
+                transfer.Status = success ? TransferStatus.Completed : TransferStatus.Failed;
+                transfer.ErrorMessage = errorMessage;
+                transfer.EndTime = DateTime.Now;
+
+                ActiveTransfers.Remove(transfer);
+                CompletedTransfers.Insert(0, transfer);
+
+                // Limit history size
+                while (CompletedTransfers.Count > MaxHistoryItems)
+                {
+                    CompletedTransfers.RemoveAt(CompletedTransfers.Count - 1);
+                }
+            }
+        });
+    }
+
+    /// <summary>
+    /// Cancels an active transfer.
+    /// </summary>
+    public void CancelTransfer(Guid transferId)
+    {
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        {
+            var transfer = ActiveTransfers.FirstOrDefault(t => t.Id == transferId);
+            if (transfer != null)
+            {
+                transfer.Status = TransferStatus.Cancelled;
+                transfer.EndTime = DateTime.Now;
+                ActiveTransfers.Remove(transfer);
+                CompletedTransfers.Insert(0, transfer);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Clears the completed transfers history.
+    /// </summary>
+    public void ClearHistory()
+    {
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        {
+            CompletedTransfers.Clear();
+        });
+    }
+}

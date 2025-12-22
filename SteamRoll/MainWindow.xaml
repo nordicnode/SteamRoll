@@ -326,6 +326,7 @@
                                    OpenOutputClicked="OpenOutputButton_Click"
                                    ImportPackageClicked="ImportPackageButton_Click"
                                    SettingsClicked="SettingsButton_Click"
+                                   TransfersClicked="TransfersButton_Click"
                                    BrowsePeerClicked="BrowsePeerButton_Click"
                                    ViewModeToggleClicked="ViewModeToggle_Click"
                                    SelectModeToggleClicked="SelectModeToggle_Click"
