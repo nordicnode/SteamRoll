@@ -30,6 +30,7 @@ public partial class MainWindow : Window
     private readonly LibraryManager _libraryManager;
     private CancellationTokenSource? _currentOperationCts;
     private CancellationTokenSource? _scanCts;
+    private bool _isLibraryViewActive = true;
     private List<InstalledGame> _allGames = new();
     private readonly object _gamesLock = new(); // Thread-safety lock for _allGames modifications
     private string _outputPath;
@@ -137,8 +138,7 @@ public partial class MainWindow : Window
         ToastService.Instance.Initialize(ToastContainer);
         
         // Set search placeholder
-        SearchBox.Text = "🔍 Search games...";
-        SearchBox.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
+        HeaderControl.SearchText = "🔍 Search games...";
         
         // Apply saved window dimensions and state
         if (_settingsService.Settings.WindowWidth > 0 && _settingsService.Settings.WindowHeight > 0)
@@ -154,9 +154,6 @@ public partial class MainWindow : Window
         {
             WindowState = savedState;
         }
-
-        // Initialize Sort Box
-        SortBox.SelectedIndex = 0; // Default to Name
 
         // Load games on startup
         Loaded += MainWindow_Loaded;
@@ -291,29 +288,14 @@ public partial class MainWindow : Window
 
     private void ViewModeToggle_Click(object sender, RoutedEventArgs e)
     {
-        if (ViewModeToggle.IsChecked == true)
-        {
-            // Switch to List View
-            GamesGridScroll.Visibility = Visibility.Collapsed;
-            GamesList.Visibility = Visibility.Collapsed;
-            GamesListView.Visibility = Visibility.Visible;
-            ViewModeIcon.Text = "⊞"; // Icon becomes Grid
-            ViewModeToggle.ToolTip = "Switch to Grid View";
-        }
-        else
-        {
-            // Switch to Grid View
-            GamesGridScroll.Visibility = Visibility.Visible;
-            GamesList.Visibility = Visibility.Visible;
-            GamesListView.Visibility = Visibility.Collapsed;
-            ViewModeIcon.Text = "📑"; // Icon becomes List
-            ViewModeToggle.ToolTip = "Switch to List View";
-        }
+        // Toggle UI logic delegates to the control
+        GameLibraryViewControl.SetViewMode(HeaderControl.IsViewModeList);
+        HeaderControl.SetViewModeIcon(HeaderControl.IsViewModeList);
     }
     
     private void ShowDetailsView(InstalledGame game)
     {
-        LibraryView.Visibility = Visibility.Collapsed;
+        GameLibraryViewControl.Visibility = Visibility.Collapsed;
         GameDetailsView.Visibility = Visibility.Visible;
         SafeFireAndForget(GameDetailsView.LoadGameAsync(game), "Load Game Details");
 
@@ -321,13 +303,12 @@ public partial class MainWindow : Window
     
     private void ShowLibraryView()
     {
+        _isLibraryViewActive = true;
         GameDetailsView.Visibility = Visibility.Collapsed;
-        LibraryView.Visibility = Visibility.Visible;
+        GameLibraryViewControl.Visibility = Visibility.Visible;
         
-        // Update tab button styles
-        LibraryTabBtn.Background = new System.Windows.Media.SolidColorBrush(
-            (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#30363D")); // Active
-        PackagesTabBtn.Background = System.Windows.Media.Brushes.Transparent; // Inactive
+        // Update tab button styles via control method
+        HeaderControl.SetLibraryTabActive(true);
 
         // Cancel any running scan
         _scanCts?.Cancel();
@@ -338,13 +319,12 @@ public partial class MainWindow : Window
     
     private void ShowPackagesView()
     {
+        _isLibraryViewActive = false;
         GameDetailsView.Visibility = Visibility.Collapsed;
-        LibraryView.Visibility = Visibility.Visible; // Reuse library view layout
+        GameLibraryViewControl.Visibility = Visibility.Visible; // Reuse library view layout
 
-        // Update tab button styles
-        LibraryTabBtn.Background = System.Windows.Media.Brushes.Transparent; // Inactive
-        PackagesTabBtn.Background = new System.Windows.Media.SolidColorBrush(
-            (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#30363D")); // Active
+        // Update tab button styles via control method
+        HeaderControl.SetLibraryTabActive(false);
 
         // Cancel any running scan
         _scanCts?.Cancel();
@@ -586,9 +566,8 @@ public partial class MainWindow : Window
         var peerCount = _lanDiscoveryService.GetPeers().Count;
         Dispatcher.Invoke(() =>
         {
-            NetworkStatusText.Text = peerCount > 0 
-                ? $"📡 {peerCount} peer(s) on LAN" 
-                : "📡 Searching for peers...";
+            StatsBarControl.UpdateNetworkStatus(peerCount);
+            HeaderControl.HasPeers = peerCount > 0;
         });
     }
     
@@ -835,14 +814,12 @@ public partial class MainWindow : Window
     private async Task ScanLibraryAsync(CancellationToken ct = default)
     {
         // Use Skeleton Loading instead of full Overlay
-        SkeletonView.Visibility = Visibility.Visible;
-        GamesList.Visibility = Visibility.Collapsed;
-        GamesListView.Visibility = Visibility.Collapsed;
+        GameLibraryViewControl.SetLoading(true);
 
         var steamPath = _libraryManager.GetSteamPath();
         if (steamPath == null)
         {
-            SkeletonView.Visibility = Visibility.Collapsed;
+            GameLibraryViewControl.SetLoading(false);
             StatusText.Text = "⚠ Steam installation not found. Please ensure Steam is installed.";
             ToastService.Instance.ShowError("Steam Not Found", "Please ensure Steam is installed.");
             return;
@@ -891,7 +868,7 @@ public partial class MainWindow : Window
             var packageableCount = scanResult.AllGames.Count(g => g.IsPackageable);
             var packagedCount = scanResult.AllGames.Count(g => g.IsPackaged);
             StatusText.Text = $"✓ {scanResult.AllGames.Count} games • {packageableCount} ready • {packagedCount} packaged";
-            SkeletonView.Visibility = Visibility.Collapsed;
+            GameLibraryViewControl.SetLoading(false);
         }
         catch (OperationCanceledException)
         {
@@ -899,7 +876,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            SkeletonView.Visibility = Visibility.Collapsed;
+            GameLibraryViewControl.SetLoading(false);
             StatusText.Text = $"⚠ Error scanning library: {ex.Message}";
             ToastService.Instance.ShowError("Scan Failed", ex.Message);
         }
@@ -975,9 +952,11 @@ public partial class MainWindow : Window
             UpdateGamesList(scannedPackages);
 
             // Simple stats for packages view
-            TotalGamesText.Text = scannedPackages.Count.ToString();
-            PackageableText.Text = "-";
-            TotalSizeText.Text = FormatUtils.FormatBytes(scannedPackages.Sum(g => g.SizeOnDisk));
+            StatsBarControl.UpdateStats(
+                scannedPackages.Count,
+                0,
+                FormatUtils.FormatBytes(scannedPackages.Sum(g => g.SizeOnDisk))
+            );
 
             StatusText.Text = $"✓ Found {scannedPackages.Count} packaged games";
             LoadingOverlay.Hide();
@@ -1059,7 +1038,7 @@ public partial class MainWindow : Window
                     {
                         StatusText.Text = $"Fetching DLC: {completed}/{total} games ({gamesWithDlc} with DLC)...";
                         // Refresh the list to show updated DLC info
-                        GamesList.Items.Refresh();
+                        GameLibraryViewControl.RefreshList();
                     });
                 }
             }
@@ -1077,7 +1056,7 @@ public partial class MainWindow : Window
             var packageableCount = _allGames.Count(g => g.IsPackageable);
             var totalDlc = _allGames.Sum(g => g.TotalDlcCount);
             StatusText.Text = $"✓ {_allGames.Count} games • {packageableCount} packageable • {totalDlc} DLC available";
-            GamesList.Items.Refresh();
+            GameLibraryViewControl.RefreshList();
             
             // Save updated DLC info to cache
             foreach (var game in games)
@@ -1348,50 +1327,19 @@ public partial class MainWindow : Window
 
     private void UpdateGamesList(List<InstalledGame> games)
     {
-        GamesList.ItemsSource = games;
-        GamesListView.ItemsSource = games;
+        GameLibraryViewControl.SetGames(games);
 
-        // Ensure Skeleton is hidden
-        SkeletonView.Visibility = Visibility.Collapsed;
-
-        // Show/hide empty state
-        var isEmpty = games.Count == 0;
-        EmptyStatePanel.Visibility = isEmpty ? Visibility.Visible : Visibility.Collapsed;
-
-        if (isEmpty)
-        {
-            // Hide both lists if empty
-            GamesList.Visibility = Visibility.Collapsed;
-            GamesListView.Visibility = Visibility.Collapsed;
-            GamesGridScroll.Visibility = Visibility.Collapsed;
-        }
-        else
-        {
-            // Show appropriate list based on view mode
-            if (ViewModeToggle.IsChecked == true)
-            {
-                GamesGridScroll.Visibility = Visibility.Collapsed;
-                GamesList.Visibility = Visibility.Collapsed;
-                GamesListView.Visibility = Visibility.Visible;
-            }
-            else
-            {
-                GamesGridScroll.Visibility = Visibility.Visible;
-                GamesList.Visibility = Visibility.Visible;
-                GamesListView.Visibility = Visibility.Collapsed;
-            }
-        }
+        // Update view mode state inside the control (it handles hiding scroll/list)
+        GameLibraryViewControl.SetViewMode(HeaderControl.IsViewModeList);
 
         // Update empty state message based on context
-        if (isEmpty && _allGames.Count > 0)
+        if (games.Count == 0 && _allGames.Count > 0)
         {
-            EmptyStateTitle.Text = "No Matching Games";
-            EmptyStateMessage.Text = "No games match your current filters. Try adjusting your filters or search.";
+            GameLibraryViewControl.SetEmptyStateMessage("No Matching Games", "No games match your current filters. Try adjusting your filters or search.");
         }
-        else if (isEmpty)
+        else if (games.Count == 0)
         {
-            EmptyStateTitle.Text = "No Games Found";
-            EmptyStateMessage.Text = "No Steam games were detected. Try adding Steam library paths in Settings or refreshing the library.";
+            GameLibraryViewControl.SetEmptyStateMessage("No Games Found", "No Steam games were detected. Try adding Steam library paths in Settings or refreshing the library.");
         }
     }
 
@@ -1400,9 +1348,7 @@ public partial class MainWindow : Window
         var (total, installed, size) = _libraryScanner.GetLibraryStats(games);
         var packageable = games.Count(g => g.IsPackageable);
         
-        TotalGamesText.Text = total.ToString();
-        PackageableText.Text = packageable.ToString();
-        TotalSizeText.Text = FormatUtils.FormatBytes(size);
+        StatsBarControl.UpdateStats(total, packageable, FormatUtils.FormatBytes(size));
     }
 
     private void RefreshButton_Click(object sender, RoutedEventArgs e)
@@ -1411,8 +1357,8 @@ public partial class MainWindow : Window
         _scanCts?.Cancel();
         _scanCts = new CancellationTokenSource();
 
-        // Refresh based on current view (check button states)
-        if (LibraryTabBtn.Background != System.Windows.Media.Brushes.Transparent)
+        // Refresh based on current view
+        if (_isLibraryViewActive)
         {
             SafeFireAndForget(ScanLibraryAsync(_scanCts.Token), "Library Scan");
         }
@@ -1483,24 +1429,6 @@ public partial class MainWindow : Window
     }
 
 
-    private void SearchBox_GotFocus(object sender, RoutedEventArgs e)
-    {
-        if (SearchBox.Text == "🔍 Search games...")
-        {
-            SearchBox.Text = "";
-            SearchBox.Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush");
-        }
-    }
-
-    private void SearchBox_LostFocus(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrWhiteSpace(SearchBox.Text))
-        {
-            SearchBox.Text = "🔍 Search games...";
-            SearchBox.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
-        }
-    }
-
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         // Skip if not yet initialized (fires during XAML loading)
@@ -1526,14 +1454,14 @@ public partial class MainWindow : Window
     
     private void ApplyFilters()
     {
-        var searchText = SearchBox.Text;
+        var searchText = HeaderControl.SearchText;
         var isSearchActive = !string.IsNullOrWhiteSpace(searchText) && searchText != "🔍 Search games...";
         
-        var filterReady = FilterReadyBtn.IsChecked == true;
-        var filterPackaged = FilterPackagedBtn.IsChecked == true;
-        var filterDlc = FilterDlcBtn.IsChecked == true;
-        var filterUpdate = FilterUpdateBtn.IsChecked == true;
-        var filterFavorites = FilterFavoritesBtn.IsChecked == true;
+        var filterReady = StatsBarControl.IsReadyChecked;
+        var filterPackaged = StatsBarControl.IsPackagedChecked;
+        var filterDlc = StatsBarControl.IsDlcChecked;
+        var filterUpdate = StatsBarControl.IsUpdateChecked;
+        var filterFavorites = StatsBarControl.IsFavoritesChecked;
         
         var filtered = GetGamesSnapshot().AsEnumerable();
         
@@ -1565,7 +1493,7 @@ public partial class MainWindow : Window
         // If we are NOT filtering BY favorites, pin favorites to top first
         var pinFavorites = !filterFavorites;
         
-        if (SortBox.SelectedItem is ComboBoxItem item && item.Tag is string sortType)
+        if (StatsBarControl.SelectedSortItem is ComboBoxItem item && item.Tag is string sortType)
         {
             // Use a combined sort: favorites first (if pinning), then by selected sort type
             if (pinFavorites)
@@ -1669,7 +1597,7 @@ public partial class MainWindow : Window
                 : "Manual Goldberg setup required.";
             
             StatusText.Text = $"✓ Packaged {game.Name} - {goldbergStatus}";
-            GamesList.Items.Refresh();
+            GameLibraryViewControl.RefreshList();
             LoadingOverlay.Hide();
             
             ToastService.Instance.ShowSuccess("Package Complete", $"{game.Name} packaged successfully!", 5000);
@@ -1744,7 +1672,7 @@ public partial class MainWindow : Window
             _cacheService.UpdateCache(game);
             _cacheService.SaveCache();
             
-            GamesList.Items.Refresh();
+            GameLibraryViewControl.RefreshList();
             LoadingOverlay.Hide();
             
             ToastService.Instance.ShowSuccess("Packaging Complete", $"Successfully packaged {game.Name}!");
@@ -1907,19 +1835,9 @@ public partial class MainWindow : Window
     {
         var selectedGames = _allGames.Where(g => g.IsSelected).ToList();
         var selectedCount = selectedGames.Count;
-        var packageableCount = selectedGames.Count(g => g.IsPackageable);
         var sendableCount = selectedGames.Count(g => g.IsPackaged);
         
-        if (selectedCount > 0)
-        {
-            BatchSelectionText.Text = $"{selectedCount} game{(selectedCount > 1 ? "s" : "")} selected";
-            BatchActionBar.Visibility = Visibility.Visible;
-            BatchSendBtn.IsEnabled = sendableCount > 0;
-        }
-        else
-        {
-            BatchActionBar.Visibility = Visibility.Collapsed;
-        }
+        GameLibraryViewControl.UpdateBatchBar(selectedCount, sendableCount > 0);
     }
     
     private void BatchClear_Click(object sender, RoutedEventArgs e) => ClearSelection_Click(sender, e);
@@ -1961,8 +1879,7 @@ public partial class MainWindow : Window
         if (result != MessageBoxResult.Yes) return;
         
         // Disable batch buttons during operation
-        BatchPackageButton.IsEnabled = false;
-        BatchClearButton.IsEnabled = false;
+        GameLibraryViewControl.SetBatchButtonsEnabled(false);
         
         var successCount = 0;
         var failCount = 0;
@@ -2008,8 +1925,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            BatchPackageButton.IsEnabled = true;
-            BatchClearButton.IsEnabled = true;
+            GameLibraryViewControl.SetBatchButtonsEnabled(true);
             UpdateGamesList(_allGames);
             UpdateBatchActionBar();
         }
@@ -2063,7 +1979,7 @@ public partial class MainWindow : Window
         if (confirm != MessageBoxResult.Yes) return;
         
         // Disable buttons during transfer
-        BatchSendBtn.IsEnabled = false;
+        GameLibraryViewControl.SetBatchButtonsEnabled(false);
         
         var successCount = 0;
         var failCount = 0;
@@ -2120,7 +2036,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            BatchSendBtn.IsEnabled = true;
+            GameLibraryViewControl.SetBatchButtonsEnabled(true);
             UpdateGamesList(_allGames);
             UpdateBatchActionBar();
         }
@@ -2608,8 +2524,7 @@ public partial class MainWindow : Window
         // Ctrl+F: Focus search box
         else if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control)
         {
-            SearchBox.Focus();
-            SearchBox.SelectAll();
+            HeaderControl.FocusSearch();
             e.Handled = true;
         }
         // Ctrl+S: Open settings
