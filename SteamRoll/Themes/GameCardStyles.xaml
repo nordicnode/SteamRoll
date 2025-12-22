@@ -1,0 +1,96 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    
+    <!-- Game Card Style -->
+    <Style x:Key="GameCard" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource BackgroundCardBrush}"/>
+        <Setter Property="CornerRadius" Value="12"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Margin" Value="8"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}"/>
+        <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+        <Setter Property="RenderTransform">
+            <Setter.Value>
+                <TransformGroup>
+                    <ScaleTransform ScaleX="1" ScaleY="1"/>
+                    <TranslateTransform Y="0"/>
+                </TransformGroup>
+            </Setter.Value>
+        </Setter>
+        <Setter Property="Effect">
+            <Setter.Value>
+                <DropShadowEffect BlurRadius="8" ShadowDepth="2" Opacity="0.3" Color="Black"/>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="BorderBrush" Value="{StaticResource AccentPrimaryBrush}"/>
+                <Setter Property="Background" Value="#1F2937"/>
+                <Setter Property="Effect">
+                    <Setter.Value>
+                        <DropShadowEffect BlurRadius="20" ShadowDepth="4" Opacity="0.5" Color="#58A6FF"/>
+                    </Setter.Value>
+                </Setter>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+    
+    <!-- Badge Style -->
+    <Style x:Key="BadgeStyle" TargetType="Border">
+        <Setter Property="CornerRadius" Value="10"/>
+        <Setter Property="Padding" Value="8,3"/>
+        <Setter Property="Margin" Value="0,0,4,0"/>
+    </Style>
+    
+    <!-- Peer List Item Style -->
+    <Style x:Key="PeerListItemStyle" TargetType="ListBoxItem">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="Padding" Value="4"/>
+        <Setter Property="Margin" Value="2"/>
+        <Style.Triggers>
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="{DynamicResource AccentPrimaryBrush}"/>
+            </Trigger>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="#30363D"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- DLC Item Border Style -->
+    <Style x:Key="DlcItemBorderStyle" TargetType="Border">
+        <Setter Property="Background" Value="#1A2332"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtleBrush}"/>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsInstalled}" Value="True">
+                <Setter Property="Background" Value="#1A3F2E"/>
+                <Setter Property="BorderBrush" Value="#3FB950"/>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- DLC Status Badge Style -->
+    <Style x:Key="DlcStatusBadgeStyle" TargetType="Border">
+        <Setter Property="Background" Value="#F8514933"/>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsInstalled}" Value="True">
+                <Setter Property="Background" Value="#3FB95033"/>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- DLC Status Text Style -->
+    <Style x:Key="DlcStatusTextStyle" TargetType="TextBlock">
+        <Setter Property="Text" Value="Not Owned"/>
+        <Setter Property="Foreground" Value="#F85149"/>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsInstalled}" Value="True">
+                <Setter Property="Text" Value="✓ Installed"/>
+                <Setter Property="Foreground" Value="#3FB950"/>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    
+</ResourceDictionary>
