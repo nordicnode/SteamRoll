@@ -505,11 +505,11 @@
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0">
                                             <TextBlock Text="LAN Discovery Port" Style="{DynamicResource SettingLabel}"/>
-                                            <TextBox x:Name="DiscoveryPortBox" Style="{DynamicResource SettingsTextBoxStyle}" PreviewTextInput="NumberValidationTextBox"/>
+                                            <TextBox x:Name="DiscoveryPortBox" Style="{DynamicResource SettingsTextBoxStyle}" PreviewTextInput="NumberValidationTextBox" DataObject.Pasting="TextBox_Pasting"/>
                                         </StackPanel>
                                         <StackPanel Grid.Column="2">
                                             <TextBlock Text="File Transfer Port" Style="{DynamicResource SettingLabel}"/>
-                                            <TextBox x:Name="TransferPortBox" Style="{DynamicResource SettingsTextBoxStyle}" PreviewTextInput="NumberValidationTextBox"/>
+                                            <TextBox x:Name="TransferPortBox" Style="{DynamicResource SettingsTextBoxStyle}" PreviewTextInput="NumberValidationTextBox" DataObject.Pasting="TextBox_Pasting"/>
                                         </StackPanel>
                                     </Grid>
                                     <TextBlock Text="Requires restart. Ensure these ports are open in your firewall." Style="{DynamicResource SettingDescription}"/>

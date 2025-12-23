@@ -365,6 +365,17 @@ public class PackageBuilder
     /// </summary>
     /// <param name="packageDir">Path to the package directory.</param>
     /// <returns>A tuple with (isValid, mismatches) where mismatches is a list of files that failed verification.</returns>
+    public static Task<(bool IsValid, List<string> Mismatches)> VerifyIntegrityAsync(string packageDir)
+    {
+        return PackageVerifier.VerifyIntegrityAsync(packageDir);
+    }
+
+    /// <summary>
+    /// Verifies the integrity of a package by comparing current file hashes against stored hashes.
+    /// </summary>
+    /// <param name="packageDir">Path to the package directory.</param>
+    /// <returns>A tuple with (isValid, mismatches) where mismatches is a list of files that failed verification.</returns>
+    [Obsolete("Use VerifyIntegrityAsync instead")]
     public static (bool IsValid, List<string> Mismatches) VerifyIntegrity(string packageDir)
     {
         return PackageVerifier.VerifyIntegrity(packageDir);

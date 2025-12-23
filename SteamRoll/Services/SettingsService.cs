@@ -47,6 +47,22 @@ public class SettingsService
         catch (Exception ex)
         {
             LogService.Instance.Error($"Error loading settings", ex, "Settings");
+
+            // Backup corrupt settings file if it exists
+            if (File.Exists(SettingsPath))
+            {
+                try
+                {
+                    var backupPath = SettingsPath + ".bak";
+                    File.Copy(SettingsPath, backupPath, true);
+                    LogService.Instance.Warning($"Backed up corrupt settings to {backupPath}", "Settings");
+                }
+                catch (Exception backupEx)
+                {
+                    LogService.Instance.Error($"Failed to backup corrupt settings", backupEx, "Settings");
+                }
+            }
+
             _settings = new AppSettings();
         }
     }

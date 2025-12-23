@@ -14,7 +14,7 @@ public static class PackageVerifier
     /// </summary>
     /// <param name="packageDir">Path to the package directory.</param>
     /// <returns>A tuple with (isValid, mismatches) where mismatches is a list of files that failed verification.</returns>
-    public static (bool IsValid, List<string> Mismatches) VerifyIntegrity(string packageDir)
+    public static async Task<(bool IsValid, List<string> Mismatches)> VerifyIntegrityAsync(string packageDir)
     {
         var mismatches = new List<string>();
         var metadataPath = System.IO.Path.Combine(packageDir, "steamroll.json");
@@ -26,15 +26,13 @@ public static class PackageVerifier
 
         try
         {
-            var json = File.ReadAllText(metadataPath);
+            var json = await File.ReadAllTextAsync(metadataPath);
             var metadata = JsonSerializer.Deserialize<PackageMetadata>(json);
 
             if (metadata?.FileHashes == null || metadata.FileHashes.Count == 0)
             {
                 return (true, mismatches); // No hashes stored, assume valid
             }
-
-            using var sha256 = System.Security.Cryptography.SHA256.Create();
 
             foreach (var (relativePath, expectedHash) in metadata.FileHashes)
             {
@@ -46,8 +44,9 @@ public static class PackageVerifier
                     continue;
                 }
 
-                using var stream = File.OpenRead(filePath);
-                var hashBytes = sha256.ComputeHash(stream);
+                using var sha256 = System.Security.Cryptography.SHA256.Create();
+                using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                var hashBytes = await sha256.ComputeHashAsync(stream);
                 var actualHash = Convert.ToHexString(hashBytes).ToLowerInvariant();
 
                 if (actualHash != expectedHash)
@@ -63,6 +62,15 @@ public static class PackageVerifier
         }
 
         return (mismatches.Count == 0, mismatches);
+    }
+
+    /// <summary>
+    /// Synchronous wrapper for VerifyIntegrityAsync. Use Async version where possible.
+    /// </summary>
+    [Obsolete("Use VerifyIntegrityAsync instead")]
+    public static (bool IsValid, List<string> Mismatches) VerifyIntegrity(string packageDir)
+    {
+        return Task.Run(() => VerifyIntegrityAsync(packageDir)).GetAwaiter().GetResult();
     }
 
     /// <summary>
