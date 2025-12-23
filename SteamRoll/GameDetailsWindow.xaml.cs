@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using SteamRoll.Models;
@@ -54,13 +55,15 @@ public partial class GameDetailsWindow : Window
     {
         try
         {
-            LoadingText.Visibility = Visibility.Visible;
+            // Show loading overlay
+            LoadingOverlay.Visibility = Visibility.Visible;
             
             var details = await _storeService.GetGameDetailsAsync(_game.AppId);
             
             if (details != null)
             {
                 // Update description
+                // Prefer short description as detailed description often contains HTML
                 DescriptionText.Text = !string.IsNullOrEmpty(details.Description) 
                     ? details.Description 
                     : "No description available.";
@@ -68,17 +71,17 @@ public partial class GameDetailsWindow : Window
                 // Update genres
                 GenresText.Text = !string.IsNullOrEmpty(details.GenresDisplay) 
                     ? details.GenresDisplay 
-                    : "";
+                    : "Unknown Genre";
                 
                 // Update developer
                 DeveloperText.Text = details.Developers.Count > 0 
-                    ? $"Developer: {details.DevelopersDisplay}" 
-                    : "";
+                    ? details.DevelopersDisplay
+                    : "Unknown Developer";
                 
                 // Update release date
                 ReleaseDateText.Text = !string.IsNullOrEmpty(details.ReleaseDate) 
-                    ? $"Released: {details.ReleaseDate}" 
-                    : "";
+                    ? details.ReleaseDate
+                    : "Unknown Date";
                 
                 // Update metacritic
                 if (details.MetacriticScore.HasValue)
@@ -87,29 +90,19 @@ public partial class GameDetailsWindow : Window
                     MetacriticText.Text = details.MetacriticScore.Value.ToString();
                     
                     // Color based on score
-                    MetacriticBadge.Background = details.MetacriticScore.Value switch
+                    MetacriticText.Foreground = details.MetacriticScore.Value switch
                     {
                         >= 75 => new SolidColorBrush(Color.FromRgb(0x3F, 0xB9, 0x50)), // Green
                         >= 50 => new SolidColorBrush(Color.FromRgb(0xD2, 0x99, 0x22)), // Yellow
                         _ => new SolidColorBrush(Color.FromRgb(0xF8, 0x51, 0x49)) // Red
                     };
+                    MetacriticBadge.BorderBrush = MetacriticText.Foreground;
+                    MetacriticBadge.Background = new SolidColorBrush(Color.FromArgb(20,
+                        ((SolidColorBrush)MetacriticText.Foreground).Color.R,
+                        ((SolidColorBrush)MetacriticText.Foreground).Color.G,
+                        ((SolidColorBrush)MetacriticText.Foreground).Color.B));
                 }
 
-                // Update Steam Reviews
-                if (details.ReviewPositivePercent.HasValue)
-                {
-                    ReviewBadge.Visibility = Visibility.Visible;
-                    ReviewText.Text = details.ReviewDisplay;
-
-                    // Color based on percent
-                    var percent = details.ReviewPositivePercent.Value;
-                    if (percent >= 70) // Mostly Positive or better
-                        ReviewText.Foreground = new SolidColorBrush(Color.FromRgb(0x66, 0xC0, 0xF4)); // Steam Blue
-                    else if (percent >= 40) // Mixed
-                        ReviewText.Foreground = new SolidColorBrush(Color.FromRgb(0xB9, 0xA0, 0x74)); // Steam Mixed/Orange
-                    else // Negative
-                        ReviewText.Foreground = new SolidColorBrush(Color.FromRgb(0xA3, 0x4C, 0x2E)); // Steam Red
-                }
                 
                 // Load background image
                 if (!string.IsNullOrEmpty(details.BackgroundImage))
@@ -132,17 +125,24 @@ public partial class GameDetailsWindow : Window
                     {
                         var bitmap = new BitmapImage(new Uri(details.HeaderImage));
                         HeaderImageBrush.ImageSource = bitmap;
+                        HeaderFallback.Visibility = Visibility.Collapsed;
                     }
                     catch (Exception ex)
                     {
                         LogService.Instance.Debug($"Could not load header image: {ex.Message}", "GameDetailsWindow");
+                        HeaderFallback.Visibility = Visibility.Visible;
                     }
+                }
+                else
+                {
+                    HeaderFallback.Visibility = Visibility.Visible;
                 }
                 
                 // Load screenshots
                 if (details.Screenshots.Count > 0)
                 {
-                    ScreenshotsList.ItemsSource = details.Screenshots.Take(6);
+                    ScreenshotsList.ItemsSource = details.Screenshots;
+                    NoScreenshotsText.Visibility = Visibility.Collapsed;
                 }
                 else
                 {
@@ -152,13 +152,14 @@ public partial class GameDetailsWindow : Window
                 // Load features
                 if (details.Features.Count > 0)
                 {
-                    FeaturesList.ItemsSource = details.Features.Take(12);
+                    FeaturesList.ItemsSource = details.Features;
                 }
             }
             else
             {
                 DescriptionText.Text = "Unable to load game details from Steam.";
                 NoScreenshotsText.Visibility = Visibility.Visible;
+                HeaderFallback.Visibility = Visibility.Visible;
             }
         }
         catch (Exception ex)
@@ -167,7 +168,7 @@ public partial class GameDetailsWindow : Window
         }
         finally
         {
-            LoadingText.Visibility = Visibility.Collapsed;
+            LoadingOverlay.Visibility = Visibility.Collapsed;
         }
     }
     
@@ -187,8 +188,8 @@ public partial class GameDetailsWindow : Window
     {
         // Basic info
         GameTitle.Text = _game.Name;
-        AppIdText.Text = $"#{_game.AppId}";
-        SizeText.Text = _game.FormattedSize;
+        // AppIdText.Text = $"#{_game.AppId}"; // Removed in new design
+        // SizeText.Text = _game.FormattedSize; // Removed in new design
 
         // DRM info
         var drmName = _game.PrimaryDrm.ToString();
@@ -207,14 +208,18 @@ public partial class GameDetailsWindow : Window
         if (_game.IsPackageable)
         {
             CompatBadge.Background = new SolidColorBrush(Color.FromArgb(40, 0x3F, 0xB9, 0x50));
+            CompatBadge.BorderBrush = new SolidColorBrush(Color.FromRgb(0x3F, 0xB9, 0x50));
             CompatDot.Fill = new SolidColorBrush(Color.FromRgb(0x3F, 0xB9, 0x50));
             CompatText.Text = "Compatible";
+            CompatText.Foreground = new SolidColorBrush(Color.FromRgb(0x3F, 0xB9, 0x50));
         }
         else
         {
             CompatBadge.Background = new SolidColorBrush(Color.FromArgb(40, 0xF8, 0x51, 0x49));
+            CompatBadge.BorderBrush = new SolidColorBrush(Color.FromRgb(0xF8, 0x51, 0x49));
             CompatDot.Fill = new SolidColorBrush(Color.FromRgb(0xF8, 0x51, 0x49));
             CompatText.Text = "Not Compatible";
+            CompatText.Foreground = new SolidColorBrush(Color.FromRgb(0xF8, 0x51, 0x49));
         }
 
         // DLC
@@ -222,88 +227,130 @@ public partial class GameDetailsWindow : Window
         {
             DlcList.ItemsSource = _game.AvailableDlc;
             var installed = _game.AvailableDlc.Count(d => d.IsInstalled);
-            DlcCountText.Text = $" ({installed}/{_game.AvailableDlc.Count} installed)";
+            DlcCountText.Text = $"{installed}/{_game.AvailableDlc.Count} installed";
+            NoDlcText.Visibility = Visibility.Collapsed;
         }
         else
         {
             NoDlcText.Visibility = Visibility.Visible;
-            DlcCountText.Text = "";
+            DlcCountText.Text = "0 items";
         }
 
         // Package status
         if (_game.IsPackaged)
         {
-            PackageBtn.Content = "📂 Open";
-            PackageActionsPanel.Visibility = Visibility.Visible;
+            PackageStatusText.Text = "Packaged & Ready";
+            PackageStatusText.Foreground = (Brush)FindResource("SuccessBrush");
+
+            PackageActionBtn.Content = "📂 Open Package Folder";
+            PackageActionBtn.Style = (Style)FindResource("SecondaryButton");
+
+            PlayActionBtn.Visibility = Visibility.Visible;
+            QuickActionsGrid.Visibility = Visibility.Visible;
         }
+    }
+
+    private void Screenshot_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.Tag is string url)
+        {
+            try
+            {
+                var bitmap = new BitmapImage(new Uri(url));
+                FullScreenshotImage.Source = bitmap;
+                ScreenshotModal.Visibility = Visibility.Visible;
+            }
+            catch (Exception ex)
+            {
+                LogService.Instance.Debug($"Could not load screenshot: {ex.Message}", "GameDetailsWindow");
+            }
+        }
+    }
+
+    private void CloseScreenshot_Click(object sender, RoutedEventArgs e)
+    {
+        ScreenshotModal.Visibility = Visibility.Collapsed;
+        FullScreenshotImage.Source = null;
     }
 
     private async void Diagnostics_Click(object sender, RoutedEventArgs e)
     {
         if (!_game.IsPackaged || string.IsNullOrEmpty(_game.PackagePath)) return;
 
-        DiagnosticsBtn.IsEnabled = false;
-        DiagnosticsBtn.Content = "⏳ Scanning...";
+        // Find the button (it might be inside a template, but here it is named in the scope)
+        // Since we are in the code behind and buttons are named, we can access them directly if they are in the scope.
+        // However, if they are inside a template (which they are not in my new XAML, they are directly in TabItem -> ScrollViewer -> StackPanel),
+        // we might need to be careful. But looking at XAML, DiagnosticsBtn doesn't exist anymore with that name.
+        // I didn't name the button 'DiagnosticsBtn' in the new XAML. I need to check the sender or find it.
+        // In the new XAML: <Button Content="Health" Style="{DynamicResource SecondaryButton}" Margin="6,0,0,0" Click="Diagnostics_Click"/>
+        // It is not named.
 
-        try
+        if (sender is Button btn)
         {
-            var report = await DiagnosticService.Instance.AnalyzePackageAsync(_game.PackagePath);
+            btn.IsEnabled = false;
+            var originalContent = btn.Content;
+            btn.Content = "⏳ Scanning...";
 
-            // Format report for display
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"Health Report for {_game.Name}");
-            sb.AppendLine($"Status: {report.StatusSummary}");
-            sb.AppendLine("----------------------------------------");
-            sb.AppendLine($"Main Executable: {report.MainExecutable}");
-            sb.AppendLine($"Architecture: {report.Architecture}");
-            sb.AppendLine();
+            try
+            {
+                var report = await DiagnosticService.Instance.AnalyzePackageAsync(_game.PackagePath);
 
-            if (report.Issues.Count == 0)
-            {
-                sb.AppendLine("No issues detected! The package is healthy.");
-            }
-            else
-            {
-                sb.AppendLine($"Issues Found ({report.Issues.Count}):");
-                foreach (var issue in report.Issues)
+                // Format report for display
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"Health Report for {_game.Name}");
+                sb.AppendLine($"Status: {report.StatusSummary}");
+                sb.AppendLine("----------------------------------------");
+                sb.AppendLine($"Main Executable: {report.MainExecutable}");
+                sb.AppendLine($"Architecture: {report.Architecture}");
+                sb.AppendLine();
+
+                if (report.Issues.Count == 0)
                 {
-                    var icon = issue.Severity switch
-                    {
-                        IssueSeverity.Error => "❌",
-                        IssueSeverity.Warning => "⚠️",
-                        _ => "ℹ️"
-                    };
-                    sb.AppendLine($"{icon} [{issue.Severity}] {issue.Title}");
-                    sb.AppendLine($"   {issue.Description}");
-                    if (issue.CanFix && !string.IsNullOrEmpty(issue.FixAction))
-                    {
-                         sb.AppendLine($"   💡 Fix available: {issue.FixAction}");
-                    }
-                    sb.AppendLine();
+                    sb.AppendLine("No issues detected! The package is healthy.");
                 }
+                else
+                {
+                    sb.AppendLine($"Issues Found ({report.Issues.Count}):");
+                    foreach (var issue in report.Issues)
+                    {
+                        var icon = issue.Severity switch
+                        {
+                            IssueSeverity.Error => "❌",
+                            IssueSeverity.Warning => "⚠️",
+                            _ => "ℹ️"
+                        };
+                        sb.AppendLine($"{icon} [{issue.Severity}] {issue.Title}");
+                        sb.AppendLine($"   {issue.Description}");
+                        if (issue.CanFix && !string.IsNullOrEmpty(issue.FixAction))
+                        {
+                             sb.AppendLine($"   💡 Fix available: {issue.FixAction}");
+                        }
+                        sb.AppendLine();
+                    }
+                }
+
+                Dispatcher.Invoke(() =>
+                {
+                    btn.IsEnabled = true;
+                    btn.Content = originalContent;
+
+                    // Using standard message box for now - could be a custom dialog later
+                    var icon = report.ErrorCount > 0 ? MessageBoxImage.Error :
+                               report.WarningCount > 0 ? MessageBoxImage.Warning :
+                               MessageBoxImage.Information;
+
+                    MessageBox.Show(sb.ToString(), "Package Health Report", MessageBoxButton.OK, icon);
+                });
             }
-
-            Dispatcher.Invoke(() =>
+            catch (Exception ex)
             {
-                DiagnosticsBtn.IsEnabled = true;
-                DiagnosticsBtn.Content = "🩺 Health";
-
-                // Using standard message box for now - could be a custom dialog later
-                var icon = report.ErrorCount > 0 ? MessageBoxImage.Error :
-                           report.WarningCount > 0 ? MessageBoxImage.Warning :
-                           MessageBoxImage.Information;
-
-                MessageBox.Show(sb.ToString(), "Package Health Report", MessageBoxButton.OK, icon);
-            });
-        }
-        catch (Exception ex)
-        {
-             Dispatcher.Invoke(() =>
-             {
-                 DiagnosticsBtn.IsEnabled = true;
-                 DiagnosticsBtn.Content = "🩺 Health";
-                 MessageBox.Show($"Diagnostic failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-             });
+                 Dispatcher.Invoke(() =>
+                 {
+                     btn.IsEnabled = true;
+                     btn.Content = originalContent;
+                     MessageBox.Show($"Diagnostic failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                 });
+            }
         }
     }
 
@@ -311,43 +358,47 @@ public partial class GameDetailsWindow : Window
     {
         if (!_game.IsPackaged || string.IsNullOrEmpty(_game.PackagePath)) return;
 
-        VerifyBtn.IsEnabled = false;
-        VerifyBtn.Content = "⏳ Verifying...";
-
-        Task.Run(() =>
+        if (sender is Button btn)
         {
-            try
-            {
-                var (isValid, mismatches) = PackageBuilder.VerifyIntegrity(_game.PackagePath);
+            btn.IsEnabled = false;
+            var originalContent = btn.Content;
+            btn.Content = "⏳ Verifying...";
 
-                Dispatcher.Invoke(() =>
-                {
-                    VerifyBtn.IsEnabled = true;
-                    VerifyBtn.Content = "🛡️ Verify";
-
-                    if (isValid)
-                    {
-                        MessageBox.Show("Package integrity verified successfully! All files match.",
-                            "Verification Passed", MessageBoxButton.OK, MessageBoxImage.Information);
-                    }
-                    else
-                    {
-                        MessageBox.Show($"Verification failed!\n\nFound {mismatches.Count} issues:\n" +
-                            string.Join("\n", mismatches.Take(10)) + (mismatches.Count > 10 ? "\n..." : ""),
-                            "Verification Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    }
-                });
-            }
-            catch (Exception ex)
+            Task.Run(() =>
             {
-                Dispatcher.Invoke(() =>
+                try
                 {
-                    VerifyBtn.IsEnabled = true;
-                    VerifyBtn.Content = "🛡️ Verify";
-                    MessageBox.Show($"Verification error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                });
-            }
-        });
+                    var (isValid, mismatches) = PackageBuilder.VerifyIntegrity(_game.PackagePath);
+
+                    Dispatcher.Invoke(() =>
+                    {
+                        btn.IsEnabled = true;
+                        btn.Content = originalContent;
+
+                        if (isValid)
+                        {
+                            MessageBox.Show("Package integrity verified successfully! All files match.",
+                                "Verification Passed", MessageBoxButton.OK, MessageBoxImage.Information);
+                        }
+                        else
+                        {
+                            MessageBox.Show($"Verification failed!\n\nFound {mismatches.Count} issues:\n" +
+                                string.Join("\n", mismatches.Take(10)) + (mismatches.Count > 10 ? "\n..." : ""),
+                                "Verification Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        btn.IsEnabled = true;
+                        btn.Content = originalContent;
+                        MessageBox.Show($"Verification error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    });
+                }
+            });
+        }
     }
 
     private void Play_Click(object sender, RoutedEventArgs e)
