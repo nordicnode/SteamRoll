@@ -354,7 +354,7 @@ public partial class GameDetailsWindow : Window
         }
     }
 
-    private void Verify_Click(object sender, RoutedEventArgs e)
+    private async void Verify_Click(object sender, RoutedEventArgs e)
     {
         if (!_game.IsPackaged || string.IsNullOrEmpty(_game.PackagePath)) return;
 
@@ -364,40 +364,31 @@ public partial class GameDetailsWindow : Window
             var originalContent = btn.Content;
             btn.Content = "⏳ Verifying...";
 
-            Task.Run(() =>
+            try
             {
-                try
-                {
-                    var (isValid, mismatches) = PackageBuilder.VerifyIntegrity(_game.PackagePath);
+                var (isValid, mismatches) = await PackageBuilder.VerifyIntegrityAsync(_game.PackagePath);
 
-                    Dispatcher.Invoke(() =>
-                    {
-                        btn.IsEnabled = true;
-                        btn.Content = originalContent;
+                btn.IsEnabled = true;
+                btn.Content = originalContent;
 
-                        if (isValid)
-                        {
-                            MessageBox.Show("Package integrity verified successfully! All files match.",
-                                "Verification Passed", MessageBoxButton.OK, MessageBoxImage.Information);
-                        }
-                        else
-                        {
-                            MessageBox.Show($"Verification failed!\n\nFound {mismatches.Count} issues:\n" +
-                                string.Join("\n", mismatches.Take(10)) + (mismatches.Count > 10 ? "\n..." : ""),
-                                "Verification Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        }
-                    });
-                }
-                catch (Exception ex)
+                if (isValid)
                 {
-                    Dispatcher.Invoke(() =>
-                    {
-                        btn.IsEnabled = true;
-                        btn.Content = originalContent;
-                        MessageBox.Show($"Verification error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    });
+                    MessageBox.Show("Package integrity verified successfully! All files match.",
+                        "Verification Passed", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
-            });
+                else
+                {
+                    MessageBox.Show($"Verification failed!\n\nFound {mismatches.Count} issues:\n" +
+                        string.Join("\n", mismatches.Take(10)) + (mismatches.Count > 10 ? "\n..." : ""),
+                        "Verification Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                btn.IsEnabled = true;
+                btn.Content = originalContent;
+                MessageBox.Show($"Verification error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 

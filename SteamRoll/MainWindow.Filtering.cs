@@ -35,7 +35,7 @@ public partial class MainWindow
     private void ApplyFilters()
     {
         var searchText = HeaderControl.SearchText;
-        var isSearchActive = !string.IsNullOrWhiteSpace(searchText) && searchText != "🔍 Search games...";
+        var isSearchActive = !string.IsNullOrWhiteSpace(searchText);
         
         var filterReady = StatsBarControl.IsReadyChecked;
         var filterPackaged = StatsBarControl.IsPackagedChecked;

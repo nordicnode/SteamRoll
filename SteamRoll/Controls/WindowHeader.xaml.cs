@@ -9,7 +9,7 @@ public partial class WindowHeader : UserControl
 {
     public static readonly DependencyProperty SearchTextProperty =
         DependencyProperty.Register("SearchText", typeof(string), typeof(WindowHeader),
-            new FrameworkPropertyMetadata("🔍 Search games...", FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
+            new FrameworkPropertyMetadata(string.Empty, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
 
     public string SearchText
     {

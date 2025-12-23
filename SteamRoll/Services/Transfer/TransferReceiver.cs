@@ -386,7 +386,7 @@ public class TransferReceiver
 
                 try
                 {
-                    var (isValid, mismatches) = PackageBuilder.VerifyIntegrity(destPath);
+                    var (isValid, mismatches) = await PackageBuilder.VerifyIntegrityAsync(destPath);
                     verificationPassed = isValid;
                     verificationErrors = mismatches;
                 }

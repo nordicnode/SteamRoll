@@ -141,10 +141,10 @@ public partial class MainWindow : Window
         // Initialize Toast Service
         ToastService.Instance.Initialize(ToastContainer);
         
-        // Set search placeholder
-        HeaderControl.SearchText = "🔍 Search games...";
+        // Initialize search box (placeholder text is handled via XAML style)
+        HeaderControl.SearchText = "";
         
-        // Apply saved window dimensions and state
+        // Apply saved window dimensions and state - start maximized if no saved state
         if (_settingsService.Settings.WindowWidth > 0 && _settingsService.Settings.WindowHeight > 0)
         {
             Width = _settingsService.Settings.WindowWidth;
@@ -157,6 +157,11 @@ public partial class MainWindow : Window
         if (Enum.TryParse<WindowState>(_settingsService.Settings.WindowState, out var savedState))
         {
             WindowState = savedState;
+        }
+        else
+        {
+            // Default to maximized on first launch
+            WindowState = WindowState.Maximized;
         }
 
         // Load games on startup

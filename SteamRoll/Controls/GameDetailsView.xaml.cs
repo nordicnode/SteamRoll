@@ -51,6 +51,27 @@ public partial class GameDetailsView : UserControl
         }
     }
     
+    /// <summary>
+    /// Refreshes only the package-related UI state without triggering a full reload.
+    /// Use this after packaging completes to update the button state.
+    /// </summary>
+    public void RefreshPackageState()
+    {
+        if (_game == null) return;
+        
+        // Package button state
+        if (_game.IsPackaged)
+        {
+            PackageBtnText.Text = "Open";
+            VerifyIntegrityBtn.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            PackageBtnText.Text = "Build";
+            VerifyIntegrityBtn.Visibility = Visibility.Collapsed;
+        }
+    }
+    
     private void AnimateContentIn()
     {
         // Fade and slide in animation
@@ -463,13 +484,13 @@ public partial class GameDetailsView : UserControl
         }
     }
 
-    private void VerifyIntegrity_Click(object sender, RoutedEventArgs e)
+    private async void VerifyIntegrity_Click(object sender, RoutedEventArgs e)
     {
         if (_game == null || string.IsNullOrEmpty(_game.PackagePath)) return;
         
         try
         {
-            var (isValid, mismatches) = PackageBuilder.VerifyIntegrity(_game.PackagePath);
+            var (isValid, mismatches) = await PackageBuilder.VerifyIntegrityAsync(_game.PackagePath);
             
             if (isValid)
             {

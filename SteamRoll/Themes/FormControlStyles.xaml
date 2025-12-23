@@ -10,7 +10,7 @@
         <Setter Property="Padding" Value="8,4"/>
         <Setter Property="FontSize" Value="12"/>
         <Setter Property="CaretBrush" Value="{StaticResource TextPrimaryBrush}"/>
-        <Setter Property="Tag" Value="Search games..."/> <!-- Default placeholder -->
+        <Setter Property="Tag" Value="🔍 Search games..."/> <!-- Default placeholder -->
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TextBox">

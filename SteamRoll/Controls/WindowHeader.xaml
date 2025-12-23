@@ -167,7 +167,7 @@
                     <TextBox x:Name="SearchBox" Width="150" Margin="0,0,8,0"
                              Style="{DynamicResource SearchBoxStyle}"
                              Text="{Binding SearchText, RelativeSource={RelativeSource AncestorType=UserControl}, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             Tag="Search games..."
+                             Tag="🔍 Search games..."
                              TextChanged="SearchBox_TextChanged"/>
 
                     <!-- Browse Peer Library Button -->

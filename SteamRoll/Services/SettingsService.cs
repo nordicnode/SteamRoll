@@ -274,7 +274,7 @@ public class AppSettings
     /// <summary>
     /// Last window state (Maximized, Normal, etc).
     /// </summary>
-    public string WindowState { get; set; } = "Normal";
+    public string WindowState { get; set; } = "Maximized";
     
     /// <summary>
     /// Whether Defender exclusions have been added.

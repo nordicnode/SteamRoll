@@ -85,8 +85,8 @@ public partial class MainWindow
         try
         {
             await CreatePackageAsync(args.Game, args.Mode);
-            // Refresh and stay in details view so user can see updated package status
-            SafeFireAndForget(GameDetailsView.LoadGameAsync(args.Game), "Refresh Game Details");
+            // Refresh just the package state to show updated button without full reload
+            GameDetailsView.RefreshPackageState();
         }
         catch (Exception ex)
         {
