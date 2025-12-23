@@ -153,7 +153,7 @@ public class LibraryManager
     }
     
     /// <summary>
-    /// Checks which games have existing packages.
+    /// Checks which games have existing packages and detects available updates.
     /// </summary>
     public void CheckExistingPackages(List<InstalledGame> games)
     {
@@ -198,14 +198,45 @@ public class LibraryManager
             {
                 game.IsPackaged = true;
                 game.PackagePath = packagePath;
+                
+                // Read PackageBuildId from steamroll.json metadata
+                var metadataPath = System.IO.Path.Combine(packagePath, "steamroll.json");
+                if (File.Exists(metadataPath))
+                {
+                    try
+                    {
+                        var json = File.ReadAllText(metadataPath);
+                        var metadata = System.Text.Json.JsonSerializer.Deserialize<Models.PackageMetadata>(json);
+                        if (metadata != null && metadata.BuildId > 0)
+                        {
+                            game.PackageBuildId = metadata.BuildId;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Instance.Debug($"Failed to read package metadata for {game.Name}: {ex.Message}", "LibraryManager");
+                    }
+                }
             }
             else
             {
                 game.IsPackaged = false;
                 game.PackagePath = null;
+                game.PackageBuildId = null;
             }
         }
+        
+        // Populate Steam BuildIds for update detection
+        // Games already have BuildId from Steam library scan, so UpdateAvailable will now work
+        var packagesWithMetadata = games.Where(g => g.IsPackaged && g.PackageBuildId.HasValue).ToList();
+        var updatesAvailable = packagesWithMetadata.Count(g => g.UpdateAvailable);
+        
+        if (updatesAvailable > 0)
+        {
+            LogService.Instance.Info($"Found {updatesAvailable} package(s) with updates available", "LibraryManager");
+        }
     }
+
     
     /// <summary>
     /// Fetches DLC information for games.

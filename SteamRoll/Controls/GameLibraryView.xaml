@@ -150,6 +150,20 @@
                                             </Style>
                                         </MenuItem.Style>
                                     </MenuItem>
+                                    <MenuItem Header="🔄 Update Package" Click="ContextMenu_UpdatePackage_Click" Tag="{Binding}"
+                                              ToolTip="Update package with latest Steam files">
+                                        <MenuItem.Style>
+                                            <Style TargetType="MenuItem">
+                                                <Setter Property="IsEnabled" Value="{Binding UpdateAvailable}"/>
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding UpdateAvailable}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </MenuItem.Style>
+                                    </MenuItem>
                                     <Separator/>
                                     <MenuItem Header="📤 Send to Peer" Click="ContextMenu_SendToPeer_Click" Tag="{Binding}">
                                         <MenuItem.Style>

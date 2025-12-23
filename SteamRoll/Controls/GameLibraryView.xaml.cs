@@ -33,6 +33,7 @@ public partial class GameLibraryView : UserControl
     public event RoutedEventHandler? ContextMenuOpenSteamStoreClicked;
     public event RoutedEventHandler? ContextMenuCreatePackageClicked;
     public event RoutedEventHandler? ContextMenuViewDetailsClicked;
+    public event RoutedEventHandler? ContextMenuUpdatePackageClicked;
 
     public GameLibraryView()
     {
@@ -68,6 +69,7 @@ public partial class GameLibraryView : UserControl
     private void ContextMenu_VerifyIntegrity_Click(object sender, RoutedEventArgs e) => ContextMenuVerifyIntegrityClicked?.Invoke(sender, e);
     private void ContextMenu_RepairFromPeer_Click(object sender, RoutedEventArgs e) => ContextMenuRepairFromPeerClicked?.Invoke(sender, e);
     private void ContextMenu_OpenSteamStore_Click(object sender, RoutedEventArgs e) => ContextMenuOpenSteamStoreClicked?.Invoke(sender, e);
+    private void ContextMenu_UpdatePackage_Click(object sender, RoutedEventArgs e) => ContextMenuUpdatePackageClicked?.Invoke(sender, e);
 
 
     // Public State Management Methods

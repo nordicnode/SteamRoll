@@ -481,6 +481,25 @@ public class PackageBuilder
     private static string SanitizeFileName(string name) => FormatUtils.SanitizeFileName(name);
 
     /// <summary>
+    /// Updates an existing package with changed files from the Steam installation.
+    /// Uses incremental sync to only copy modified files.
+    /// </summary>
+    /// <param name="game">The game from Steam library (has current BuildId).</param>
+    /// <param name="packageDir">Path to the existing package.</param>
+    /// <param name="options">Optional package options.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Path to the updated package.</returns>
+    public async Task<string> UpdatePackageAsync(InstalledGame game, string outputPath, PackageOptions? options = null, CancellationToken ct = default)
+    {
+        options ??= new PackageOptions();
+        options.IsUpdate = true;
+        
+        LogService.Instance.Info($"Starting incremental update for {game.Name} (PackageBuildId: {game.PackageBuildId} -> SteamBuildId: {game.BuildId})", "PackageBuilder");
+        
+        return await CreatePackageAsync(game, outputPath, options, ct);
+    }
+
+    /// <summary>
     /// Imports a SteamRoll package from a ZIP file.
     /// </summary>
     public Task<string> ImportPackageAsync(string zipPath, string destinationRoot, CancellationToken ct = default)

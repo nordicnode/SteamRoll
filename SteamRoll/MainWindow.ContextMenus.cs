@@ -354,6 +354,63 @@ public partial class MainWindow
         }
     }
 
+    private async void ContextMenu_UpdatePackage_Click(object sender, RoutedEventArgs e)
+    {
+        var game = GetGameFromContextMenu(sender);
+        if (game == null || !game.UpdateAvailable) return;
+
+        var result = MessageBox.Show(
+            $"Update package for {game.Name}?\n\n" +
+            $"Current Package Build: {game.PackageBuildId}\n" +
+            $"Latest Steam Build: {game.BuildId}\n\n" +
+            "This will sync your package with the latest Steam files.\n" +
+            "Only changed files will be copied.",
+            "Update Package",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        _currentOperationCts?.Cancel();
+        _currentOperationCts = new CancellationTokenSource();
+
+        LoadingOverlay.Show($"Updating {game.Name}...");
+        StatusText.Text = $"⏳ Updating package for {game.Name}...";
+
+        try
+        {
+            var updatedPath = await _packageBuilder.UpdatePackageAsync(
+                game,
+                _outputPath,
+                ct: _currentOperationCts.Token);
+
+            LoadingOverlay.Hide();
+            StatusText.Text = $"✓ Package updated: {game.Name}";
+            ToastService.Instance.ShowSuccess("Package Updated", $"Updated {game.Name} to Build {game.BuildId}");
+
+            // Refresh package data
+            game.PackageBuildId = game.BuildId;
+            game.LastPackaged = DateTime.Now;
+            _cacheService.UpdateCache(game);
+            _cacheService.SaveCache();
+
+            // Refresh UI
+            ApplyFilters();
+        }
+        catch (OperationCanceledException)
+        {
+            LoadingOverlay.Hide();
+            StatusText.Text = "Update cancelled";
+        }
+        catch (Exception ex)
+        {
+            LoadingOverlay.Hide();
+            StatusText.Text = $"⚠ Update failed: {ex.Message}";
+            ToastService.Instance.ShowError("Update Failed", ex.Message);
+            LogService.Instance.Error($"Package update failed for {game.Name}", ex, "MainWindow");
+        }
+    }
+
     private void ContextMenu_AdvancedConfig_Click(object sender, RoutedEventArgs e)
     {
         var game = GetGameFromContextMenu(sender);
