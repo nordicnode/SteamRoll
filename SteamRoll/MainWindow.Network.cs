@@ -238,4 +238,101 @@ public partial class MainWindow
             LogService.Instance.Warning($"Peer requested unknown/unpackaged game: {gameName}", "MainWindow");
         }
     }
+
+    /// <summary>
+    /// Handles the "Install from Peer" button click to download a game from the network.
+    /// </summary>
+    private async void InstallFromPeer_Click(object sender, RoutedEventArgs e)
+    {
+        var game = (sender as FrameworkElement)?.Tag as InstalledGame;
+        if (game == null || !game.IsNetworkAvailable) return;
+
+        try
+        {
+            // Get the first peer that has this game
+            var peerWithGame = _meshLibraryService?.GetPeersWithGame(game.AppId).FirstOrDefault();
+            if (peerWithGame == null)
+            {
+                ToastService.Instance.ShowWarning("No Peers Available", $"No peers currently have {game.Name} available.");
+                return;
+            }
+
+            StatusText.Text = $"📡 Requesting {game.Name} from {peerWithGame.PeerHostName}...";
+            ToastService.Instance.ShowInfo("Transfer Starting", $"Requesting {game.Name} from {peerWithGame.PeerHostName}");
+
+            // Request the transfer from the peer
+            await _lanDiscoveryService.SendTransferRequestAsync(
+                new PeerInfo 
+                { 
+                    IpAddress = peerWithGame.PeerIp, 
+                    TransferPort = peerWithGame.PeerPort,
+                    HostName = peerWithGame.PeerHostName
+                }, 
+                game.Name, 
+                peerWithGame.SizeBytes);
+
+            LogService.Instance.Info($"Requested game transfer: {game.Name} from {peerWithGame.PeerHostName}", "MainWindow");
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Failed to request game from peer: {ex.Message}", ex, "MainWindow");
+            ToastService.Instance.ShowError("Transfer Failed", $"Could not request {game.Name} from peer.");
+        }
+    }
+
+    /// <summary>
+    /// Handles network library changes from the mesh library service.
+    /// Updates games with network availability status.
+    /// </summary>
+    private void OnNetworkLibraryChanged(object? sender, EventArgs e)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (_meshLibraryService == null) return;
+
+            var networkGames = _meshLibraryService.GetNetworkGames();
+            
+            // Update local games with network availability info
+            foreach (var game in GetGamesSnapshot())
+            {
+                if (networkGames.TryGetValue(game.AppId, out var peers))
+                {
+                    game.IsNetworkAvailable = peers.Count > 0;
+                    game.AvailablePeers = peers.Select(p => p.PeerHostName).ToList();
+                }
+                else
+                {
+                    game.IsNetworkAvailable = false;
+                    game.AvailablePeers.Clear();
+                }
+            }
+
+            // Refresh the display
+            GameLibraryViewControl.RefreshList();
+            
+            var totalNetworkGames = networkGames.Count;
+            if (totalNetworkGames > 0)
+            {
+                LogService.Instance.Debug($"Network library updated: {totalNetworkGames} unique games available from peers", "MeshLibrary");
+            }
+        });
+    }
+
+    /// <summary>
+    /// Provides the local packaged games list for sharing with peers.
+    /// Called when a peer requests our game list.
+    /// </summary>
+    private List<Models.NetworkGameInfo> GetLocalGamesForSharing()
+    {
+        return GetGamesSnapshot()
+            .Where(g => g.IsPackaged && !string.IsNullOrEmpty(g.PackagePath))
+            .Select(g => new Models.NetworkGameInfo
+            {
+                AppId = g.AppId,
+                Name = g.Name,
+                SizeBytes = g.SizeOnDisk,
+                BuildId = g.BuildId
+            })
+            .ToList();
+    }
 }

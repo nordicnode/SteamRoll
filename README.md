@@ -35,6 +35,12 @@ It creates portable, LAN-ready game packages by automatically applying compatibi
 *   **Network Speed Test**: Built-in tool to measure raw transfer throughput between peers.
 *   **Bandwidth Control**: Configurable transfer speed limits to prevent network saturation.
 
+### 🌐 Global Mesh Library
+*   **Unified Game View**: See all games available across your entire LAN in one unified library view.
+*   **Network Availability Badges**: Games available from peers display a "📡 Network Available" badge.
+*   **One-Click Install from Peer**: Install games directly from any peer on your network with a single click.
+*   **Automatic Game List Sharing**: Peers automatically share their game lists when connecting to the network.
+
 ### ⚡ Batch Operations
 *   **Batch Packaging**: Select multiple games in the library and package them sequentially in one go.
 *   **Batch Transfer**: Select multiple packaged games and send them all to a peer in a single operation.
@@ -47,11 +53,23 @@ It creates portable, LAN-ready game packages by automatically applying compatibi
 *   **Save Game Synchronization**:
     *   **Backup & Restore**: Built-in tools to back up and restore game saves to/from ZIP files.
     *   **P2P Sync**: Directly synchronize save games with a peer over the network without intermediate file steps.
+    *   **Manual Sync Button**: One-click "Sync Saves" button in game details to sync saves on demand.
+    *   **Automatic Background Sync**: Optional setting to automatically sync saves in the background.
+    *   **Versioned Backups**: Automatically maintains up to 5 versioned backups of your saves.
+    *   **Conflict Detection**: Smart detection of save conflicts with resolution options.
 *   **Package Import**: Easily ingest external SteamRoll packages (ZIPs) via drag-and-drop or the Import button.
 *   **Update System**: Checks for updates to both the SteamRoll application and the Goldberg Emulator (supports GitHub fork for newer Steam SDKs).
-*   **Security**:
-    *   **Defender Exclusion Helper**: An optional utility to safely add Windows Defender exclusions for SteamRoll folders to prevent false positives.
-    *   **Path Validation**: Strict security checks during transfers to prevent directory traversal attacks.
+
+### 🔧 Health & Dependency "Magic Fixer"
+*   **Automatic Dependency Detection**: Scans game folders to detect required runtimes (VC++ 2008-2022, DirectX, PhysX).
+*   **One-Click Repair**: "Repair" button in game details automatically downloads and installs missing dependencies.
+*   **Registry Verification**: Checks Windows registry to verify if dependencies are already installed.
+*   **Silent Installation**: Downloads official Microsoft redistributables and installs them silently.
+*   **Cached Downloads**: Downloaded installers are cached locally to speed up future repairs.
+
+### 🔒 Security
+*   **Defender Exclusion Helper**: An optional utility to safely add Windows Defender exclusions for SteamRoll folders to prevent false positives.
+*   **Path Validation**: Strict security checks during transfers to prevent directory traversal attacks.
 *   **Isolated Environment**: SteamRoll works in its own output directory and does **not** modify your actual Steam installation.
 
 ## 🚀 How to Use

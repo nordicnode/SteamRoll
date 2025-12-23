@@ -195,6 +195,10 @@ public partial class SettingsWindow : Window
             // If custom value not in list, select unlimited (or closest, but simplifed to Unlimited for now)
              BandwidthLimitCombo.SelectedIndex = 0;
         }
+
+        // Save sync settings
+        AutoSaveSyncCheck.IsChecked = settings.AutoSaveSync;
+        ShowNetworkBadgesCheck.IsChecked = settings.ShowNetworkBadges;
     }
     
     /// <summary>
@@ -364,6 +368,10 @@ public partial class SettingsWindow : Window
                     settings.TransferSpeedLimit = limit;
                 }
             }
+
+            // Save sync settings
+            settings.AutoSaveSync = AutoSaveSyncCheck.IsChecked ?? false;
+            settings.ShowNetworkBadges = ShowNetworkBadgesCheck.IsChecked ?? true;
         });
         
         ChangesSaved = true;

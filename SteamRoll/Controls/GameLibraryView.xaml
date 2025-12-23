@@ -371,6 +371,15 @@
                                 <Border CornerRadius="4" Padding="8,4" Margin="0,0,0,4" Style="{DynamicResource ReadyBadgeBorderStyle}">
                                     <TextBlock Text="Ready" FontSize="11" Foreground="{DynamicResource SuccessBrush}"/>
                                 </Border>
+
+                                <!-- Network Available Badge -->
+                                <Border CornerRadius="4" Padding="8,4" Margin="0,0,8,4" Background="#1A2A3A"
+                                        Visibility="{Binding IsNetworkAvailable, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="📡" FontSize="10" Margin="0,0,4,0" FontFamily="Segoe UI Emoji"/>
+                                        <TextBlock Text="Network" FontSize="11" Foreground="#58A6FF"/>
+                                    </StackPanel>
+                                </Border>
                             </WrapPanel>
 
 
@@ -421,6 +430,32 @@
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="📤" FontSize="13" FontFamily="Segoe UI Emoji" Margin="0,0,4,0"/>
                                         <TextBlock Text="Send" FontSize="12" FontWeight="SemiBold"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- Install from Peer Button (only when available on network but not locally packaged) -->
+                                <Button Grid.Column="1"
+                                        Margin="8,0,0,0"
+                                        Click="InstallFromPeerButton_Click"
+                                        Tag="{Binding}"
+                                        Padding="12,10"
+                                        ToolTip="Download from a peer on the network"
+                                        Visibility="{Binding CanInstallFromPeer, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource AccentPrimaryButton}">
+                                            <Setter Property="Background">
+                                                <Setter.Value>
+                                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                                        <GradientStop Color="#1D4ED8" Offset="0"/>
+                                                        <GradientStop Color="#2563EB" Offset="1"/>
+                                                    </LinearGradientBrush>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </Button.Style>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="📡" FontSize="13" FontFamily="Segoe UI Emoji" Margin="0,0,4,0"/>
+                                        <TextBlock Text="Install" FontSize="12" FontWeight="SemiBold" Foreground="White"/>
                                     </StackPanel>
                                 </Button>
                             </Grid>

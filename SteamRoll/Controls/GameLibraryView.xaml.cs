@@ -35,6 +35,7 @@ public partial class GameLibraryView : UserControl
     public event RoutedEventHandler? ContextMenuCreatePackageClicked;
     public event RoutedEventHandler? ContextMenuViewDetailsClicked;
     public event RoutedEventHandler? ContextMenuUpdatePackageClicked;
+    public event RoutedEventHandler? InstallFromPeerClicked;
 
     public GameLibraryView()
     {
@@ -53,6 +54,7 @@ public partial class GameLibraryView : UserControl
     private void PackageButton_Click(object sender, RoutedEventArgs e) => PackageGameClicked?.Invoke(sender, e);
     private void SendToPeerButton_Click(object sender, RoutedEventArgs e) => SendGameToPeerClicked?.Invoke(sender, e);
     private void UpdatePackageButton_Click(object sender, RoutedEventArgs e) => UpdatePackageClicked?.Invoke(sender, e);
+    private void InstallFromPeerButton_Click(object sender, RoutedEventArgs e) => InstallFromPeerClicked?.Invoke(sender, e);
 
     private void BatchPackage_Click(object sender, RoutedEventArgs e) => BatchPackageClicked?.Invoke(this, e);
     private void BatchClear_Click(object sender, RoutedEventArgs e) => BatchClearClicked?.Invoke(this, e);

@@ -35,6 +35,7 @@ public partial class MainWindow : Window
     private List<InstalledGame> _allGames = new();
     private readonly object _gamesLock = new(); // Thread-safety lock for _allGames modifications
     private string _outputPath;
+    private MeshLibraryService? _meshLibraryService;
 
     // Per-game Goldberg configuration storage
     private readonly Dictionary<int, GoldbergConfig> _gameGoldbergConfigs = new();
@@ -347,6 +348,14 @@ public partial class MainWindow : Window
         // Start LAN services for peer discovery
         _lanDiscoveryService.Start();
         _transferService.StartListening();
+        
+        // Initialize Mesh Library Service for network game aggregation
+        _meshLibraryService = new MeshLibraryService(_lanDiscoveryService);
+        _meshLibraryService.NetworkLibraryChanged += OnNetworkLibraryChanged;
+        
+        // Set up callback to provide local game list to peers
+        _lanDiscoveryService.GetLocalGamesCallback = GetLocalGamesForSharing;
+        
         UpdateNetworkStatus();
         
         // Check for incomplete packages after loading

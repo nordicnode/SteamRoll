@@ -29,6 +29,12 @@ public class LanDiscoveryService : IDisposable
     public event EventHandler<PeerInfo>? PeerDiscovered;
     public event EventHandler<PeerInfo>? PeerLost;
     public event EventHandler<TransferRequest>? TransferRequested;
+    public event EventHandler<GameListReceivedEventArgs>? GameListReceived;
+
+    /// <summary>
+    /// Callback to get the local packaged games list for sharing with peers.
+    /// </summary>
+    public Func<List<Models.NetworkGameInfo>>? GetLocalGamesCallback { get; set; }
 
     public bool IsRunning { get; private set; }
     
@@ -194,6 +200,18 @@ public class LanDiscoveryService : IDisposable
                     case MessageType.TransferRequest:
                         HandleTransferRequest(peerIp, message);
                         break;
+                    case MessageType.GameListRequest:
+                        HandleGameListRequest(peerIp, message);
+                        break;
+                    case MessageType.GameListResponse:
+                        HandleGameListResponse(peerIp, message);
+                        break;
+                    case MessageType.SaveSyncOffer:
+                        HandleSaveSyncOffer(peerIp, message);
+                        break;
+                    case MessageType.SaveSyncRequest:
+                        HandleSaveSyncRequest(peerIp, message);
+                        break;
                 }
             }
             catch (OperationCanceledException)
@@ -246,6 +264,160 @@ public class LanDiscoveryService : IDisposable
 
         LogService.Instance.Info($"Transfer request from {request.FromHostName}: {request.GameName}", "LanDiscovery");
         TransferRequested?.Invoke(this, request);
+    }
+
+    private async void HandleGameListRequest(string ip, DiscoveryMessage message)
+    {
+        try
+        {
+            var games = GetLocalGamesCallback?.Invoke() ?? new List<Models.NetworkGameInfo>();
+            
+            var response = new DiscoveryMessage
+            {
+                Type = MessageType.GameListResponse,
+                Magic = PROTOCOL_MAGIC,
+                HostName = _localHostName,
+                TransferPort = _transferPort,
+                PackagedGameCount = games.Count,
+                GameListJson = JsonSerializer.Serialize(games)
+            };
+
+            var json = JsonSerializer.Serialize(response);
+            var data = Encoding.UTF8.GetBytes(json);
+
+            using var client = new UdpClient();
+            await client.SendAsync(data, data.Length, new IPEndPoint(IPAddress.Parse(ip), DISCOVERY_PORT));
+            
+            LogService.Instance.Debug($"Sent game list to {ip}: {games.Count} games", "LanDiscovery");
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Failed to send game list: {ex.Message}", ex, "LanDiscovery");
+        }
+    }
+
+    private void HandleGameListResponse(string ip, DiscoveryMessage message)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(message.GameListJson)) return;
+
+            var games = JsonSerializer.Deserialize<List<Models.NetworkGameInfo>>(message.GameListJson) 
+                ?? new List<Models.NetworkGameInfo>();
+
+            var eventArgs = new GameListReceivedEventArgs
+            {
+                PeerHostName = message.HostName ?? "Unknown",
+                PeerIp = ip,
+                PeerPort = message.TransferPort,
+                Games = games
+            };
+
+            GameListReceived?.Invoke(this, eventArgs);
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Failed to parse game list from {ip}: {ex.Message}", ex, "LanDiscovery");
+        }
+    }
+
+    /// <summary>
+    /// Requests the game list from a specific peer.
+    /// </summary>
+    public async Task RequestGameListAsync(PeerInfo peer)
+    {
+        try
+        {
+            var request = new DiscoveryMessage
+            {
+                Type = MessageType.GameListRequest,
+                Magic = PROTOCOL_MAGIC,
+                HostName = _localHostName,
+                TransferPort = _transferPort
+            };
+
+            var json = JsonSerializer.Serialize(request);
+            var data = Encoding.UTF8.GetBytes(json);
+
+            using var client = new UdpClient();
+            await client.SendAsync(data, data.Length, new IPEndPoint(IPAddress.Parse(peer.IpAddress), DISCOVERY_PORT));
+            
+            LogService.Instance.Debug($"Requested game list from {peer.HostName}", "LanDiscovery");
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Failed to request game list: {ex.Message}", ex, "LanDiscovery");
+        }
+    }
+
+    /// <summary>
+    /// Raised when a save sync offer is received from a peer.
+    /// </summary>
+    public event EventHandler<SaveSyncOfferEventArgs>? SaveSyncOfferReceived;
+
+    private void HandleSaveSyncOffer(string ip, DiscoveryMessage message)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(message.SaveSyncJson)) return;
+
+            var offer = JsonSerializer.Deserialize<SaveSyncOffer>(message.SaveSyncJson);
+            if (offer == null) return;
+
+            var eventArgs = new SaveSyncOfferEventArgs
+            {
+                PeerHostName = message.HostName ?? "Unknown",
+                PeerIp = ip,
+                PeerPort = message.TransferPort,
+                Offer = offer
+            };
+
+            SaveSyncOfferReceived?.Invoke(this, eventArgs);
+            LogService.Instance.Debug($"Received save sync offer from {eventArgs.PeerHostName} for AppId {offer.AppId}", "LanDiscovery");
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Failed to parse save sync offer from {ip}: {ex.Message}", ex, "LanDiscovery");
+        }
+    }
+
+    private void HandleSaveSyncRequest(string ip, DiscoveryMessage message)
+    {
+        // Peer is requesting our save data for a specific game
+        // This would trigger the SaveSyncService to handle the actual transfer
+        LogService.Instance.Debug($"Received save sync request from {ip}", "LanDiscovery");
+    }
+
+    /// <summary>
+    /// Broadcasts a save sync offer to all peers.
+    /// </summary>
+    public async Task BroadcastSaveSyncOfferAsync(SaveSyncOffer offer)
+    {
+        try
+        {
+            if (_udpClient == null) return;
+
+            var message = new DiscoveryMessage
+            {
+                Type = MessageType.SaveSyncOffer,
+                Magic = PROTOCOL_MAGIC,
+                HostName = _localHostName,
+                TransferPort = _transferPort,
+                SaveSyncJson = JsonSerializer.Serialize(offer)
+            };
+
+            var json = JsonSerializer.Serialize(message);
+            var data = Encoding.UTF8.GetBytes(json);
+
+            var broadcastEndpoint = new IPEndPoint(IPAddress.Broadcast, DISCOVERY_PORT);
+            await _udpClient.SendAsync(data, data.Length, broadcastEndpoint);
+            
+            LogService.Instance.Debug($"Broadcast save sync offer for AppId {offer.AppId}", "LanDiscovery");
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Failed to broadcast save sync offer: {ex.Message}", ex, "LanDiscovery");
+        }
     }
 
     private async Task AnnounceAsync(CancellationToken ct)
@@ -378,7 +550,11 @@ public enum MessageType
     Announce,
     TransferRequest,
     TransferAccept,
-    TransferReject
+    TransferReject,
+    GameListRequest,
+    GameListResponse,
+    SaveSyncOffer,
+    SaveSyncRequest
 }
 
 /// <summary>
@@ -393,4 +569,25 @@ public class DiscoveryMessage
     public int PackagedGameCount { get; set; }
     public string? GameName { get; set; }
     public long GameSize { get; set; }
+    
+    /// <summary>
+    /// Serialized game list for GameListResponse messages.
+    /// </summary>
+    public string? GameListJson { get; set; }
+    
+    /// <summary>
+    /// Serialized save sync offer for SaveSyncOffer messages.
+    /// </summary>
+    public string? SaveSyncJson { get; set; }
+}
+
+/// <summary>
+/// Event args for save sync offer received events.
+/// </summary>
+public class SaveSyncOfferEventArgs : EventArgs
+{
+    public string PeerHostName { get; set; } = string.Empty;
+    public string PeerIp { get; set; } = string.Empty;
+    public int PeerPort { get; set; }
+    public SaveSyncOffer Offer { get; set; } = new();
 }

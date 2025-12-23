@@ -20,6 +20,8 @@ public partial class GameDetailsView : UserControl
     
     public event EventHandler? BackRequested;
     public event EventHandler<(InstalledGame Game, PackageMode Mode)>? PackageRequested;
+    public event EventHandler<InstalledGame>? SyncSavesRequested;
+    public event EventHandler<InstalledGame>? RepairEnvironmentRequested;
 
     public GameDetailsView()
     {
@@ -64,11 +66,13 @@ public partial class GameDetailsView : UserControl
         {
             PackageBtnText.Text = "Open";
             VerifyIntegrityBtn.Visibility = Visibility.Visible;
+            SyncSavesBtn.Visibility = Visibility.Visible;
         }
         else
         {
             PackageBtnText.Text = "Build";
             VerifyIntegrityBtn.Visibility = Visibility.Collapsed;
+            SyncSavesBtn.Visibility = Visibility.Collapsed;
         }
     }
     
@@ -150,11 +154,13 @@ public partial class GameDetailsView : UserControl
         {
             PackageBtnText.Text = "Open";
             VerifyIntegrityBtn.Visibility = Visibility.Visible;
+            SyncSavesBtn.Visibility = Visibility.Visible;
         }
         else
         {
             PackageBtnText.Text = "Build";
             VerifyIntegrityBtn.Visibility = Visibility.Collapsed;
+            SyncSavesBtn.Visibility = Visibility.Collapsed;
         }
         
         // Load header image with retry logic
@@ -513,6 +519,72 @@ public partial class GameDetailsView : UserControl
         {
             LogService.Instance.Error($"Integrity verification error: {ex.Message}", ex, "GameDetailsView");
             MessageBox.Show($"Error verifying integrity: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void SyncSaves_Click(object sender, RoutedEventArgs e)
+    {
+        if (_game == null) return;
+        SyncSavesRequested?.Invoke(this, _game);
+    }
+
+    private async void RepairEnvironment_Click(object sender, RoutedEventArgs e)
+    {
+        if (_game == null) return;
+
+        var dependencyService = new DependencyService();
+        
+        RepairEnvBtn.IsEnabled = false;
+        try
+        {
+            ToastService.Instance.ShowInfo("Scanning Dependencies", $"Analyzing {_game.Name} for missing runtimes...");
+            
+            var dependencies = await dependencyService.DetectRequiredDependenciesAsync(_game.InstallDir);
+            var missing = dependencies.Where(d => !d.IsInstalled).ToList();
+
+            if (missing.Count == 0)
+            {
+                ToastService.Instance.ShowSuccess("All Dependencies Present", "No missing runtimes detected.");
+                return;
+            }
+
+            var result = MessageBox.Show(
+                $"Found {missing.Count} missing dependencies:\n\n" +
+                string.Join("\n", missing.Select(d => $"• {d.Name}")) +
+                "\n\nWould you like to download and install them now?",
+                "Missing Dependencies",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                ToastService.Instance.ShowInfo("Installing Dependencies", "This may take a few minutes...");
+                
+                var (installed, failed) = await dependencyService.RepairAllMissingAsync(
+                    _game.InstallDir,
+                    new Progress<(string Status, double Progress)>(p => 
+                        LogService.Instance.Info(p.Status, "DependencyService")));
+
+                if (failed == 0)
+                {
+                    ToastService.Instance.ShowSuccess("Dependencies Installed", 
+                        $"Successfully installed {installed} runtime(s).");
+                }
+                else
+                {
+                    ToastService.Instance.ShowWarning("Partial Success", 
+                        $"Installed {installed}, failed {failed}. Check logs for details.");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Dependency repair error: {ex.Message}", ex, "GameDetailsView");
+            ToastService.Instance.ShowError("Repair Failed", ex.Message);
+        }
+        finally
+        {
+            RepairEnvBtn.IsEnabled = true;
         }
     }
 }

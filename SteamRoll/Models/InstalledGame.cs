@@ -212,6 +212,43 @@ public class InstalledGame : INotifyPropertyChanged
     public bool IsSelected { get; set; }
 
     // ============================================
+    // Network Availability (Mesh Library)
+    // ============================================
+
+    private bool _isNetworkAvailable;
+    /// <summary>
+    /// Whether this game is available from a peer on the network.
+    /// </summary>
+    public bool IsNetworkAvailable
+    {
+        get => _isNetworkAvailable;
+        set
+        {
+            if (_isNetworkAvailable != value)
+            {
+                _isNetworkAvailable = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(NetworkBadge));
+            }
+        }
+    }
+
+    /// <summary>
+    /// List of peer hostnames that have this game available.
+    /// </summary>
+    public List<string> AvailablePeers { get; set; } = new();
+
+    /// <summary>
+    /// Network badge for UI display.
+    /// </summary>
+    public string NetworkBadge => IsNetworkAvailable ? "📡" : "";
+
+    /// <summary>
+    /// Whether this game can be installed from a peer (available on network but not locally packaged).
+    /// </summary>
+    public bool CanInstallFromPeer => IsNetworkAvailable && !IsPackaged && !IsReceivedPackage;
+
+    // ============================================
     // DLC Information
     // ============================================
 

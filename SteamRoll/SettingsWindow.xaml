@@ -494,6 +494,17 @@
                                 </StackPanel>
                             </Border>
 
+                            <TextBlock Text="Save Synchronization" Style="{DynamicResource SectionHeader}"/>
+                            <Border Background="#27272A" CornerRadius="8" Padding="16" Margin="0,0,0,20">
+                                <StackPanel>
+                                    <CheckBox x:Name="AutoSaveSyncCheck" Content="Enable Automatic Save Sync" Style="{DynamicResource SettingsCheckBoxStyle}"/>
+                                    <TextBlock Text="Automatically sync game saves with LAN peers in the background. When disabled, use the 'Sync Saves' button for manual sync." Style="{DynamicResource SettingDescription}" Margin="24,0,0,15"/>
+                                    
+                                    <CheckBox x:Name="ShowNetworkBadgesCheck" Content="Show Network Availability Badges" Style="{DynamicResource SettingsCheckBoxStyle}" IsChecked="True"/>
+                                    <TextBlock Text="Display '📡 Network Available' badges on games that are available from LAN peers." Style="{DynamicResource SettingDescription}" Margin="24,0,0,0"/>
+                                </StackPanel>
+                            </Border>
+
                             <TextBlock Text="Connection Ports" Style="{DynamicResource SectionHeader}"/>
                             <Border Background="#27272A" CornerRadius="8" Padding="16" Margin="0,0,0,20">
                                 <StackPanel>

@@ -315,4 +315,16 @@ public class AppSettings
     /// Whether to compress file transfers using GZip.
     /// </summary>
     public bool EnableTransferCompression { get; set; } = true;
+
+    /// <summary>
+    /// Whether to enable automatic background save synchronization.
+    /// When enabled, saves are automatically synced between peers.
+    /// When disabled, use the "Sync Now" button to manually sync saves.
+    /// </summary>
+    public bool AutoSaveSync { get; set; } = false;
+
+    /// <summary>
+    /// Whether to show network availability badges on games available from LAN peers.
+    /// </summary>
+    public bool ShowNetworkBadges { get; set; } = true;
 }
