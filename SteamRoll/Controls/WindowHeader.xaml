@@ -144,6 +144,15 @@
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="📡" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
                             <TextBlock x:Name="TransfersText" Text="Transfers"/>
+                            <!-- Active transfer count badge -->
+                            <Border x:Name="TransfersBadge" Visibility="Collapsed"
+                                    Background="#EF4444" CornerRadius="8" 
+                                    MinWidth="18" Height="18" Margin="6,0,0,0"
+                                    VerticalAlignment="Center" Padding="5,0">
+                                <TextBlock x:Name="TransfersBadgeCount" Text="0"
+                                           FontSize="10" FontWeight="Bold" Foreground="White"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
                         </StackPanel>
                     </Button>
                     <Button Style="{DynamicResource SecondaryButton}"

@@ -33,6 +33,8 @@ public partial class MainWindow
     {
         _isLibraryViewActive = true;
         GameDetailsView.Visibility = Visibility.Collapsed;
+        TransfersViewControl.Visibility = Visibility.Collapsed;
+        StatsBarControl.Visibility = Visibility.Visible;
         GameLibraryViewControl.Visibility = Visibility.Visible;
         
         // Update tab button styles via control method
@@ -49,6 +51,8 @@ public partial class MainWindow
     {
         _isLibraryViewActive = false;
         GameDetailsView.Visibility = Visibility.Collapsed;
+        TransfersViewControl.Visibility = Visibility.Collapsed;
+        StatsBarControl.Visibility = Visibility.Visible;
         GameLibraryViewControl.Visibility = Visibility.Visible; // Reuse library view layout
 
         // Update tab button styles via control method

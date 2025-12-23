@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using SteamRoll.Services.Transfer;
 
 namespace SteamRoll.Controls;
 
@@ -41,6 +42,19 @@ public partial class WindowHeader : UserControl
     public WindowHeader()
     {
         InitializeComponent();
+        
+        // Subscribe to transfer count changes
+        TransferManager.Instance.ActiveTransfers.CollectionChanged += (s, e) =>
+        {
+            Dispatcher.Invoke(UpdateTransferBadge);
+        };
+    }
+
+    private void UpdateTransferBadge()
+    {
+        var count = TransferManager.Instance.ActiveTransfers.Count;
+        TransfersBadge.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        TransfersBadgeCount.Text = count.ToString();
     }
 
     private void LibraryTab_Click(object sender, RoutedEventArgs e)

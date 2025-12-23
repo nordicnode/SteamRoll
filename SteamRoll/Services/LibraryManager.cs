@@ -288,6 +288,13 @@ public class LibraryManager
                     game.ReviewPositivePercent = details.ReviewPositivePercent;
                     game.ReviewDescription = details.ReviewDescription;
                     game.MetacriticScore = details.MetacriticScore;
+                    
+                    // Set header image from Steam API (handles new CDN format with hashes)
+                    if (!string.IsNullOrEmpty(details.HeaderImage))
+                    {
+                        game.ResolvedHeaderImageUrl = details.HeaderImage;
+                    }
+                    
                     enrichedCount++;
                     
                     _cacheService.UpdateCache(game);
@@ -329,6 +336,52 @@ public class LibraryManager
             _cacheService.UpdateCache(game);
         }
         _cacheService.SaveCache();
+    }
+    
+    /// <summary>
+    /// Resolves header images for games from multiple sources in parallel.
+    /// Updates each game's ResolvedHeaderImageUrl when a working source is found.
+    /// </summary>
+    public async Task ResolveGameImagesAsync(List<InstalledGame> games, CancellationToken ct = default)
+    {
+        var gamesNeedingImages = games.Where(g => 
+            string.IsNullOrEmpty(g.LocalHeaderPath) && 
+            string.IsNullOrEmpty(g.ResolvedHeaderImageUrl) &&
+            g.AppId > 0
+        ).ToList();
+        
+        if (gamesNeedingImages.Count == 0) return;
+        
+        ReportProgress($"Resolving images for {gamesNeedingImages.Count} games...");
+        
+        var completed = 0;
+        
+        await Parallel.ForEachAsync(gamesNeedingImages,
+            new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = ct },
+            async (game, token) =>
+            {
+                try
+                {
+                    var imageUrl = await GameImageService.Instance.GetHeaderImageUrlAsync(
+                        game.AppId, 
+                        game.LocalHeaderPath, 
+                        token);
+                    
+                    if (!string.IsNullOrEmpty(imageUrl))
+                    {
+                        game.ResolvedHeaderImageUrl = imageUrl;
+                    }
+                    
+                    Interlocked.Increment(ref completed);
+                }
+                catch (Exception ex)
+                {
+                    LogService.Instance.Debug($"Image resolution failed for {game.Name}: {ex.Message}", "LibraryManager");
+                }
+            });
+        
+        var resolvedCount = games.Count(g => !string.IsNullOrEmpty(g.ResolvedHeaderImageUrl));
+        LogService.Instance.Info($"Resolved images for {resolvedCount}/{gamesNeedingImages.Count} games", "LibraryManager");
     }
     
     private void ReportProgress(string message)

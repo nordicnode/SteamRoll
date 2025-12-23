@@ -100,17 +100,39 @@ public class InstalledGame : INotifyPropertyChanged
     /// </summary>
     public string? LocalHeaderPath { get; set; }
 
+    private string? _resolvedHeaderImageUrl;
     /// <summary>
-    /// URL to the game's header image. Prefers local cache, falls back to Steam CDN.
+    /// Resolved header image URL after checking multiple sources.
+    /// Set by GameImageService when a working URL is found.
     /// </summary>
-    public string HeaderImageUrl => !string.IsNullOrEmpty(LocalHeaderPath)
-        ? LocalHeaderPath
-        : $"https://steamcdn-a.akamaihd.net/steam/apps/{AppId}/header.jpg";
+    public string? ResolvedHeaderImageUrl
+    {
+        get => _resolvedHeaderImageUrl;
+        set
+        {
+            if (_resolvedHeaderImageUrl != value)
+            {
+                _resolvedHeaderImageUrl = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HeaderImageUrl));
+            }
+        }
+    }
+
+    /// <summary>
+    /// URL to the game's header image. Uses resolved URL if available, 
+    /// otherwise falls back to local cache or Steam CDN.
+    /// </summary>
+    public string HeaderImageUrl => 
+        !string.IsNullOrEmpty(LocalHeaderPath) ? LocalHeaderPath :
+        !string.IsNullOrEmpty(ResolvedHeaderImageUrl) ? ResolvedHeaderImageUrl :
+        $"https://steamcdn-a.akamaihd.net/steam/apps/{AppId}/header.jpg";
     
     /// <summary>
     /// URL to the game's capsule image (smaller) from Steam CDN.
     /// </summary>
     public string CapsuleImageUrl => $"https://steamcdn-a.akamaihd.net/steam/apps/{AppId}/capsule_231x87.jpg";
+
 
     /// <summary>
     /// Timestamp when the game was last played (Unix timestamp).

@@ -589,6 +589,9 @@ public partial class MainWindow : Window
             // Start Store Data Fetch (Reviews/Metacritic)
             SafeFireAndForget(_libraryManager.EnrichWithStoreDataAsync(_libraryManager.GetGamesSnapshot(), ct), "Store Enrich");
             
+            // Resolve game images in background (tries multiple CDN sources for failed images)
+            SafeFireAndForget(_libraryManager.ResolveGameImagesAsync(_libraryManager.GetGamesSnapshot(), ct), "Image Resolution");
+            
             var packageableCount = scanResult.AllGames.Count(g => g.IsPackageable);
             var packagedCount = scanResult.AllGames.Count(g => g.IsPackaged);
             StatusText.Text = $"✓ {scanResult.AllGames.Count} games • {packageableCount} ready • {packagedCount} packaged";
@@ -805,11 +808,29 @@ public partial class MainWindow : Window
 
     private void TransfersButton_Click(object sender, RoutedEventArgs e)
     {
-        var transfersWindow = new TransferManagerWindow
-        {
-            Owner = this
-        };
-        transfersWindow.Show();
+        // Show the Transfers section view
+        ShowTransfersView();
+    }
+
+    private void ShowTransfersView()
+    {
+        // Hide other views
+        GameLibraryViewControl.Visibility = Visibility.Collapsed;
+        GameDetailsView.Visibility = Visibility.Collapsed;
+        StatsBarControl.Visibility = Visibility.Collapsed;
+        
+        // Show transfers view
+        TransfersViewControl.Visibility = Visibility.Visible;
+    }
+
+    private void TransfersView_BackClicked(object sender, RoutedEventArgs e)
+    {
+        // Hide transfers view
+        TransfersViewControl.Visibility = Visibility.Collapsed;
+        
+        // Restore library view
+        StatsBarControl.Visibility = Visibility.Visible;
+        GameLibraryViewControl.Visibility = Visibility.Visible;
     }
 
 

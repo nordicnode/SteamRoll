@@ -132,7 +132,10 @@ public class CacheService
             // Review Scores
             ReviewPositivePercent = game.ReviewPositivePercent,
             MetacriticScore = game.MetacriticScore,
-            ReviewsFetched = game.ReviewPositivePercent.HasValue || game.MetacriticScore.HasValue
+            ReviewsFetched = game.ReviewPositivePercent.HasValue || game.MetacriticScore.HasValue,
+            
+            // Header Image (from Steam API, uses new CDN format)
+            HeaderImageUrl = game.ResolvedHeaderImageUrl
         };
         
         _cache.Games[game.AppId] = cached;
@@ -196,6 +199,12 @@ public class CacheService
         {
             game.ReviewPositivePercent = cached.ReviewPositivePercent;
             game.MetacriticScore = cached.MetacriticScore;
+        }
+        
+        // Apply header image URL from cache
+        if (!string.IsNullOrEmpty(cached.HeaderImageUrl))
+        {
+            game.ResolvedHeaderImageUrl = cached.HeaderImageUrl;
         }
         
         return true;
@@ -265,6 +274,9 @@ public class CachedGame
     public int? ReviewPositivePercent { get; set; }
     public int? MetacriticScore { get; set; }
     public bool ReviewsFetched { get; set; }
+    
+    // Header Image (from Steam API, uses new CDN format with hashes)
+    public string? HeaderImageUrl { get; set; }
 }
 
 /// <summary>

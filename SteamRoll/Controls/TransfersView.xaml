@@ -1,0 +1,395 @@
+<UserControl x:Class="SteamRoll.Controls.TransfersView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:local="clr-namespace:SteamRoll.Controls"
+             mc:Ignorable="d"
+             d:DesignHeight="700" d:DesignWidth="1200">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+        
+        <!-- Progress Bar Style -->
+        <Style x:Key="ModernProgressBar" TargetType="ProgressBar">
+            <Setter Property="Height" Value="8"/>
+            <Setter Property="Background" Value="#21262D"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Grid>
+                            <Border x:Name="PART_Track" Background="{TemplateBinding Background}" CornerRadius="4"/>
+                            <Border x:Name="PART_Indicator" HorizontalAlignment="Left" CornerRadius="4">
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                        <GradientStop Color="#58A6FF" Offset="0"/>
+                                        <GradientStop Color="#A371F7" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        
+        <!-- Filter Button Style -->
+        <Style x:Key="FilterButton" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" 
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#30363D"/>
+                                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#21262D"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        
+        <!-- Cancel Button Style -->
+        <Style x:Key="CancelTransferButton" TargetType="Button">
+            <Setter Property="Background" Value="#3F3F46"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" 
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#F85149"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Background="{DynamicResource BackgroundDarkBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header Section -->
+        <Border Grid.Row="0" Background="{DynamicResource BackgroundMediumBrush}"
+                BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1">
+            <!-- Gradient accent line at top -->
+            <Grid>
+                <Border Height="3" VerticalAlignment="Top">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                            <GradientStop Color="#58A6FF" Offset="0"/>
+                            <GradientStop Color="#A371F7" Offset="0.5"/>
+                            <GradientStop Color="#58A6FF" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                </Border>
+                
+                <!-- Stats -->
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="32,16,32,16">
+                    <TextBlock x:Name="ActiveCountText" Text="0 active" FontSize="14"
+                               Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold"/>
+                    <TextBlock Text=" • " FontSize="14" Foreground="{DynamicResource TextMutedBrush}"/>
+                    <TextBlock x:Name="TotalTransferredText" Text="0 B transferred today" FontSize="14"
+                               Foreground="{DynamicResource TextMutedBrush}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Content Area -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="32,24">
+            <StackPanel>
+                <!-- Active Transfers Section -->
+                <Grid Margin="0,0,0,32">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    
+                    <!-- Section Header -->
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,16">
+                        <TextBlock Text="ACTIVE TRANSFERS" FontSize="12" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextMutedBrush}" 
+                                   VerticalAlignment="Center"/>
+                        <Border x:Name="ActiveBadge" Background="#58A6FF" CornerRadius="8" 
+                                MinWidth="24" Height="20" Margin="12,0,0,0" Padding="8,0"
+                                Visibility="Collapsed">
+                            <TextBlock x:Name="ActiveBadgeCount" Text="0" FontSize="11" FontWeight="Bold"
+                                       Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </StackPanel>
+                    
+                    <!-- Active Transfers List -->
+                    <ItemsControl x:Name="ActiveTransfersList" Grid.Row="1">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{DynamicResource BackgroundMediumBrush}"
+                                        BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                        BorderThickness="1" CornerRadius="12" Padding="20" Margin="0,0,0,12">
+                                    <Border.Effect>
+                                        <DropShadowEffect BlurRadius="20" ShadowDepth="2" Opacity="0.15"/>
+                                    </Border.Effect>
+                                    
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="80"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        
+                                        <!-- Game Image -->
+                                        <Border Grid.Column="0" CornerRadius="8" Width="72" Height="72"
+                                                Background="#21262D">
+                                            <Border CornerRadius="8">
+                                                <Border.Background>
+                                                    <ImageBrush ImageSource="{Binding HeaderImageUrl}" Stretch="UniformToFill"/>
+                                                </Border.Background>
+                                            </Border>
+                                        </Border>
+                                        
+                                        <!-- Transfer Info -->
+                                        <StackPanel Grid.Column="1" Margin="16,0,16,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding GameName}" FontSize="16" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            
+                                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                                <TextBlock Text="{Binding DirectionIcon}" FontSize="12" Margin="0,0,4,0"/>
+                                                <TextBlock Text="{Binding StatusDisplay}" FontSize="12"
+                                                           Foreground="{DynamicResource AccentPrimaryBrush}"/>
+                                                <TextBlock Text=" • " FontSize="12" Foreground="{DynamicResource TextMutedBrush}"
+                                                           Visibility="{Binding PeerName, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                                <TextBlock Text="{Binding PeerName}" FontSize="12"
+                                                           Foreground="{DynamicResource TextMutedBrush}"/>
+                                            </StackPanel>
+                                            
+                                            <!-- Progress Bar -->
+                                            <Grid Margin="0,12,0,0">
+                                                <ProgressBar Value="{Binding ProgressPercent}" Maximum="100"
+                                                             Style="{StaticResource ModernProgressBar}"/>
+                                            </Grid>
+                                            
+                                            <!-- Progress Details -->
+                                            <Grid Margin="0,8,0,0">
+                                                <TextBlock FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}">
+                                                    <Run Text="{Binding ProgressDisplay, Mode=OneWay}"/>
+                                                    <Run Text=" • "/>
+                                                    <Run Text="{Binding ProgressPercent, StringFormat={}{0:F1}%, Mode=OneWay}"/>
+                                                </TextBlock>
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                                    <TextBlock Text="{Binding SpeedDisplay}" FontSize="12"
+                                                               Foreground="{DynamicResource AccentPrimaryBrush}" FontWeight="SemiBold"/>
+                                                    <TextBlock Text=" • " FontSize="12" Foreground="{DynamicResource TextMutedBrush}"/>
+                                                    <TextBlock Text="{Binding TimeRemainingDisplay}" FontSize="12"
+                                                               Foreground="{DynamicResource TextMutedBrush}"/>
+                                                </StackPanel>
+                                            </Grid>
+                                        </StackPanel>
+                                        
+                                        <!-- Cancel Button -->
+                                        <Button Grid.Column="2" Style="{StaticResource CancelTransferButton}"
+                                                Click="CancelTransfer_Click" Tag="{Binding}"
+                                                VerticalAlignment="Center">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="✕" FontSize="12" Margin="0,0,6,0"/>
+                                                <TextBlock Text="Cancel" FontSize="12"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    
+                    <!-- Empty State for Active Transfers -->
+                    <Border x:Name="NoActiveTransfersPanel" Grid.Row="1"
+                            Background="{DynamicResource BackgroundMediumBrush}"
+                            CornerRadius="12" Padding="48" Visibility="Visible">
+                        <StackPanel HorizontalAlignment="Center">
+                            <Border Width="80" Height="80" CornerRadius="40" Margin="0,0,0,16"
+                                    Background="#21262D">
+                                <TextBlock Text="⇄" FontSize="36" Foreground="#58A6FF"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Text="No active transfers" FontSize="16" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Transfers will appear here when you send or receive games"
+                                       FontSize="13" Foreground="{DynamicResource TextMutedBrush}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,0"
+                                       TextWrapping="Wrap" TextAlignment="Center" MaxWidth="300"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+                
+                <!-- Transfer History Section -->
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    
+                    <!-- Section Header with Filters -->
+                    <Grid Grid.Row="0" Margin="0,0,0,16">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="HISTORY" FontSize="12" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       VerticalAlignment="Center"/>
+                            
+                            <!-- Filter Buttons -->
+                            <Border Background="{DynamicResource BackgroundLightBrush}" 
+                                    CornerRadius="8" Margin="16,0,0,0" Padding="4">
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton x:Name="FilterAll" Content="All" 
+                                                 Style="{StaticResource FilterButton}"
+                                                 IsChecked="True" GroupName="HistoryFilter"
+                                                 Click="Filter_Click"/>
+                                    <RadioButton x:Name="FilterSent" Content="Sent"
+                                                 Style="{StaticResource FilterButton}"
+                                                 GroupName="HistoryFilter"
+                                                 Click="Filter_Click"/>
+                                    <RadioButton x:Name="FilterReceived" Content="Received"
+                                                 Style="{StaticResource FilterButton}"
+                                                 GroupName="HistoryFilter"
+                                                 Click="Filter_Click"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                        
+                        <Button x:Name="ClearHistoryBtn" HorizontalAlignment="Right"
+                                Style="{DynamicResource SecondaryButton}" Padding="12,6"
+                                Click="ClearHistory_Click" Visibility="Collapsed">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="🗑️" FontSize="12" Margin="0,0,6,0"/>
+                                <TextBlock Text="Clear History" FontSize="12"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                    
+                    <!-- History List -->
+                    <ItemsControl x:Name="CompletedTransfersList" Grid.Row="1">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{DynamicResource BackgroundCardBrush}"
+                                        BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                        BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="56"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        
+                                        <!-- Game Image -->
+                                        <Border Grid.Column="0" CornerRadius="6" Width="48" Height="48">
+                                            <Border.Background>
+                                                <ImageBrush ImageSource="{Binding HeaderImageUrl}" Stretch="UniformToFill"/>
+                                            </Border.Background>
+                                            <TextBlock Text="🎮" FontSize="20" 
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       Foreground="#6E7681" Opacity="0.3"/>
+                                        </Border>
+                                        
+                                        <!-- Transfer Info -->
+                                        <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding GameName}" FontSize="14" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                                <TextBlock Text="{Binding DirectionIcon}" FontSize="11" Margin="0,0,4,0"/>
+                                                <TextBlock Text="{Binding ProgressDisplay}" FontSize="12"
+                                                           Foreground="{DynamicResource TextMutedBrush}"/>
+                                                <TextBlock Text=" • " FontSize="12" Foreground="{DynamicResource TextMutedBrush}"/>
+                                                <TextBlock Text="{Binding EndTime, StringFormat='{}{0:MMM d, h:mm tt}'}" 
+                                                           FontSize="12" Foreground="{DynamicResource TextMutedBrush}"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                        
+                                        <!-- Size -->
+                                        <TextBlock Grid.Column="2" 
+                                                   Text="{Binding TotalBytes, Converter={x:Static local:TransfersView.BytesConverter}}"
+                                                   FontSize="13" Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center" Margin="16,0"/>
+                                        
+                                        <!-- Status Badge -->
+                                        <Border Grid.Column="3" CornerRadius="6" Padding="10,6" VerticalAlignment="Center">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="#1A3FB950"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Status}" Value="Failed">
+                                                            <Setter Property="Background" Value="#1AF85149"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Status}" Value="Cancelled">
+                                                            <Setter Property="Background" Value="#1A6E7681"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock FontSize="12" FontWeight="SemiBold">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Text" Value="✓ Completed"/>
+                                                        <Setter Property="Foreground" Value="#3FB950"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Status}" Value="Failed">
+                                                                <Setter Property="Text" Value="✗ Failed"/>
+                                                                <Setter Property="Foreground" Value="#F85149"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Status}" Value="Cancelled">
+                                                                <Setter Property="Text" Value="⊘ Cancelled"/>
+                                                                <Setter Property="Foreground" Value="#6E7681"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Border>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    
+                    <!-- Empty State for History -->
+                    <Border x:Name="NoHistoryPanel" Grid.Row="1"
+                            Background="{DynamicResource BackgroundCardBrush}"
+                            CornerRadius="12" Padding="40" Visibility="Collapsed">
+                        <StackPanel HorizontalAlignment="Center">
+                            <TextBlock Text="☰" FontSize="32" Foreground="#6E7681" HorizontalAlignment="Center"/>
+                            <TextBlock Text="No transfer history" FontSize="14"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       HorizontalAlignment="Center" Margin="0,12,0,0"/>
+                            <TextBlock Text="Completed transfers will appear here"
+                                       FontSize="12" Foreground="{DynamicResource TextMutedBrush}"
+                                       HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

@@ -373,6 +373,11 @@
         <controls:GameDetailsView x:Name="GameDetailsView" Grid.Row="3" 
                                    Visibility="Collapsed"/>
 
+        <!-- Transfers View (hidden by default) -->
+        <controls:TransfersView x:Name="TransfersViewControl" Grid.Row="3" 
+                                Visibility="Collapsed"
+                                BackClicked="TransfersView_BackClicked"/>
+
         
 
         

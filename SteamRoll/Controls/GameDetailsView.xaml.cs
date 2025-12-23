@@ -136,14 +136,30 @@ public partial class GameDetailsView : UserControl
 
     private async void LoadHeaderImageWithRetry()
     {
+        if (_game == null) return;
+        
+        // Capture current game to detect if it changes during async load
+        var targetAppId = _game.AppId;
+        var targetUrl = _game.HeaderImageUrl;
+        
+        // Clear previous image immediately to prevent showing wrong game's image
+        HeaderImageBrush.ImageSource = null;
+        
         int retries = 3;
         while (retries > 0)
         {
+            // Check if game changed during loading
+            if (_game == null || _game.AppId != targetAppId)
+            {
+                LogService.Instance.Debug($"Game changed during image load, aborting for AppId {targetAppId}", "GameDetailsView");
+                return;
+            }
+            
             try
             {
                 var bitmap = new BitmapImage();
                 bitmap.BeginInit();
-                bitmap.UriSource = new Uri(_game.HeaderImageUrl);
+                bitmap.UriSource = new Uri(targetUrl);
                 bitmap.CacheOption = BitmapCacheOption.OnLoad;
                 bitmap.CreateOptions = BitmapCreateOptions.IgnoreImageCache; // Ensure fresh load on retry
                 bitmap.EndInit();
@@ -158,6 +174,13 @@ public partial class GameDetailsView : UserControl
                     await tcs.Task;
                 }
 
+                // Final check before setting the image - game might have changed during download
+                if (_game == null || _game.AppId != targetAppId)
+                {
+                    LogService.Instance.Debug($"Game changed during image download, aborting for AppId {targetAppId}", "GameDetailsView");
+                    return;
+                }
+
                 HeaderImageBrush.ImageSource = bitmap;
                 return; // Success
             }
@@ -170,7 +193,7 @@ public partial class GameDetailsView : UserControl
         }
         
         // Final fallback: Use a placeholder or leave empty
-        LogService.Instance.Warning("All retries failed for header image.", "GameDetailsView");
+        LogService.Instance.Warning($"All retries failed for header image (AppId: {targetAppId}).", "GameDetailsView");
     }
 
     private async Task LoadSteamStoreDataAsync()
