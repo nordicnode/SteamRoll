@@ -11,7 +11,11 @@
     <Grid>
         <!-- Background Image -->
         <Image x:Name="BackgroundImage" Stretch="UniformToFill" Opacity="0.15"
-               HorizontalAlignment="Center" VerticalAlignment="Top"/>
+               HorizontalAlignment="Center" VerticalAlignment="Top">
+            <Image.Effect>
+                <BlurEffect Radius="20"/>
+            </Image.Effect>
+        </Image>
         
         <!-- Dark Gradient Overlay -->
         <Border>
@@ -41,6 +45,9 @@
                 
                 <!-- Header Image -->
                 <Border Grid.Column="0" CornerRadius="8" Margin="0,0,20,0" Width="300" Height="140">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.5"/>
+                    </Border.Effect>
                     <Border.Background>
                         <ImageBrush x:Name="HeaderImageBrush" Stretch="UniformToFill"/>
                     </Border.Background>
@@ -107,8 +114,12 @@
                                 Padding="20" Margin="0,0,0,16" BorderBrush="{DynamicResource BorderSubtleBrush}" 
                                 BorderThickness="1">
                             <StackPanel>
-                                <TextBlock Text="� About This Game" FontSize="16" FontWeight="SemiBold"
-                                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <Path Data="{StaticResource IconInfo}" Fill="{DynamicResource AccentPrimaryBrush}"
+                                          Width="16" Height="16" Margin="0,0,8,0" Stretch="Uniform"/>
+                                    <TextBlock Text="About This Game" FontSize="16" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                </StackPanel>
                                 <TextBlock x:Name="DescriptionText" TextWrapping="Wrap" FontSize="13"
                                            Foreground="{DynamicResource TextSecondaryBrush}" 
                                            Text="Loading game description..."/>
@@ -120,8 +131,12 @@
                                 Padding="20" Margin="0,0,0,16" BorderBrush="{DynamicResource BorderSubtleBrush}" 
                                 BorderThickness="1">
                             <StackPanel>
-                                <TextBlock Text="🖼️ Screenshots" FontSize="16" FontWeight="SemiBold"
-                                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <Path Data="{StaticResource IconImage}" Fill="{DynamicResource AccentPrimaryBrush}"
+                                          Width="16" Height="16" Margin="0,0,8,0" Stretch="Uniform"/>
+                                    <TextBlock Text="Screenshots" FontSize="16" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                </StackPanel>
                                 <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                     <ItemsControl x:Name="ScreenshotsList">
                                         <ItemsControl.ItemsPanel>
@@ -151,8 +166,12 @@
                                 Padding="20" Margin="0,0,0,16" BorderBrush="{DynamicResource BorderSubtleBrush}" 
                                 BorderThickness="1">
                             <StackPanel>
-                                <TextBlock Text="✨ Features" FontSize="16" FontWeight="SemiBold"
-                                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <Path Data="{StaticResource IconStar}" Fill="{DynamicResource AccentPrimaryBrush}"
+                                          Width="16" Height="16" Margin="0,0,8,0" Stretch="Uniform"/>
+                                    <TextBlock Text="Features" FontSize="16" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                </StackPanel>
                                 <ItemsControl x:Name="FeaturesList">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
@@ -180,8 +199,12 @@
                                 Padding="20" Margin="0,0,0,16" BorderBrush="{DynamicResource BorderSubtleBrush}" 
                                 BorderThickness="1">
                             <StackPanel>
-                                <TextBlock Text="🔒 DRM Analysis" FontSize="16" FontWeight="SemiBold"
-                                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <Path Data="{StaticResource IconLock}" Fill="{DynamicResource AccentPrimaryBrush}"
+                                          Width="16" Height="16" Margin="0,0,8,0" Stretch="Uniform"/>
+                                    <TextBlock Text="DRM Analysis" FontSize="16" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                </StackPanel>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="100"/>
@@ -218,7 +241,9 @@
                                 BorderThickness="1">
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                                    <TextBlock Text="📦 DLC" FontSize="16" FontWeight="SemiBold"
+                                    <Path Data="{StaticResource IconDlc}" Fill="{DynamicResource AccentPrimaryBrush}"
+                                          Width="16" Height="16" Margin="0,0,8,0" Stretch="Uniform"/>
+                                    <TextBlock Text="DLC" FontSize="16" FontWeight="SemiBold"
                                                Foreground="{DynamicResource TextPrimaryBrush}"/>
                                     <TextBlock x:Name="DlcCountText" Text=" (0/0 installed)" FontSize="14"
                                                Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Bottom"/>
@@ -230,13 +255,16 @@
                                                 <Border Background="#21262D" CornerRadius="6" Padding="10,8" Margin="0,0,0,6">
                                                     <Grid>
                                                         <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
                                                             <ColumnDefinition Width="*"/>
                                                             <ColumnDefinition Width="Auto"/>
                                                         </Grid.ColumnDefinitions>
-                                                        <TextBlock Grid.Column="0" Text="{Binding Name}" FontSize="12"
+                                                        <Path Grid.Column="0" Data="{StaticResource IconDlc}" Fill="#58A6FF"
+                                                              Width="12" Height="12" Margin="0,0,8,0" Stretch="Uniform" Opacity="0.7"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="12"
                                                                    Foreground="{DynamicResource TextPrimaryBrush}" 
                                                                    TextTrimming="CharacterEllipsis"/>
-                                                        <TextBlock Grid.Column="1" Text="{Binding DisplayStatus}" FontSize="10"
+                                                        <TextBlock Grid.Column="2" Text="{Binding DisplayStatus}" FontSize="10"
                                                                    Foreground="{DynamicResource TextMutedBrush}"/>
                                                     </Grid>
                                                 </Border>
@@ -254,8 +282,12 @@
                         <Border Background="{DynamicResource BackgroundCardBrush}" CornerRadius="12" 
                                 Padding="20" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1">
                             <StackPanel>
-                                <TextBlock Text="🌐 Links" FontSize="16" FontWeight="SemiBold"
-                                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <Path Data="{StaticResource IconLink}" Fill="{DynamicResource AccentPrimaryBrush}"
+                                          Width="16" Height="16" Margin="0,0,8,0" Stretch="Uniform"/>
+                                    <TextBlock Text="Links" FontSize="16" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                </StackPanel>
                                 <Button Content="View on Steam Store" Style="{DynamicResource SecondaryButton}" 
                                         Margin="0,0,0,8" Click="OpenSteamStore_Click"/>
                                 <Button Content="View on SteamDB" Style="{DynamicResource SecondaryButton}" 
@@ -267,8 +299,12 @@
                         <Border Background="{DynamicResource BackgroundCardBrush}" CornerRadius="12"
                                 Padding="20" Margin="0,16,0,0" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1">
                             <StackPanel>
-                                <TextBlock Text="💾 Save Games" FontSize="16" FontWeight="SemiBold"
-                                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <Path Data="{StaticResource IconSave}" Fill="{DynamicResource AccentPrimaryBrush}"
+                                          Width="16" Height="16" Margin="0,0,8,0" Stretch="Uniform"/>
+                                    <TextBlock Text="Save Games" FontSize="16" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                </StackPanel>
                                 <Button x:Name="BackupSavesBtn" Content="Backup Saves" Style="{DynamicResource SecondaryButton}"
                                         Margin="0,0,0,8" Click="BackupSaves_Click"/>
                                 <Button x:Name="RestoreSavesBtn" Content="Restore Saves" Style="{DynamicResource SecondaryButton}"
