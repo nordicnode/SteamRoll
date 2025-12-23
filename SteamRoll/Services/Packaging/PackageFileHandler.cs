@@ -108,7 +108,7 @@ public class PackageFileHandler
             // Use Parallel.ForEachAsync for better scalability and cleaner code
             await Parallel.ForEachAsync(allFiles, new ParallelOptions
             {
-                MaxDegreeOfParallelism = 8,
+                MaxDegreeOfParallelism = Math.Max(4, Environment.ProcessorCount),
                 CancellationToken = ct
             }, async (file, token) =>
             {

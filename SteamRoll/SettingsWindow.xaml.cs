@@ -498,4 +498,20 @@ public partial class SettingsWindow : Window
         Regex regex = new Regex("[^0-9]+");
         e.Handled = regex.IsMatch(e.Text);
     }
+
+    private void TextBox_Pasting(object sender, DataObjectPastingEventArgs e)
+    {
+        if (e.DataObject.GetDataPresent(typeof(string)))
+        {
+            var text = (string)e.DataObject.GetData(typeof(string));
+            if (!System.Text.RegularExpressions.Regex.IsMatch(text, "^[0-9]+$"))
+            {
+                e.CancelCommand();
+            }
+        }
+        else
+        {
+            e.CancelCommand();
+        }
+    }
 }

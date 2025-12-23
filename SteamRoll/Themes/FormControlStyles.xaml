@@ -31,6 +31,7 @@
                             <Setter TargetName="Placeholder" Property="Visibility" Value="Visible"/>
                         </Trigger>
                         <Trigger Property="IsFocused" Value="True">
+                            <Setter TargetName="Placeholder" Property="Visibility" Value="Collapsed"/>
                             <Setter TargetName="border" Property="BorderBrush" Value="{StaticResource AccentPrimaryBrush}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
