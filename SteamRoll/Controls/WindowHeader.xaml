@@ -79,7 +79,7 @@
                                     </ControlTemplate>
                                 </ToggleButton.Template>
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock x:Name="ViewModeIcon" Text="📑" FontFamily="Segoe UI Emoji" Foreground="White"/>
+                                    <Path x:Name="ViewModeIcon" Fill="{DynamicResource TextSecondaryBrush}" Data="{StaticResource IconList}" Width="14" Height="14" Stretch="Uniform"/>
                                 </StackPanel>
                                 <ToggleButton.ToolTip>
                                     <ToolTip Content="Toggle List View"/>
@@ -90,21 +90,21 @@
                     <Button Style="{DynamicResource SecondaryButton}"
                             Click="RefreshButton_Click" Margin="0,0,12,0">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="⟳" FontFamily="Segoe UI Emoji" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,6,0"/>
+                            <Path Fill="{DynamicResource TextSecondaryBrush}" Data="{StaticResource IconRefreshReal}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,6,0"/>
                             <TextBlock Text="Refresh"/>
                         </StackPanel>
                     </Button>
                     <Button Style="{DynamicResource SecondaryButton}"
                             Click="OpenOutputButton_Click" Margin="0,0,12,0">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="📁" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
+                            <Path Fill="{DynamicResource TextSecondaryBrush}" Data="{StaticResource IconFolder}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,6,0"/>
                             <TextBlock Text="Open Output"/>
                         </StackPanel>
                     </Button>
                     <Button Style="{DynamicResource SecondaryButton}"
                             Click="ImportPackageButton_Click" Margin="0,0,12,0">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="📥" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
+                            <Path Fill="{DynamicResource TextSecondaryBrush}" Data="{StaticResource IconImport}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,6,0"/>
                             <TextBlock Text="Import Package"/>
                         </StackPanel>
                     </Button>
@@ -134,7 +134,7 @@
                             </ControlTemplate>
                         </ToggleButton.Template>
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="☑" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
+                            <Path Fill="{Binding RelativeSource={RelativeSource AncestorType=ToggleButton}, Path=Foreground}" Data="{StaticResource IconSelect}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,6,0"/>
                             <TextBlock Text="Select"/>
                         </StackPanel>
                     </ToggleButton>
@@ -142,7 +142,7 @@
                             Style="{DynamicResource SecondaryButton}"
                             Click="TransfersButton_Click" Margin="0,0,12,0">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="📡" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
+                            <Path Fill="{DynamicResource TextSecondaryBrush}" Data="{StaticResource IconTransfers}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,6,0"/>
                             <TextBlock x:Name="TransfersText" Text="Transfers"/>
                             <!-- Active transfer count badge -->
                             <Border x:Name="TransfersBadge" Visibility="Collapsed"
@@ -158,7 +158,7 @@
                     <Button Style="{DynamicResource SecondaryButton}"
                             Click="SettingsButton_Click" Margin="0,0,12,0">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="⚙" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
+                            <Path Fill="{DynamicResource TextSecondaryBrush}" Data="{StaticResource IconSettings}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,6,0"/>
                             <TextBlock Text="Settings"/>
                         </StackPanel>
                     </Button>
@@ -167,9 +167,7 @@
                     <TextBox x:Name="SearchBox" Width="150" Margin="0,0,8,0"
                              Style="{DynamicResource SearchBoxStyle}"
                              Text="{Binding SearchText, RelativeSource={RelativeSource AncestorType=UserControl}, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             Foreground="{DynamicResource TextSecondaryBrush}"
-                             GotFocus="SearchBox_GotFocus"
-                             LostFocus="SearchBox_LostFocus"
+                             Tag="Search games..."
                              TextChanged="SearchBox_TextChanged"/>
 
                     <!-- Browse Peer Library Button -->
@@ -192,7 +190,7 @@
                             </ControlTemplate>
                         </Button.Template>
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="🌐" FontSize="12" FontFamily="Segoe UI Emoji" Foreground="#58A6FF" Margin="0,0,6,0"/>
+                            <Path Fill="#58A6FF" Data="{StaticResource IconGlobe}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,6,0"/>
                             <TextBlock Text="Browse Peer Library" FontSize="12" Foreground="#58A6FF"/>
                         </StackPanel>
                     </Button>

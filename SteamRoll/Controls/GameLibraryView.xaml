@@ -48,6 +48,9 @@
 
         <!-- Skeleton View (Loading State) -->
         <ScrollViewer x:Name="SkeletonView" VerticalScrollBarVisibility="Hidden" Padding="24,16" Visibility="Collapsed">
+             <ScrollViewer.Resources>
+                 <Style TargetType="ScrollBar" BasedOn="{StaticResource DarkScrollBarStyle}"/>
+             </ScrollViewer.Resources>
              <ItemsControl>
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -98,6 +101,9 @@
 
         <!-- Game List (Grid View) -->
         <ScrollViewer x:Name="GamesGridScroll" VerticalScrollBarVisibility="Auto" Padding="24,16">
+            <ScrollViewer.Resources>
+                <Style TargetType="ScrollBar" BasedOn="{StaticResource DarkScrollBarStyle}"/>
+            </ScrollViewer.Resources>
             <ItemsControl x:Name="GamesList">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
