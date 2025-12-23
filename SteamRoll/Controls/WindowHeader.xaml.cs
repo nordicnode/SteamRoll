@@ -112,24 +112,6 @@ public partial class WindowHeader : UserControl
         SearchTextChanged?.Invoke(this, e);
     }
 
-    private void SearchBox_GotFocus(object sender, RoutedEventArgs e)
-    {
-        if (SearchBox.Text == "🔍 Search games...")
-        {
-            SearchBox.Text = "";
-            SearchBox.Foreground = (Brush)FindResource("TextPrimaryBrush");
-        }
-    }
-
-    private void SearchBox_LostFocus(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrWhiteSpace(SearchBox.Text))
-        {
-            SearchBox.Text = "🔍 Search games...";
-            SearchBox.Foreground = (Brush)FindResource("TextSecondaryBrush");
-        }
-    }
-
     // Public methods to control state
 
     public void SetLibraryTabActive(bool active)
@@ -146,13 +128,13 @@ public partial class WindowHeader : UserControl
     {
         if (isList)
         {
-            ViewModeIcon.Text = "⊞"; // Icon becomes Grid
+            ViewModeIcon.Data = (Geometry)FindResource("IconGrid");
             ViewModeToggle.ToolTip = "Switch to Grid View";
             ViewModeToggle.IsChecked = true;
         }
         else
         {
-            ViewModeIcon.Text = "📑"; // Icon becomes List
+            ViewModeIcon.Data = (Geometry)FindResource("IconList");
             ViewModeToggle.ToolTip = "Switch to List View";
             ViewModeToggle.IsChecked = false;
         }

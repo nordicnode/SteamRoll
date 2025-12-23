@@ -32,6 +32,11 @@
                         <Trigger Property="IsPressed" Value="True">
                             <Setter TargetName="border" Property="Background" Value="#238636"/>
                         </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                             <Setter TargetName="border" Property="BorderBrush" Value="#58A6FF"/>
+                             <Setter TargetName="border" Property="BorderThickness" Value="2"/>
+                             <Setter Property="Padding" Value="15,9"/> <!-- Adjust padding to prevent layout shift due to border -->
+                        </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="border" Property="Background" Value="#21262D"/>
                             <Setter TargetName="border" Property="BorderBrush" Value="#30363D"/>
@@ -65,6 +70,10 @@
                             <Setter TargetName="border" Property="Background" Value="#21262D"/>
                             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                         </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="border" Property="BorderBrush" Value="#58A6FF"/>
+                            <Setter TargetName="border" Property="Background" Value="#161B22"/>
+                        </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.5"/>
                         </Trigger>
@@ -95,6 +104,11 @@
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="border" Property="Background" Value="#3358A6FF"/>
                         </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="border" Property="BorderBrush" Value="#79B8FF"/>
+                            <Setter TargetName="border" Property="BorderThickness" Value="2"/>
+                            <Setter Property="Padding" Value="11,7"/>
+                        </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.5"/>
                         </Trigger>
@@ -122,6 +136,11 @@
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
                             <Setter TargetName="border" Property="Background" Value="#218BFF"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="border" Property="BorderBrush" Value="#FFFFFF"/>
+                            <Setter TargetName="border" Property="BorderThickness" Value="2"/>
+                            <Setter Property="Padding" Value="14,8"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="border" Property="Opacity" Value="0.4"/>
@@ -166,6 +185,9 @@
                             </MultiTrigger.Conditions>
                             <Setter TargetName="border" Property="Background" Value="#2EA043"/>
                         </MultiTrigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="border" Property="BorderBrush" Value="#58A6FF"/>
+                        </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
