@@ -37,16 +37,9 @@
                            FontSize="13" Foreground="{DynamicResource TextSecondaryBrush}"
                            HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="400"/>
                 <Button x:Name="EmptyStateRefreshBtn" Click="RefreshButton_Click" Margin="0,24,0,0"
-                        Background="#238636" Foreground="White" BorderThickness="0" Padding="20,10" Cursor="Hand">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
+                        Style="{DynamicResource PrimaryButton}">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="🔄 " FontFamily="Segoe UI Emoji"/>
+                        <Path Fill="White" Data="{StaticResource IconRefreshReal}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,8,0"/>
                         <TextBlock Text="Refresh Library"/>
                     </StackPanel>
                 </Button>
@@ -553,51 +546,25 @@
                                FontSize="13" VerticalAlignment="Center" Margin="0,0,20,0"/>
 
                     <Button x:Name="BatchPackageButton" Click="BatchPackage_Click"
-                            Cursor="Hand" Margin="0,0,10,0"
-                            Background="#238636" Foreground="White" BorderThickness="0" Padding="16,8">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                            </ControlTemplate>
-                        </Button.Template>
+                            Margin="0,0,10,0"
+                            Style="{DynamicResource PrimaryButton}">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="📦 " FontFamily="Segoe UI Emoji"/>
+                            <Path Fill="White" Data="{StaticResource IconPackage}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,8,0"/>
                             <TextBlock Text="Package Selected"/>
                         </StackPanel>
                     </Button>
 
                     <Button x:Name="BatchClearButton" Click="BatchClear_Click"
-                            Cursor="Hand" Margin="0,0,10,0"
-                            Background="#3F3F46" Foreground="#E4E4E7" BorderThickness="0" Padding="16,8">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                            </ControlTemplate>
-                        </Button.Template>
+                            Margin="0,0,10,0"
+                            Style="{DynamicResource SecondaryButton}" Background="#3F3F46" Foreground="#E4E4E7" BorderThickness="0">
                         <TextBlock Text="Clear Selection"/>
                     </Button>
 
                     <Button x:Name="BatchSendBtn" Click="BatchSendToPeer_Click"
-                            Cursor="Hand" IsEnabled="False"
-                            Background="#58A6FF" Foreground="White" BorderThickness="0" Padding="16,8">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsEnabled" Value="False">
-                                        <Setter TargetName="border" Property="Opacity" Value="0.4"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
+                            IsEnabled="False"
+                            Style="{DynamicResource AccentPrimaryButton}">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="📤 " FontFamily="Segoe UI Emoji"/>
+                            <Path Fill="White" Data="{StaticResource IconTransfers}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,8,0"/>
                             <TextBlock Text="Send to Peer"/>
                         </StackPanel>
                     </Button>

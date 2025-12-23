@@ -8,6 +8,7 @@
                 <!-- Colors and Brushes must be loaded first -->
                 <ResourceDictionary Source="Themes/Colors.xaml"/>
                 <!-- Component Styles (depend on Colors) -->
+                <ResourceDictionary Source="Themes/Icons.xaml"/>
                 <ResourceDictionary Source="Themes/ButtonStyles.xaml"/>
                 <ResourceDictionary Source="Themes/GameCardStyles.xaml"/>
                 <ResourceDictionary Source="Themes/FormControlStyles.xaml"/>

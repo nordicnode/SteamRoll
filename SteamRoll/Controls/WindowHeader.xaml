@@ -30,7 +30,7 @@
                                 <GradientStop Color="#A371F7" Offset="1"/>
                             </LinearGradientBrush>
                         </Border.Background>
-                        <TextBlock Text="🎮" FontSize="24" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Path Fill="White" Data="{StaticResource IconController}" Width="24" Height="24" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock Text="SteamRoll" FontSize="26" FontWeight="Bold"
@@ -48,7 +48,7 @@
                                     Style="{DynamicResource SecondaryButton}"
                                     Click="LibraryTab_Click" Padding="12,8">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="📚" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
+                                    <Path Fill="{DynamicResource TextSecondaryBrush}" Data="{StaticResource IconLibrary}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,6,0"/>
                                     <TextBlock Text="Library"/>
                                 </StackPanel>
                             </Button>
@@ -56,7 +56,7 @@
                                     Style="{DynamicResource SecondaryButton}"
                                     Click="PackagesTab_Click" Padding="12,8">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="📦" FontFamily="Segoe UI Emoji" Margin="0,0,6,0"/>
+                                    <Path Fill="{DynamicResource TextSecondaryBrush}" Data="{StaticResource IconPackage}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,6,0"/>
                                     <TextBlock Text="Packages"/>
                                 </StackPanel>
                             </Button>
