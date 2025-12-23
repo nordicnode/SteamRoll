@@ -59,6 +59,12 @@ public class LibraryScanner
         if (!Directory.Exists(steamappsPath))
             return games;
 
+        // Try to locate Steam installation path for image cache
+        var steamInstallPath = _steamLocator.GetSteamInstallPath();
+        var imageCachePath = steamInstallPath != null
+            ? Path.Combine(steamInstallPath, "appcache", "librarycache")
+            : null;
+
         // Find all appmanifest files
         var manifestFiles = Directory.GetFiles(steamappsPath, "appmanifest_*.acf");
 
@@ -69,6 +75,16 @@ public class LibraryScanner
                 var game = ParseManifest(manifestPath, libraryPath);
                 if (game != null)
                 {
+                    // Check for locally cached header image
+                    if (imageCachePath != null)
+                    {
+                        var localHeader = Path.Combine(imageCachePath, $"{game.AppId}_header.jpg");
+                        if (File.Exists(localHeader))
+                        {
+                            game.LocalHeaderPath = localHeader;
+                        }
+                    }
+
                     games.Add(game);
                 }
             }
