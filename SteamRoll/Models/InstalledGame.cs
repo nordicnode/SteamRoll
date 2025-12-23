@@ -96,9 +96,16 @@ public class InstalledGame : INotifyPropertyChanged
     public string Version => BuildId > 0 ? $"Build {BuildId}" : "Unknown";
 
     /// <summary>
-    /// URL to the game's header image from Steam CDN.
+    /// Path to the locally cached header image (if found).
     /// </summary>
-    public string HeaderImageUrl => $"https://steamcdn-a.akamaihd.net/steam/apps/{AppId}/header.jpg";
+    public string? LocalHeaderPath { get; set; }
+
+    /// <summary>
+    /// URL to the game's header image. Prefers local cache, falls back to Steam CDN.
+    /// </summary>
+    public string HeaderImageUrl => !string.IsNullOrEmpty(LocalHeaderPath)
+        ? LocalHeaderPath
+        : $"https://steamcdn-a.akamaihd.net/steam/apps/{AppId}/header.jpg";
     
     /// <summary>
     /// URL to the game's capsule image (smaller) from Steam CDN.
