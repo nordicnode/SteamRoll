@@ -58,4 +58,17 @@
         <GradientStop Color="#F778BA" Offset="1"/>
     </LinearGradientBrush>
     
+    <!-- Hover & Interactive States -->
+    <Color x:Key="BackgroundCardHover">#242B33</Color>
+    <Color x:Key="GlassOverlay">#15FFFFFF</Color>
+    <SolidColorBrush x:Key="BackgroundCardHoverBrush" Color="{StaticResource BackgroundCardHover}"/>
+    <SolidColorBrush x:Key="GlassOverlayBrush" Color="{StaticResource GlassOverlay}"/>
+    
+    <!-- Feature Tag Category Colors -->
+    <SolidColorBrush x:Key="FeatureOnlineBrush" Color="#58A6FF"/>
+    <SolidColorBrush x:Key="FeatureControllerBrush" Color="#3FB950"/>
+    <SolidColorBrush x:Key="FeatureCloudBrush" Color="#A371F7"/>
+    <SolidColorBrush x:Key="FeatureAchievementsBrush" Color="#D29922"/>
+    <SolidColorBrush x:Key="FeatureDefaultBrush" Color="#6E7681"/>
+    
 </ResourceDictionary>

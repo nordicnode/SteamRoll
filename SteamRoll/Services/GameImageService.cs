@@ -100,6 +100,27 @@ public class GameImageService : IDisposable
             }
         }
         
+        // Final fallback: Try Steam Store API to get the actual header_image URL
+        // Steam uses hash-based URLs for many games now, which we can only get from the API
+        try
+        {
+            var details = await SteamStoreService.Instance.GetGameDetailsAsync(appId, ct);
+            if (details != null && !string.IsNullOrEmpty(details.HeaderImage))
+            {
+                // Verify the API URL is accessible
+                if (await IsImageAccessibleAsync(details.HeaderImage, ct))
+                {
+                    _imageUrlCache[appId] = details.HeaderImage;
+                    LogService.Instance.Debug($"Found working image from API for AppId {appId}: {details.HeaderImage}", "GameImageService");
+                    return details.HeaderImage;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Debug($"Failed to get image from Steam API for AppId {appId}: {ex.Message}", "GameImageService");
+        }
+        
         // All sources failed - mark as failed to avoid repeated checks
         _failedAppIds[appId] = true;
         LogService.Instance.Warning($"No working image found for AppId {appId}", "GameImageService");

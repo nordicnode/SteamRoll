@@ -249,20 +249,37 @@
                                 <Border Background="{DynamicResource BackgroundCardBrush}" CornerRadius="12" Padding="24"
                                         BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1">
                                     <StackPanel>
-                                        <TextBlock Text="DRM Analysis" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,16"
-                                                   Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                                            <Path Data="{DynamicResource IconLock}" Width="16" Height="16" Margin="0,0,10,0"
+                                                  Fill="{DynamicResource WarningBrush}" Stretch="Uniform" VerticalAlignment="Center"/>
+                                            <TextBlock Text="DRM Analysis" FontSize="16" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                        </StackPanel>
 
                                         <Grid Margin="0,0,0,8">
                                             <TextBlock Text="Detection" Foreground="{DynamicResource TextMutedBrush}"/>
                                             <TextBlock x:Name="PrimaryDrmText" Text="SteamStub" HorizontalAlignment="Right"
                                                        Foreground="{DynamicResource SuccessBrush}" FontWeight="SemiBold"/>
                                         </Grid>
-                                        <Grid Margin="0,0,0,8">
+                                        <Grid Margin="0,0,0,12">
                                             <TextBlock Text="Compatibility" Foreground="{DynamicResource TextMutedBrush}"/>
-                                            <TextBlock x:Name="CompatScoreText" Text="100%" HorizontalAlignment="Right"
-                                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                                <!-- Mini progress bar -->
+                                                <Border Height="6" Width="80" CornerRadius="3" Background="#21262D" Margin="0,0,8,0" VerticalAlignment="Center">
+                                                    <Border x:Name="CompatProgressBar" HorizontalAlignment="Left" Height="6" CornerRadius="3" Width="80">
+                                                        <Border.Background>
+                                                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                                                <GradientStop Color="#3FB950" Offset="0"/>
+                                                                <GradientStop Color="#58A6FF" Offset="1"/>
+                                                            </LinearGradientBrush>
+                                                        </Border.Background>
+                                                    </Border>
+                                                </Border>
+                                                <TextBlock x:Name="CompatScoreText" Text="100%"
+                                                           Foreground="{DynamicResource SuccessBrush}" FontWeight="SemiBold"/>
+                                            </StackPanel>
                                         </Grid>
-                                        <Border Background="{DynamicResource BackgroundDarkBrush}" CornerRadius="6" Padding="10" Margin="0,8,0,0">
+                                        <Border Background="{DynamicResource BackgroundDarkBrush}" CornerRadius="6" Padding="10" Margin="0,4,0,0">
                                             <TextBlock x:Name="StatusReasonText" Text="Ready to package" FontSize="12"
                                                        Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
                                         </Border>

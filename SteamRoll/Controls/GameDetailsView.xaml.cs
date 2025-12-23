@@ -88,6 +88,10 @@ public partial class GameDetailsView : UserControl
         
         CompatScoreText.Text = $"{_game.CompatibilityScore * 100:F0}%";
         StatusReasonText.Text = _game.CompatibilityReason;
+        
+        // Update progress bar width (assuming max width of ~200 from container)
+        var scorePercent = _game.CompatibilityScore;
+        CompatProgressBar.Width = Math.Max(8, 180 * scorePercent); // Min 8px for visibility
 
         // Compatibility badge
         if (_game.IsPackageable)
@@ -95,12 +99,14 @@ public partial class GameDetailsView : UserControl
             CompatBadge.Background = new SolidColorBrush(Color.FromArgb(50, 0x3F, 0xB9, 0x50));
             CompatDot.Fill = new SolidColorBrush(Color.FromRgb(0x3F, 0xB9, 0x50));
             CompatText.Text = "Compatible";
+            CompatScoreText.Foreground = (Brush)FindResource("SuccessBrush");
         }
         else
         {
             CompatBadge.Background = new SolidColorBrush(Color.FromArgb(50, 0xF8, 0x51, 0x49));
             CompatDot.Fill = new SolidColorBrush(Color.FromRgb(0xF8, 0x51, 0x49));
             CompatText.Text = "Not Compatible";
+            CompatScoreText.Foreground = (Brush)FindResource("ErrorBrush");
         }
 
         // DLC
@@ -255,11 +261,51 @@ public partial class GameDetailsView : UserControl
                         _ => new SolidColorBrush(Color.FromRgb(0xF8, 0x51, 0x49))      // Red
                     };
                     
-                    ReviewIcon.Foreground = reviewColor;
                     ReviewDescriptionText.Foreground = reviewColor;
                     ReviewPercentText.Foreground = reviewColor; // Make it all match for readability
                 }
                 
+                // Update header image from API response if it wasn't loaded
+                // The API provides a more reliable header_image URL than the CDN fallback
+                if (HeaderImageBrush.ImageSource == null && !string.IsNullOrEmpty(details.HeaderImage))
+                {
+                    try
+                    {
+                        var bitmap = new BitmapImage();
+                        bitmap.BeginInit();
+                        bitmap.UriSource = new Uri(details.HeaderImage);
+                        bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                        bitmap.EndInit();
+                        
+                        if (bitmap.IsDownloading)
+                        {
+                            var tcs = new TaskCompletionSource<bool>();
+                            bitmap.DownloadCompleted += (s, e) => tcs.TrySetResult(true);
+                            bitmap.DownloadFailed += (s, e) => tcs.TrySetResult(false);
+                            bitmap.DecodeFailed += (s, e) => tcs.TrySetResult(false);
+                            
+                            if (await tcs.Task && _game != null)
+                            {
+                                HeaderImageBrush.ImageSource = bitmap;
+                                // Cache the working URL for future use
+                                _game.ResolvedHeaderImageUrl = details.HeaderImage;
+                            }
+                        }
+                        else
+                        {
+                            HeaderImageBrush.ImageSource = bitmap;
+                            if (_game != null)
+                            {
+                                _game.ResolvedHeaderImageUrl = details.HeaderImage;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Instance.Debug($"Failed to load header image from API URL: {ex.Message}", "GameDetailsView");
+                    }
+                }
+
                 // Background image
                 if (!string.IsNullOrEmpty(details.BackgroundImage))
                 {
