@@ -22,6 +22,27 @@ public partial class MainWindow
         return null;
     }
 
+    /// <summary>
+    /// Gets game from various sender types: Button (Tag), MenuItem (ContextMenu), or FrameworkElement (Tag).
+    /// </summary>
+    private InstalledGame? GetGameFromSender(object sender)
+    {
+        // Try Button tag first (for direct button clicks)
+        if (sender is Button button && button.Tag is InstalledGame gameFromButton)
+        {
+            return gameFromButton;
+        }
+        
+        // Try FrameworkElement tag (for other controls)
+        if (sender is FrameworkElement element && element.Tag is InstalledGame gameFromElement)
+        {
+            return gameFromElement;
+        }
+        
+        // Fall back to context menu approach
+        return GetGameFromContextMenu(sender);
+    }
+
     private void ContextMenu_Package_Click(object sender, RoutedEventArgs e)
     {
         var game = GetGameFromContextMenu(sender);
@@ -356,7 +377,7 @@ public partial class MainWindow
 
     private async void ContextMenu_UpdatePackage_Click(object sender, RoutedEventArgs e)
     {
-        var game = GetGameFromContextMenu(sender);
+        var game = GetGameFromSender(sender);
         if (game == null || !game.UpdateAvailable) return;
 
         var result = MessageBox.Show(

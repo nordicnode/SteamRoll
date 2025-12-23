@@ -22,6 +22,7 @@ public partial class GameLibraryView : UserControl
     // Item Action Events (from context menu or buttons)
     public event RoutedEventHandler? PackageGameClicked;
     public event RoutedEventHandler? SendGameToPeerClicked;
+    public event RoutedEventHandler? UpdatePackageClicked;
     public event RoutedEventHandler? ContextMenuFavoriteClicked;
     public event RoutedEventHandler? ContextMenuBackupSaveClicked;
     public event RoutedEventHandler? ContextMenuDeletePackageClicked;
@@ -51,6 +52,7 @@ public partial class GameLibraryView : UserControl
 
     private void PackageButton_Click(object sender, RoutedEventArgs e) => PackageGameClicked?.Invoke(sender, e);
     private void SendToPeerButton_Click(object sender, RoutedEventArgs e) => SendGameToPeerClicked?.Invoke(sender, e);
+    private void UpdatePackageButton_Click(object sender, RoutedEventArgs e) => UpdatePackageClicked?.Invoke(sender, e);
 
     private void BatchPackage_Click(object sender, RoutedEventArgs e) => BatchPackageClicked?.Invoke(this, e);
     private void BatchClear_Click(object sender, RoutedEventArgs e) => BatchClearClicked?.Invoke(this, e);

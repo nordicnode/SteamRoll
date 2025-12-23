@@ -10,6 +10,14 @@ namespace SteamRoll.Services;
 public class LibraryScanner
 {
     private readonly SteamLocator _steamLocator;
+    
+    /// <summary>
+    /// AppIDs to filter out from the library (not actual games).
+    /// </summary>
+    private static readonly HashSet<int> FilteredAppIds = new()
+    {
+        228980, // Steamworks Common Redistributables
+    };
 
     public LibraryScanner(SteamLocator steamLocator)
     {
@@ -31,7 +39,11 @@ public class LibraryScanner
             games.AddRange(libraryGames);
         }
 
-        return games.OrderBy(g => g.Name).ToList();
+        // Filter out non-game entries like Steamworks redistributables
+        return games
+            .Where(g => !FilteredAppIds.Contains(g.AppId))
+            .OrderBy(g => g.Name)
+            .ToList();
     }
 
     /// <summary>

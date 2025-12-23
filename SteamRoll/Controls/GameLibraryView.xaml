@@ -341,13 +341,32 @@
                                     </StackPanel>
                                 </Border>
 
-                                <!-- Update Available Badge -->
-                                <Border CornerRadius="4" Padding="8,4" Margin="0,0,8,4" Style="{DynamicResource UpdateBadgeBorderStyle}">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="🔄" FontSize="10" Margin="0,0,4,0" FontFamily="Segoe UI Emoji"/>
-                                        <TextBlock Text="Update" FontSize="11" Foreground="#D29922"/>
-                                    </StackPanel>
-                                </Border>
+                                <!-- Update Available Button (clickable) -->
+                                <Button Click="UpdatePackageButton_Click"
+                                        Tag="{Binding}"
+                                        Cursor="Hand"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        Padding="0"
+                                        Margin="0,0,8,4"
+                                        ToolTip="Click to update package with latest Steam files">
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding UpdateAvailable}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                    <Border CornerRadius="4" Padding="8,4" Background="#3D2E12" BorderBrush="#D29922" BorderThickness="1">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="🔄" FontSize="10" Margin="0,0,4,0" FontFamily="Segoe UI Emoji"/>
+                                            <TextBlock Text="Update" FontSize="11" Foreground="#D29922" FontWeight="SemiBold"/>
+                                        </StackPanel>
+                                    </Border>
+                                </Button>
 
                                 <!-- Status Badge (simplified) -->
                                 <Border CornerRadius="4" Padding="8,4" Margin="0,0,0,4" Style="{DynamicResource ReadyBadgeBorderStyle}">

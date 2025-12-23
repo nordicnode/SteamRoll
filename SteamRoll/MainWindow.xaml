@@ -363,7 +363,8 @@
                                   ContextMenuVerifyIntegrityClicked="ContextMenu_VerifyIntegrity_Click"
                                   ContextMenuRepairFromPeerClicked="ContextMenu_RepairFromPeer_Click"
                                   ContextMenuOpenSteamStoreClicked="ContextMenu_OpenSteamStore_Click"
-                                  ContextMenuUpdatePackageClicked="ContextMenu_UpdatePackage_Click"/>
+                                  ContextMenuUpdatePackageClicked="ContextMenu_UpdatePackage_Click"
+                                  UpdatePackageClicked="ContextMenu_UpdatePackage_Click"/>
         
 
 
