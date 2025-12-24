@@ -345,6 +345,9 @@ public partial class MainWindow : Window
         _lanDiscoveryService.Start();
         _transferService.StartListening();
         
+        // Restore any persistent direct connect peers from settings
+        _lanDiscoveryService.RestorePersistentPeers(_settingsService);
+        
         // Initialize Mesh Library Service for network game aggregation
         _meshLibraryService = new MeshLibraryService(_lanDiscoveryService, _transferService);
         _meshLibraryService.NetworkLibraryChanged += OnNetworkLibraryChanged;

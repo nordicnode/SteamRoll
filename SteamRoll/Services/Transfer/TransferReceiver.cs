@@ -90,8 +90,12 @@ public class TransferReceiver
                     return;
                 }
                 
+                // Use a timeout for the handshake to prevent Slowloris-style attacks
+                using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                handshakeCts.CancelAfter(TimeSpan.FromSeconds(5));
+                
                 var handshakeResult = await TransferHandshake.RespondToHandshakeAsync(
-                    networkStream, knownKey, localDeviceId, ct);
+                    networkStream, knownKey, localDeviceId, handshakeCts.Token);
                 
                 if (!handshakeResult.Success)
                 {
