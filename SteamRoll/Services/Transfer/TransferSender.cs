@@ -61,28 +61,6 @@ public class TransferSender
             // Base path for relative calculations
             var basePath = File.Exists(sourcePath) ? System.IO.Path.GetDirectoryName(sourcePath)! : sourcePath;
 
-            // Try to load local metadata to speed up hashing (Smart Hash)
-            Dictionary<string, string> knownHashes = new();
-            DateTime metadataDate = DateTime.MinValue;
-            try
-            {
-                if (Directory.Exists(sourcePath))
-                {
-                    var metadataPath = System.IO.Path.Combine(sourcePath, "steamroll.json");
-                    if (File.Exists(metadataPath))
-                    {
-                        var json = await File.ReadAllTextAsync(metadataPath, ct);
-                        var metadata = JsonSerializer.Deserialize<Models.PackageMetadata>(json);
-                        if (metadata?.FileHashes != null)
-                        {
-                            knownHashes = metadata.FileHashes;
-                            metadataDate = metadata.CreatedDate;
-                        }
-                    }
-                }
-            }
-            catch { /* Ignore metadata read errors */ }
-
             // Sequential processing for HDD-friendly I/O (parallel thrashes mechanical drives)
             // Process files iteratively with cancellation checks for responsiveness
             var fileInfos = new List<TransferFileInfo>();
@@ -93,28 +71,11 @@ public class TransferSender
                 var relativePath = System.IO.Path.GetRelativePath(basePath, f).Replace('\\', '/');
                 var fi = new FileInfo(f);
                 var size = fi.Length;
-                string hash;
 
-                bool isUnchanged = fi.LastWriteTimeUtc <= metadataDate;
-                var originalRelativePath = System.IO.Path.GetRelativePath(basePath, f);
-
-                string? cachedHash = null;
-                if (isUnchanged)
-                {
-                    if (!knownHashes.TryGetValue(relativePath, out cachedHash))
-                    {
-                        knownHashes.TryGetValue(originalRelativePath, out cachedHash);
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(cachedHash))
-                {
-                     hash = cachedHash;
-                }
-                else
-                {
-                     hash = ComputeXxHash64(f);
-                }
+                // Always compute XxHash64 for transfer integrity.
+                // We cannot use cached SHA256 from steamroll.json because the receiver expects XxHash64.
+                // Using an async computation to avoid blocking the thread.
+                var hash = await ComputeXxHash64Async(f, ct);
 
                 fileInfos.Add(new TransferFileInfo
                 {
@@ -388,14 +349,29 @@ public class TransferSender
     }
 
     /// <summary>
-    /// Computes XxHash64 for a file. 10-20x faster than SHA-256.
-    /// Used for integrity checking during transfers (not cryptographic security).
+    /// Computes XxHash64 for a file asynchronously.
+    /// 10-20x faster than SHA-256. Used for integrity checking during transfers.
     /// </summary>
-    private static string ComputeXxHash64(string filePath)
+    private static async Task<string> ComputeXxHash64Async(string filePath, CancellationToken ct)
     {
-        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, FileOptions.SequentialScan);
+        // Use FileShare.ReadWrite to allow reading open files
+        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 81920, true);
         var hash = new XxHash64();
-        hash.Append(stream);
+
+        var buffer = ArrayPool<byte>.Shared.Rent(81920);
+        try
+        {
+            int bytesRead;
+            while ((bytesRead = await stream.ReadAsync(buffer, ct)) > 0)
+            {
+                hash.Append(buffer.AsSpan(0, bytesRead));
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+
         return Convert.ToHexString(hash.GetCurrentHash()).ToLowerInvariant();
     }
 }
