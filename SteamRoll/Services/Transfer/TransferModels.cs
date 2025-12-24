@@ -254,16 +254,21 @@ public class TransferState
     public bool IsExpired => (DateTime.UtcNow - LastUpdatedAt).TotalHours > 24;
 
     /// <summary>
-    /// Saves transfer state to disk.
+    /// Saves transfer state to disk using atomic write (temp file + move).
+    /// This prevents state file corruption if the app crashes during save.
     /// </summary>
     public static void Save(string destPath, TransferState state)
     {
         try
         {
             var statePath = System.IO.Path.Combine(destPath, StateFileName);
+            var tempPath = statePath + ".tmp";
             state.LastUpdatedAt = DateTime.UtcNow;
             var json = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(statePath, json);
+            
+            // Write to temp file first, then atomically move
+            File.WriteAllText(tempPath, json);
+            File.Move(tempPath, statePath, overwrite: true);
         }
         catch (Exception ex)
         {

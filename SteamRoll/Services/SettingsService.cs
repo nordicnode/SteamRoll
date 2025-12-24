@@ -380,6 +380,12 @@ public class AppSettings
     /// Only used if RememberDirectConnectPeers is enabled.
     /// </summary>
     public List<DirectConnectPeer> DirectConnectPeers { get; set; } = new();
+
+    /// <summary>
+    /// Per-game Goldberg Emulator configurations.
+    /// Persisted to retain user customizations across sessions.
+    /// </summary>
+    public Dictionary<int, GoldbergConfig> GameGoldbergConfigs { get; set; } = new();
 }
 
 /// <summary>

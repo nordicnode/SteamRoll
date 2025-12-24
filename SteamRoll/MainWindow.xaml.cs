@@ -36,8 +36,8 @@ public partial class MainWindow : Window
     private string _outputPath;
     private MeshLibraryService? _meshLibraryService;
 
-    // Per-game Goldberg configuration storage
-    private readonly Dictionary<int, GoldbergConfig> _gameGoldbergConfigs = new();
+    // Per-game Goldberg configuration is now persisted in SettingsService
+    private Dictionary<int, GoldbergConfig> _gameGoldbergConfigs => _settingsService.Settings.GameGoldbergConfigs;
 
     // Convenience accessors that delegate to LibraryManager (single source of truth)
     private List<InstalledGame> GetGamesSnapshot() => _libraryManager.GetGamesSnapshot();

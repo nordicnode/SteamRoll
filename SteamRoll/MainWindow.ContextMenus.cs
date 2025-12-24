@@ -444,6 +444,7 @@ public partial class MainWindow
         if (dialog.ShowDialog() == true && dialog.Config != null)
         {
             _gameGoldbergConfigs[game.AppId] = dialog.Config;
+            _settingsService.Save(); // Persist to disk
             ToastService.Instance.ShowSuccess("Config Saved", $"Goldberg settings saved for {game.Name}");
         }
     }

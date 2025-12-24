@@ -157,7 +157,8 @@ public class PackageBuilder
                     {
                         ReportProgress("CreamAPI failed, falling back to Goldberg...", 82);
                         await _goldbergService.EnsureGoldbergAvailableAsync();
-                        emulatorApplied = _goldbergService.ApplyGoldberg(packageDir, game.AppId, options.GoldbergConfig);
+                        emulatorApplied = await Task.Run(() => 
+                            _goldbergService.ApplyGoldberg(packageDir, game.AppId, options.GoldbergConfig));
                     }
                 }
                 else
@@ -169,7 +170,8 @@ public class PackageBuilder
                         await _goldbergService.EnsureGoldbergAvailableAsync();
                     }
                     ReportProgress("Applying Goldberg Emulator...", 80);
-                    emulatorApplied = _goldbergService.ApplyGoldberg(packageDir, game.AppId, options.GoldbergConfig);
+                    emulatorApplied = await Task.Run(() => 
+                        _goldbergService.ApplyGoldberg(packageDir, game.AppId, options.GoldbergConfig));
                     // Interface detection/writing is now handled internally by GoldbergPatcher
                 }
                 
