@@ -1,8 +1,10 @@
 using System.Buffers;
 using System.IO;
+using System.IO.Hashing;
 using System.Net.Sockets;
-using System.Security.Cryptography;
 using System.Text.Json;
+using SteamRoll.Services.DeltaSync;
+using SteamRoll.Services.Security;
 
 namespace SteamRoll.Services.Transfer;
 
@@ -12,13 +14,21 @@ namespace SteamRoll.Services.Transfer;
 public class TransferSender
 {
     private const int BUFFER_SIZE = 81920; // 80KB chunks
-    private const string PROTOCOL_MAGIC_V2 = "STEAMROLL_TRANSFER_V2";
+    private const string PROTOCOL_MAGIC_V2 = ProtocolConstants.TRANSFER_MAGIC_V2;
+    private const string PROTOCOL_MAGIC_V3 = ProtocolConstants.TRANSFER_MAGIC_V3;
 
     private readonly SettingsService? _settingsService;
+    private readonly DeltaService _deltaService = new();
+    private readonly PairingService _pairingService = new();
 
     public event EventHandler<TransferProgress>? ProgressChanged;
     public event EventHandler<string>? Error;
     public event EventHandler<TransferResult>? TransferComplete;
+
+    /// <summary>
+    /// Raised when delta sync saves bandwidth.
+    /// </summary>
+    public event EventHandler<DeltaSummary>? DeltaSyncUsed;
 
     public TransferSender(SettingsService? settingsService)
     {
@@ -73,7 +83,8 @@ public class TransferSender
             }
             catch { /* Ignore metadata read errors */ }
 
-            var fileInfos = files.AsParallel().Select(f => {
+            // Sequential processing for HDD-friendly I/O (parallel thrashes mechanical drives)
+            var fileInfos = files.Select(f => {
                 var relativePath = System.IO.Path.GetRelativePath(basePath, f).Replace('\\', '/');
                 var fi = new FileInfo(f);
                 var size = fi.Length;
@@ -97,7 +108,7 @@ public class TransferSender
                 }
                 else
                 {
-                     hash = ComputeSha256(f);
+                     hash = ComputeXxHash64(f);
                 }
 
                 return new TransferFileInfo
@@ -110,9 +121,40 @@ public class TransferSender
 
             var totalSize = fileInfos.Sum(f => f.Size);
 
-            // Determine compression settings
+            // Determine compression and encryption settings
             bool useCompression = _settingsService?.Settings.EnableTransferCompression ?? true;
-            string protocolMagic = PROTOCOL_MAGIC_V2;
+            bool useEncryption = _settingsService?.Settings.RequireTransferEncryption ?? false;
+            string localDeviceId = _settingsService?.Settings.DeviceId ?? "UNKNOWN";
+            string protocolMagic = useEncryption ? PROTOCOL_MAGIC_V3 : PROTOCOL_MAGIC_V2;
+
+            // If encryption is enabled, perform handshake first
+            Stream dataStream = networkStream;
+            if (useEncryption)
+            {
+                // For now, try to get cached key or fail gracefully
+                // In production, you'd need a pairing UI flow
+                var knownKey = _pairingService.GetPairedKey(targetIp);
+                if (knownKey != null)
+                {
+                    var handshakeResult = await TransferHandshake.InitiateHandshakeAsync(
+                        networkStream, knownKey, localDeviceId, ct);
+                    
+                    if (!handshakeResult.Success)
+                    {
+                        Error?.Invoke(this, $"Encryption handshake failed: {handshakeResult.ErrorMessage}");
+                        return false;
+                    }
+                    
+                    dataStream = new EncryptedStream(networkStream, knownKey, leaveOpen: true);
+                    LogService.Instance.Info($"Encrypted connection established with {handshakeResult.RemoteDeviceId}", "TransferSender");
+                }
+                else
+                {
+                    // No paired key - fallback to unencrypted with warning
+                    LogService.Instance.Warning($"No paired key for {targetIp}, falling back to unencrypted transfer", "TransferSender");
+                    protocolMagic = PROTOCOL_MAGIC_V2;
+                }
+            }
 
             // Send header
             var header = new TransferHeader
@@ -141,6 +183,24 @@ public class TransferSender
             }
 
             var skippedFiles = new HashSet<string>(ack.SkippedFiles ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+            
+            // Parse delta signatures for files that receiver wants to update via delta
+            var deltaSignatures = new Dictionary<string, List<BlockSignature>>(StringComparer.OrdinalIgnoreCase);
+            if (ack.SupportsDelta && ack.DeltaSignatures != null)
+            {
+                foreach (var (filePath, sigJson) in ack.DeltaSignatures)
+                {
+                    var sigs = DeltaService.DeserializeSignatures(System.Text.Encoding.UTF8.GetBytes(sigJson));
+                    if (sigs.Count > 0)
+                    {
+                        deltaSignatures[filePath] = sigs;
+                    }
+                }
+                if (deltaSignatures.Count > 0)
+                {
+                    LogService.Instance.Info($"Delta sync enabled for {deltaSignatures.Count} files", "TransferSender");
+                }
+            }
 
             // Adjust total size to transfer
             var bytesToTransfer = fileInfos.Where(f => !skippedFiles.Contains(f.RelativePath)).Sum(f => f.Size);
@@ -187,6 +247,58 @@ public class TransferSender
                     }
 
                     var fullPath = System.IO.Path.Combine(basePath, fileInfo.RelativePath);
+
+                    // Check if we should use delta sync for this file
+                    if (deltaSignatures.TryGetValue(fileInfo.RelativePath, out var targetSigs))
+                    {
+                        var deltaResult = _deltaService.CalculateDelta(fullPath, targetSigs);
+                        if (deltaResult.HasValue && deltaResult.Value.Summary.SavingsPercent > 20)
+                        {
+                            var (instructions, literalData, summary) = deltaResult.Value;
+                            
+                            // Send delta mode flag (1 = delta transfer)
+                            await outputStream.WriteAsync(new byte[] { 1 }, ct);
+                            
+                            // Send instruction count (4 bytes) + literal data size (4 bytes)
+                            await outputStream.WriteAsync(BitConverter.GetBytes(instructions.Count), ct);
+                            await outputStream.WriteAsync(BitConverter.GetBytes(literalData.Length), ct);
+                            
+                            // Send serialized instructions
+                            var instructionBytes = DeltaService.SerializeInstructions(instructions);
+                            await outputStream.WriteAsync(BitConverter.GetBytes(instructionBytes.Length), ct);
+                            await outputStream.WriteAsync(instructionBytes, ct);
+                            
+                            // Send literal data
+                            await outputStream.WriteAsync(literalData, ct);
+                            
+                            sentBytes += 1 + 4 + 4 + 4 + instructionBytes.Length + literalData.Length;
+                            totalProgressBytes += fileInfo.Size;
+                            
+                            DeltaSyncUsed?.Invoke(this, summary);
+                            LogService.Instance.Info(
+                                $"Delta sync for {fileInfo.RelativePath}: {summary.SavingsPercent:F1}% saved " +
+                                $"({FormatUtils.FormatBytes(summary.BytesSaved)} saved)", "TransferSender");
+                            
+                            ProgressChanged?.Invoke(this, new TransferProgress
+                            {
+                                GameName = gameName,
+                                CurrentFile = fileInfo.RelativePath + " (delta)",
+                                BytesTransferred = totalProgressBytes,
+                                TotalBytes = totalSize,
+                                IsSending = true
+                            });
+                            
+                            continue;
+                        }
+                    }
+
+                    // Send full file mode flag (0 = full file transfer)
+                    // Only send flag if receiver sent signatures for this file (meaning it expects mode flag)
+                    if (deltaSignatures.ContainsKey(fileInfo.RelativePath))
+                    {
+                        // This shouldn't happen often - we get here if delta calculation failed
+                        await outputStream.WriteAsync(new byte[] { 0 }, ct);
+                    }
 
                     // Use FileOptions for better sequential read performance
                     // Use FileShare.ReadWrite to allow reading files that are currently open by the game
@@ -268,11 +380,15 @@ public class TransferSender
         }
     }
 
-    private static string ComputeSha256(string filePath)
+    /// <summary>
+    /// Computes XxHash64 for a file. 10-20x faster than SHA-256.
+    /// Used for integrity checking during transfers (not cryptographic security).
+    /// </summary>
+    private static string ComputeXxHash64(string filePath)
     {
-        using var sha256 = SHA256.Create();
         using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, FileOptions.SequentialScan);
-        var hash = sha256.ComputeHash(stream);
-        return Convert.ToHexString(hash).ToLowerInvariant();
+        var hash = new XxHash64();
+        hash.Append(stream);
+        return Convert.ToHexString(hash.GetCurrentHash()).ToLowerInvariant();
     }
 }

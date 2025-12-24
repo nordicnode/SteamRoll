@@ -21,7 +21,6 @@ public partial class GameDetailsView : UserControl
     public event EventHandler? BackRequested;
     public event EventHandler<(InstalledGame Game, PackageMode Mode)>? PackageRequested;
     public event EventHandler<InstalledGame>? SyncSavesRequested;
-    public event EventHandler<InstalledGame>? RepairEnvironmentRequested;
 
     public GameDetailsView()
     {

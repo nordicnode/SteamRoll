@@ -15,16 +15,19 @@ public class LanDiscoveryService : IDisposable
 {
     private const int DISCOVERY_PORT = AppConstants.DEFAULT_DISCOVERY_PORT;
     private const int ANNOUNCE_INTERVAL_MS = AppConstants.ANNOUNCE_INTERVAL_MS;
+    private const int ANNOUNCE_JITTER_MS = AppConstants.ANNOUNCE_JITTER_MS;
+    private const int ANNOUNCE_STARTUP_JITTER_MS = AppConstants.ANNOUNCE_STARTUP_JITTER_MS;
     private const int PEER_TIMEOUT_MS = AppConstants.PEER_TIMEOUT_MS;
-    private const string PROTOCOL_MAGIC = "STEAMROLL_V1";
+    private const string PROTOCOL_MAGIC = ProtocolConstants.DISCOVERY_MAGIC;
 
+    private static readonly Random _jitterRandom = new();
 
     private UdpClient? _udpClient;
     private CancellationTokenSource? _cts;
     private readonly ConcurrentDictionary<string, PeerInfo> _peers = new();
     private string _localHostName;
     private int _transferPort;
-    private int _localPackagedGameCount;
+    private volatile int _localPackagedGameCount;
 
     public event EventHandler<PeerInfo>? PeerDiscovered;
     public event EventHandler<PeerInfo>? PeerLost;
@@ -87,11 +90,23 @@ public class LanDiscoveryService : IDisposable
 
     /// <summary>
     /// Stops the discovery service.
+    /// Safe to call multiple times.
     /// </summary>
     public void Stop()
     {
+        if (!IsRunning) return;
         IsRunning = false;
-        _cts?.Cancel();
+        
+        try
+        {
+            _cts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // CTS was already disposed, safe to ignore
+        }
+        _cts = null;
+        
         _udpClient?.Close();
         _udpClient?.Dispose();
         _udpClient = null;
@@ -113,7 +128,13 @@ public class LanDiscoveryService : IDisposable
     /// Manually adds a peer by IP address.
     /// Used when UDP broadcast discovery is blocked or across subnets.
     /// </summary>
-    public void AddManualPeer(string ipAddress, int port = AppConstants.DEFAULT_TRANSFER_PORT)
+    /// <param name="ipAddress">IP address of the peer</param>
+    /// <param name="port">Transfer port (default 27051)</param>
+    /// <param name="displayName">Optional friendly name for the peer</param>
+    /// <param name="persist">If true, saves to settings for automatic restoration on startup</param>
+    /// <param name="settingsService">Required if persist is true</param>
+    public void AddManualPeer(string ipAddress, int port = AppConstants.DEFAULT_TRANSFER_PORT, 
+        string? displayName = null, bool persist = false, SettingsService? settingsService = null)
     {
         try
         {
@@ -123,7 +144,7 @@ public class LanDiscoveryService : IDisposable
             var peer = new PeerInfo
             {
                 Id = peerId,
-                HostName = ipAddress, // Will be updated if/when we get a real announce
+                HostName = displayName ?? ipAddress, // Will be updated if/when we get a real announce
                 IpAddress = ipAddress,
                 TransferPort = port,
                 LastSeen = DateTime.Now,
@@ -132,15 +153,88 @@ public class LanDiscoveryService : IDisposable
             };
 
             _peers[peerId] = peer;
-            LogService.Instance.Info($"Added manual peer: {ipAddress}", "LanDiscovery");
+            LogService.Instance.Info($"Added manual peer: {displayName ?? ipAddress} ({ipAddress})", "LanDiscovery");
             PeerDiscovered?.Invoke(this, peer);
 
-            // Optionally, we could try to send a unicast announce to this peer immediately
-            // But usually this is used for initiating transfers
+            // Persist to settings if requested and setting is enabled
+            if (persist && settingsService != null && settingsService.Settings.RememberDirectConnectPeers)
+            {
+                var existing = settingsService.Settings.DirectConnectPeers
+                    .FirstOrDefault(p => p.IpAddress == ipAddress && p.Port == port);
+                if (existing == null)
+                {
+                    settingsService.Settings.DirectConnectPeers.Add(new DirectConnectPeer
+                    {
+                        IpAddress = ipAddress,
+                        Port = port,
+                        DisplayName = displayName
+                    });
+                    settingsService.Save();
+                    LogService.Instance.Info($"Persisted direct connect peer: {ipAddress}:{port}", "LanDiscovery");
+                }
+            }
         }
         catch (Exception ex)
         {
             LogService.Instance.Error($"Failed to add manual peer {ipAddress}: {ex.Message}", ex, "LanDiscovery");
+        }
+    }
+
+    /// <summary>
+    /// Removes a manual peer by IP address and optionally removes from persistent settings.
+    /// </summary>
+    public void RemoveManualPeer(string ipAddress, int port = AppConstants.DEFAULT_TRANSFER_PORT, 
+        SettingsService? settingsService = null)
+    {
+        try
+        {
+            var peerId = $"{ipAddress}:{port}";
+            if (_peers.TryRemove(peerId, out var removed))
+            {
+                LogService.Instance.Info($"Removed manual peer: {ipAddress}", "LanDiscovery");
+                PeerLost?.Invoke(this, removed);
+            }
+
+            // Remove from persistent settings if present
+            if (settingsService != null)
+            {
+                var existing = settingsService.Settings.DirectConnectPeers
+                    .FirstOrDefault(p => p.IpAddress == ipAddress && p.Port == port);
+                if (existing != null)
+                {
+                    settingsService.Settings.DirectConnectPeers.Remove(existing);
+                    settingsService.Save();
+                    LogService.Instance.Info($"Removed persisted direct connect peer: {ipAddress}:{port}", "LanDiscovery");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Failed to remove manual peer {ipAddress}: {ex.Message}", ex, "LanDiscovery");
+        }
+    }
+
+    /// <summary>
+    /// Restores all persistent direct connect peers from settings.
+    /// Call this after Start() to load saved peers.
+    /// Only restores if RememberDirectConnectPeers is enabled.
+    /// </summary>
+    public void RestorePersistentPeers(SettingsService settingsService)
+    {
+        if (!settingsService.Settings.RememberDirectConnectPeers)
+        {
+            LogService.Instance.Debug("Direct connect peer persistence is disabled", "LanDiscovery");
+            return;
+        }
+        
+        foreach (var peer in settingsService.Settings.DirectConnectPeers)
+        {
+            AddManualPeer(peer.IpAddress, peer.Port, peer.DisplayName, persist: false);
+        }
+        
+        if (settingsService.Settings.DirectConnectPeers.Count > 0)
+        {
+            LogService.Instance.Info($"Restored {settingsService.Settings.DirectConnectPeers.Count} persistent peers", "LanDiscovery");
         }
     }
 
@@ -201,10 +295,13 @@ public class LanDiscoveryService : IDisposable
                         HandleTransferRequest(peerIp, message);
                         break;
                     case MessageType.GameListRequest:
-                        HandleGameListRequest(peerIp, message);
+                        // DEPRECATED: UDP game lists can exceed MTU limits and fragment
+                        // Use TCP-based TransferService.RequestLibraryListAsync instead
+                        LogService.Instance.Debug($"Ignoring UDP GameListRequest from {peerIp} - use TCP", "LanDiscovery");
                         break;
                     case MessageType.GameListResponse:
-                        HandleGameListResponse(peerIp, message);
+                        // DEPRECATED: Large game lists will be dropped/fragmented over UDP
+                        LogService.Instance.Debug($"Ignoring UDP GameListResponse from {peerIp} - use TCP", "LanDiscovery");
                         break;
                     case MessageType.SaveSyncOffer:
                         HandleSaveSyncOffer(peerIp, message);
@@ -266,12 +363,22 @@ public class LanDiscoveryService : IDisposable
         TransferRequested?.Invoke(this, request);
     }
 
+    /// <summary>
+    /// [DEPRECATED] Handles UDP game list requests. Large payloads will fragment.
+    /// Use TCP-based TransferService.RequestLibraryListAsync instead.
+    /// </summary>
+    [Obsolete("UDP game lists can exceed MTU limits. Use TransferService.RequestLibraryListAsync (TCP) instead.")]
     private async void HandleGameListRequest(string ip, DiscoveryMessage message)
     {
+        // DEPRECATED: This method is kept for backwards compatibility but logs a warning
+        LogService.Instance.Warning($"UDP GameListRequest received from {ip} - consider using TCP for reliability", "LanDiscovery");
+        
         try
         {
             var games = GetLocalGamesCallback?.Invoke() ?? new List<Models.NetworkGameInfo>();
             
+            // Only respond if game list is small enough to fit in UDP packet
+            // Max safe UDP payload is ~1400 bytes to avoid fragmentation
             var response = new DiscoveryMessage
             {
                 Type = MessageType.GameListResponse,
@@ -283,6 +390,14 @@ public class LanDiscoveryService : IDisposable
             };
 
             var json = JsonSerializer.Serialize(response);
+            
+            // Check if payload exceeds safe UDP size
+            if (Encoding.UTF8.GetByteCount(json) > 1400)
+            {
+                LogService.Instance.Warning($"Game list too large for UDP ({games.Count} games), skipping. Use TCP.", "LanDiscovery");
+                return;
+            }
+            
             var data = Encoding.UTF8.GetBytes(json);
 
             using var client = new UdpClient();
@@ -322,10 +437,15 @@ public class LanDiscoveryService : IDisposable
     }
 
     /// <summary>
-    /// Requests the game list from a specific peer.
+    /// [DEPRECATED] Requests the game list from a specific peer via UDP.
+    /// Use TCP-based TransferService.RequestLibraryListAsync instead for reliability.
     /// </summary>
+    [Obsolete("UDP game lists can exceed MTU limits. Use TransferService.RequestLibraryListAsync (TCP) instead.")]
     public async Task RequestGameListAsync(PeerInfo peer)
     {
+        // Log deprecation warning
+        LogService.Instance.Warning($"UDP RequestGameListAsync is deprecated - use TransferService.RequestLibraryListAsync for {peer.HostName}", "LanDiscovery");
+        
         try
         {
             var request = new DiscoveryMessage
@@ -422,6 +542,11 @@ public class LanDiscoveryService : IDisposable
 
     private async Task AnnounceAsync(CancellationToken ct)
     {
+        // Add random startup delay to prevent burst of announcements when multiple clients start together
+        var startupDelay = _jitterRandom.Next(0, ANNOUNCE_STARTUP_JITTER_MS);
+        LogService.Instance.Debug($"Announce startup delay: {startupDelay}ms", "LanDiscovery");
+        await Task.Delay(startupDelay, ct);
+        
         while (!ct.IsCancellationRequested && _udpClient != null)
         {
             try
@@ -442,7 +567,9 @@ public class LanDiscoveryService : IDisposable
                 var broadcastEndpoint = new IPEndPoint(IPAddress.Broadcast, DISCOVERY_PORT);
                 await _udpClient.SendAsync(data, data.Length, broadcastEndpoint);
 
-                await Task.Delay(ANNOUNCE_INTERVAL_MS, ct);
+                // Add jitter to prevent multiple clients from broadcasting simultaneously
+                var jitter = _jitterRandom.Next(0, ANNOUNCE_JITTER_MS);
+                await Task.Delay(ANNOUNCE_INTERVAL_MS + jitter, ct);
             }
             catch (OperationCanceledException)
             {
@@ -562,7 +689,7 @@ public enum MessageType
 /// </summary>
 public class DiscoveryMessage
 {
-    public string Magic { get; set; } = "STEAMROLL_V1";
+    public string Magic { get; set; } = ProtocolConstants.DISCOVERY_MAGIC;
     public MessageType Type { get; set; }
     public string? HostName { get; set; }
     public int TransferPort { get; set; }

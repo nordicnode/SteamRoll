@@ -283,22 +283,35 @@ public partial class MainWindow
     /// <summary>
     /// Handles network library changes from the mesh library service.
     /// Updates games with network availability status.
+    /// Heavy data preparation is done on background thread to avoid UI freezing.
     /// </summary>
     private void OnNetworkLibraryChanged(object? sender, EventArgs e)
     {
+        if (_meshLibraryService == null) return;
+
+        // Prepare data on background thread to avoid blocking UI
+        // This is important for large libraries (500+ games)
+        var networkGames = _meshLibraryService.GetNetworkGames();
+        
+        // Pre-compute the peer lists as simple strings on background thread
+        var networkUpdates = new Dictionary<int, (bool IsAvailable, List<string> Peers)>();
+        foreach (var kvp in networkGames)
+        {
+            var peerNames = kvp.Value.Select(p => p.PeerHostName).ToList();
+            networkUpdates[kvp.Key] = (peerNames.Count > 0, peerNames);
+        }
+        
+        var totalNetworkGames = networkGames.Count;
+
+        // Only UI property updates and refresh run on UI thread
         Dispatcher.Invoke(() =>
         {
-            if (_meshLibraryService == null) return;
-
-            var networkGames = _meshLibraryService.GetNetworkGames();
-            
-            // Update local games with network availability info
             foreach (var game in GetGamesSnapshot())
             {
-                if (networkGames.TryGetValue(game.AppId, out var peers))
+                if (networkUpdates.TryGetValue(game.AppId, out var update))
                 {
-                    game.IsNetworkAvailable = peers.Count > 0;
-                    game.AvailablePeers = peers.Select(p => p.PeerHostName).ToList();
+                    game.IsNetworkAvailable = update.IsAvailable;
+                    game.AvailablePeers = update.Peers;
                 }
                 else
                 {
@@ -307,10 +320,9 @@ public partial class MainWindow
                 }
             }
 
-            // Refresh the display
+            // RefreshList is lightweight - just calls Items.Refresh()
             GameLibraryViewControl.RefreshList();
             
-            var totalNetworkGames = networkGames.Count;
             if (totalNetworkGames > 0)
             {
                 LogService.Instance.Debug($"Network library updated: {totalNetworkGames} unique games available from peers", "MeshLibrary");

@@ -13,7 +13,7 @@ namespace SteamRoll.Services;
 public class TransferService : IDisposable
 {
     private const int DEFAULT_PORT = 27051;
-    private const string PROTOCOL_MAGIC_V2 = "STEAMROLL_TRANSFER_V2";
+    private const string PROTOCOL_MAGIC_V2 = ProtocolConstants.TRANSFER_MAGIC_V2;
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -82,7 +82,14 @@ public class TransferService : IDisposable
         {
             Port = port;
             _cts = new CancellationTokenSource();
-            _listener = new TcpListener(IPAddress.Any, port);
+            
+            // Determine bind address based on settings
+            // BindToLocalIpOnly improves security on public networks
+            var bindAddress = _settingsService?.Settings.BindToLocalIpOnly == true
+                ? System.Net.IPAddress.Parse(NetworkUtils.GetLocalIpAddress())
+                : IPAddress.Any;
+            
+            _listener = new TcpListener(bindAddress, port);
             _listener.Start();
             IsListening = true;
 
@@ -216,6 +223,7 @@ public class TransferService : IDisposable
 
     /// <summary>
     /// Runs a speed test against a peer.
+    /// Respects configured bandwidth limits to avoid LAN saturation.
     /// </summary>
     public async Task<double> RunSpeedTestAsync(string targetIp, int targetPort, long testSizeBytes = 50 * 1024 * 1024, CancellationToken ct = default)
     {
@@ -237,16 +245,23 @@ public class TransferService : IDisposable
             await TransferUtils.SendJsonAsync(stream, header, ct);
             await TransferUtils.SendJsonAsync(stream, new List<TransferFileInfo>(), ct);
 
-            // Send junk data
+            // Send junk data with bandwidth limiting to prevent LAN saturation
             var buffer = new byte[81920];
-            new Random().NextBytes(buffer);
+            Random.Shared.NextBytes(buffer);
             long sent = 0;
+
+            // Apply configured bandwidth limit (if any)
+            var limiter = new BandwidthLimiter(() => _settingsService?.Settings.TransferSpeedLimit ?? 0);
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
 
             while (sent < testSizeBytes)
             {
                 var toWrite = (int)Math.Min(buffer.Length, testSizeBytes - sent);
+                
+                // Throttle based on configured limit to prevent network saturation
+                await limiter.WaitAsync(toWrite, ct);
+                
                 await stream.WriteAsync(buffer, 0, toWrite, ct);
                 sent += toWrite;
             }

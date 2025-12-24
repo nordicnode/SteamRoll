@@ -49,8 +49,8 @@ public class DrmDetectorTests
         result.AddDrm(DrmType.SteamStub, "Steam API detected");
         result.AddDrm(DrmType.Denuvo, "Denuvo detected");
         
-        Assert.True(result.DetectedDrmList.Any(d => d.Type == DrmType.SteamStub));
-        Assert.True(result.DetectedDrmList.Any(d => d.Type == DrmType.Denuvo));
+        Assert.Contains(result.DetectedDrmList, d => d.Type == DrmType.SteamStub);
+        Assert.Contains(result.DetectedDrmList, d => d.Type == DrmType.Denuvo);
         Assert.Equal(2, result.DetectedDrmList.Count);
     }
     

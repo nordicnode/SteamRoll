@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using Microsoft.Win32;
 using SteamRoll.Services;
+using SteamRoll.Services.Security;
 
 namespace SteamRoll;
 
@@ -14,6 +15,7 @@ public partial class SettingsWindow : Window
 {
     private readonly SettingsService _settingsService;
     private readonly CacheService? _cacheService;
+    private readonly PairingService _pairingService = new();
     
     /// <summary>
     /// Gets whether the user saved changes.
@@ -199,6 +201,12 @@ public partial class SettingsWindow : Window
         // Save sync settings
         AutoSaveSyncCheck.IsChecked = settings.AutoSaveSync;
         ShowNetworkBadgesCheck.IsChecked = settings.ShowNetworkBadges;
+
+        // Security settings
+        RequireEncryptionCheck.IsChecked = settings.RequireTransferEncryption;
+        DeviceNameBox.Text = settings.DeviceName;
+        RememberDirectConnectPeersCheck.IsChecked = settings.RememberDirectConnectPeers;
+        LoadPairedDevices();
     }
     
     /// <summary>
@@ -372,6 +380,11 @@ public partial class SettingsWindow : Window
             // Save sync settings
             settings.AutoSaveSync = AutoSaveSyncCheck.IsChecked ?? false;
             settings.ShowNetworkBadges = ShowNetworkBadgesCheck.IsChecked ?? true;
+
+            // Security settings
+            settings.RequireTransferEncryption = RequireEncryptionCheck.IsChecked ?? false;
+            settings.DeviceName = DeviceNameBox.Text;
+            settings.RememberDirectConnectPeers = RememberDirectConnectPeersCheck.IsChecked ?? true;
         });
         
         ChangesSaved = true;
@@ -522,4 +535,48 @@ public partial class SettingsWindow : Window
             e.CancelCommand();
         }
     }
+
+    #region Security Tab Handlers
+
+    private void LoadPairedDevices()
+    {
+        var devices = _pairingService.GetPairedDevices();
+        PairedDevicesList.ItemsSource = devices;
+        NoPairedDevicesText.Visibility = devices.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void PairDevice_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new PairingDialog(_settingsService)
+        {
+            Owner = this
+        };
+
+        if (dialog.ShowDialog() == true && dialog.PairingSuccessful)
+        {
+            LoadPairedDevices();
+            ToastService.Instance.ShowSuccess("Device Paired", $"Successfully paired with {dialog.PairedDeviceId}");
+        }
+    }
+
+    private void UnpairDevice_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is string deviceId)
+        {
+            var result = MessageBox.Show(
+                $"Unpair device '{deviceId}'?\n\nYou will need to pair again to enable encrypted transfers.",
+                "Confirm Unpair",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                _pairingService.UnpairDevice(deviceId);
+                LoadPairedDevices();
+                ToastService.Instance.ShowSuccess("Device Unpaired", $"Removed {deviceId}");
+            }
+        }
+    }
+
+    #endregion
 }

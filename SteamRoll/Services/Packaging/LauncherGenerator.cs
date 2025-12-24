@@ -87,13 +87,61 @@ public class LauncherGenerator
 
                     echo "Launching {{game.Name}}..."
 
-                    # Try to launch with wine if it's an exe, or directly if it's executable
-                    if [[ "{{exeName}}" == *.exe ]]; then
+                    # Find wine/proton with fallback paths for Steam Deck and Flatpak
+                    find_wine() {
+                        # Check standard wine
                         if command -v wine &> /dev/null; then
-                            wine "{{exeName}}"{{args}}
+                            echo "wine"
+                            return 0
+                        fi
+                        
+                        # Check common local paths
+                        for wine_path in "$HOME/.local/bin/wine" "/usr/local/bin/wine"; do
+                            if [ -x "$wine_path" ]; then
+                                echo "$wine_path"
+                                return 0
+                            fi
+                        done
+                        
+                        # Steam Deck / SteamOS: Try Proton
+                        STEAM_PROTON="$HOME/.steam/steam/steamapps/common"
+                        if [ -d "$STEAM_PROTON" ]; then
+                            # Find newest Proton version
+                            PROTON_DIR=$(ls -d "$STEAM_PROTON/Proton"* 2>/dev/null | sort -V | tail -1)
+                            if [ -n "$PROTON_DIR" ] && [ -x "$PROTON_DIR/dist/bin/wine" ]; then
+                                echo "$PROTON_DIR/dist/bin/wine"
+                                return 0
+                            fi
+                        fi
+                        
+                        # Flatpak Steam location
+                        FLATPAK_PROTON="$HOME/.var/app/com.valvesoftware.Steam/.steam/steam/steamapps/common"
+                        if [ -d "$FLATPAK_PROTON" ]; then
+                            PROTON_DIR=$(ls -d "$FLATPAK_PROTON/Proton"* 2>/dev/null | sort -V | tail -1)
+                            if [ -n "$PROTON_DIR" ] && [ -x "$PROTON_DIR/dist/bin/wine" ]; then
+                                echo "$PROTON_DIR/dist/bin/wine"
+                                return 0
+                            fi
+                        fi
+                        
+                        return 1
+                    }
+
+                    # Try to launch with wine if it's an exe
+                    if [[ "{{exeName}}" == *.exe ]]; then
+                        WINE_CMD=$(find_wine)
+                        if [ -n "$WINE_CMD" ]; then
+                            "$WINE_CMD" "{{exeName}}"{{args}}
                         else
-                            echo "Wine not found. Attempting to run directly..."
-                            ./"{{exeName}}"{{args}}
+                            echo "ERROR: Wine/Proton not found."
+                            echo "Install wine or Steam's Proton compatibility tool."
+                            echo ""
+                            echo "Searched locations:"
+                            echo "  - wine (system PATH)"
+                            echo "  - ~/.local/bin/wine"
+                            echo "  - ~/.steam/steam/steamapps/common/Proton*/dist/bin/wine"
+                            echo "  - ~/.var/app/com.valvesoftware.Steam/... (Flatpak)"
+                            exit 1
                         fi
                     else
                          ./"{{exeName}}"{{args}}
@@ -193,11 +241,52 @@ public class LauncherGenerator
 
             echo "Launching {{gameName}} (Source Engine)..."
 
-            if command -v wine &> /dev/null; then
-                wine "{{linuxRelativeExePath}}" -game "{{linuxGamePath}}"{{args}}
+            # Find wine/proton with fallback paths for Steam Deck and Flatpak
+            find_wine() {
+                # Check standard wine
+                if command -v wine &> /dev/null; then
+                    echo "wine"
+                    return 0
+                fi
+                
+                # Check common local paths
+                for wine_path in "$HOME/.local/bin/wine" "/usr/local/bin/wine"; do
+                    if [ -x "$wine_path" ]; then
+                        echo "$wine_path"
+                        return 0
+                    fi
+                done
+                
+                # Steam Deck / SteamOS: Try Proton
+                STEAM_PROTON="$HOME/.steam/steam/steamapps/common"
+                if [ -d "$STEAM_PROTON" ]; then
+                    PROTON_DIR=$(ls -d "$STEAM_PROTON/Proton"* 2>/dev/null | sort -V | tail -1)
+                    if [ -n "$PROTON_DIR" ] && [ -x "$PROTON_DIR/dist/bin/wine" ]; then
+                        echo "$PROTON_DIR/dist/bin/wine"
+                        return 0
+                    fi
+                fi
+                
+                # Flatpak Steam location
+                FLATPAK_PROTON="$HOME/.var/app/com.valvesoftware.Steam/.steam/steam/steamapps/common"
+                if [ -d "$FLATPAK_PROTON" ]; then
+                    PROTON_DIR=$(ls -d "$FLATPAK_PROTON/Proton"* 2>/dev/null | sort -V | tail -1)
+                    if [ -n "$PROTON_DIR" ] && [ -x "$PROTON_DIR/dist/bin/wine" ]; then
+                        echo "$PROTON_DIR/dist/bin/wine"
+                        return 0
+                    fi
+                fi
+                
+                return 1
+            }
+
+            WINE_CMD=$(find_wine)
+            if [ -n "$WINE_CMD" ]; then
+                "$WINE_CMD" "{{linuxRelativeExePath}}" -game "{{linuxGamePath}}"{{args}}
             else
-                echo "Wine not found. Attempting to run directly..."
-                ./"{{linuxRelativeExePath}}" -game "{{linuxGamePath}}"{{args}}
+                echo "ERROR: Wine/Proton not found."
+                echo "Install wine or Steam's Proton compatibility tool."
+                exit 1
             fi
             """;
 

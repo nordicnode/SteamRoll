@@ -220,11 +220,14 @@ public class TransferInfo : INotifyPropertyChanged
 
 /// <summary>
 /// Singleton service for tracking all transfers.
+/// Uses IDispatcherService for UI thread marshalling to enable unit testing.
 /// </summary>
 public class TransferManager : INotifyPropertyChanged
 {
     private static readonly Lazy<TransferManager> _instance = new(() => new TransferManager());
     public static TransferManager Instance => _instance.Value;
+    
+    private readonly IDispatcherService _dispatcher;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -255,8 +258,16 @@ public class TransferManager : INotifyPropertyChanged
     /// </summary>
     public int ActiveCount => ActiveTransfers.Count;
 
-    private TransferManager()
+    private TransferManager() : this(new WpfDispatcherService())
     {
+    }
+    
+    /// <summary>
+    /// Constructor for dependency injection (e.g., unit testing with InlineDispatcherService).
+    /// </summary>
+    public TransferManager(IDispatcherService dispatcher)
+    {
+        _dispatcher = dispatcher;
         ActiveTransfers.CollectionChanged += (s, e) =>
         {
             OnPropertyChanged(nameof(HasActiveTransfers));
@@ -281,7 +292,7 @@ public class TransferManager : INotifyPropertyChanged
             StartTime = DateTime.Now
         };
 
-        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        _dispatcher.Invoke(() =>
         {
             ActiveTransfers.Add(transfer);
         });
@@ -307,7 +318,7 @@ public class TransferManager : INotifyPropertyChanged
     /// </summary>
     public void CompleteTransfer(Guid transferId, bool success, string? errorMessage = null)
     {
-        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        _dispatcher.Invoke(() =>
         {
             var transfer = ActiveTransfers.FirstOrDefault(t => t.Id == transferId);
             if (transfer != null)
@@ -333,7 +344,7 @@ public class TransferManager : INotifyPropertyChanged
     /// </summary>
     public void CancelTransfer(Guid transferId)
     {
-        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        _dispatcher.Invoke(() =>
         {
             var transfer = ActiveTransfers.FirstOrDefault(t => t.Id == transferId);
             if (transfer != null)
@@ -351,7 +362,7 @@ public class TransferManager : INotifyPropertyChanged
     /// </summary>
     public void ClearHistory()
     {
-        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        _dispatcher.Invoke(() =>
         {
             CompletedTransfers.Clear();
         });

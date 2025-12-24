@@ -149,7 +149,11 @@ public class SaveSyncService : IDisposable
             // Compute current hash
             var currentHash = ComputeDirectoryHash(state.SavePath);
             
-            // Create save info for announcement
+            // Increment vector clock for this device
+            var deviceId = _settingsService.Settings.DeviceId;
+            state.VectorClock.Increment(deviceId);
+            
+            // Create save info for announcement with vector clock
             var saveInfo = new SaveSyncOffer
             {
                 AppId = appId,
@@ -157,7 +161,8 @@ public class SaveSyncService : IDisposable
                 Hash = currentHash,
                 Timestamp = DateTime.Now,
                 SizeBytes = GetDirectorySize(state.SavePath),
-                Version = state.LocalVersion + 1
+                Version = state.LocalVersion + 1,
+                VectorClock = new VectorClock(state.VectorClock)
             };
 
             // Broadcast save availability to peers
@@ -174,7 +179,7 @@ public class SaveSyncService : IDisposable
             state.LastSyncTime = DateTime.Now;
             state.LocalVersion++;
 
-            LogService.Instance.Info($"Syncing saves for {state.GameName} to {peers.Count} peers", "SaveSync");
+            LogService.Instance.Info($"Syncing saves for {state.GameName} to {peers.Count} peers (vclock: {state.VectorClock})", "SaveSync");
             SyncCompleted?.Invoke(this, (appId, true, $"Synced to {peers.Count} peers"));
             return true;
         }
@@ -188,6 +193,7 @@ public class SaveSyncService : IDisposable
 
     /// <summary>
     /// Handles receiving a save sync offer from a peer.
+    /// Uses vector clocks for causality detection instead of timestamps.
     /// </summary>
     public void HandleSaveSyncOffer(SaveSyncOffer offer, string peerIp)
     {
@@ -197,26 +203,29 @@ public class SaveSyncService : IDisposable
             return;
         }
 
-        // Check if remote save is newer
+        // Check if remote save is different
         if (offer.Hash != state.LastKnownHash)
         {
-            // Potential conflict or new save
-            var localTime = state.LastSyncTime;
-            var remoteTime = offer.Timestamp;
-
-            if (remoteTime > localTime)
+            // Use vector clock to determine causality
+            var comparison = state.VectorClock.CompareTo(offer.VectorClock);
+            
+            if (comparison < 0)
             {
-                // Remote is newer, offer to download
+                // Remote happened-after local (remote is strictly newer)
+                LogService.Instance.Info($"Remote save for {offer.GameName} is newer (vclock comparison)", "SaveSync");
                 RemoteSaveAvailable?.Invoke(this, offer);
             }
-            else if (remoteTime < localTime && offer.Version < state.LocalVersion)
+            else if (comparison > 0)
             {
-                // Local is newer, we already synced our version
-                LogService.Instance.Debug($"Local save for {offer.GameName} is newer, ignoring remote offer", "SaveSync");
+                // Local happened-after remote (local is strictly newer)
+                LogService.Instance.Debug($"Local save for {offer.GameName} is newer (vclock comparison), ignoring remote offer", "SaveSync");
             }
             else
             {
-                // Times are similar but hashes differ - conflict!
+                // Clocks are concurrent - this is a true conflict!
+                // Vector clocks detect this reliably without depending on synchronized system clocks
+                LogService.Instance.Warning($"Concurrent modification detected for {offer.GameName} - conflict!", "SaveSync");
+                
                 var conflict = new SaveConflict
                 {
                     LocalSave = new SyncedSave
@@ -225,7 +234,8 @@ public class SaveSyncService : IDisposable
                         GameName = state.GameName,
                         Hash = state.LastKnownHash,
                         Timestamp = state.LastSyncTime,
-                        Version = state.LocalVersion
+                        Version = state.LocalVersion,
+                        VectorClock = new VectorClock(state.VectorClock)
                     },
                     RemoteSave = new SyncedSave
                     {
@@ -235,7 +245,8 @@ public class SaveSyncService : IDisposable
                         Timestamp = offer.Timestamp,
                         SizeBytes = offer.SizeBytes,
                         Version = offer.Version,
-                        PeerSource = peerIp
+                        PeerSource = peerIp,
+                        VectorClock = new VectorClock(offer.VectorClock)
                     },
                     ConflictTime = DateTime.Now
                 };
@@ -247,6 +258,7 @@ public class SaveSyncService : IDisposable
 
     /// <summary>
     /// Resolves a save conflict with the specified resolution.
+    /// Uses vector clocks for proper distributed causality when applicable.
     /// </summary>
     public async Task ResolveConflictAsync(SaveConflict conflict, SaveConflictResolution resolution)
     {
@@ -256,16 +268,23 @@ public class SaveSyncService : IDisposable
         switch (resolution)
         {
             case SaveConflictResolution.KeepLocal:
-                // Just mark as resolved, keep local version
+                // Keep local version, increment our clock to show we "won" the conflict
+                var deviceId = _settingsService.Settings.DeviceId;
+                state.VectorClock.Increment(deviceId);
                 state.LastSyncTime = DateTime.Now;
                 LogService.Instance.Info($"Kept local saves for {conflict.GameName}", "SaveSync");
                 break;
 
             case SaveConflictResolution.UseRemote:
-                // Create backup of local first
-                await CreateVersionBackupAsync(conflict.AppId, state.SavePath);
+                // Create timestamped .bak backup of local before overwriting
+                await CreateTimestampedBackupAsync(conflict.AppId, state.SavePath, "before_remote");
+                
+                // Merge remote vector clock into ours to maintain causality chain
+                state.VectorClock.Merge(conflict.RemoteSave.VectorClock);
+                state.VectorClock.Increment(_settingsService.Settings.DeviceId);
+                
                 // Download and apply remote (handled by caller)
-                LogService.Instance.Info($"Will use remote saves for {conflict.GameName}", "SaveSync");
+                LogService.Instance.Info($"Will use remote saves for {conflict.GameName} (local backed up as .bak)", "SaveSync");
                 break;
 
             case SaveConflictResolution.KeepBoth:
@@ -273,6 +292,46 @@ public class SaveSyncService : IDisposable
                 await CreateVersionBackupAsync(conflict.AppId, state.SavePath, "_local");
                 // Remote will be downloaded with timestamp suffix (handled by caller)
                 LogService.Instance.Info($"Keeping both local and remote saves for {conflict.GameName}", "SaveSync");
+                break;
+
+            case SaveConflictResolution.LastModifiedWins:
+                // Use vector clock total logical time to determine "winner"
+                // This is more reliable than timestamps which depend on clock sync
+                var localLogicalTime = conflict.LocalSave.VectorClock.TotalLogicalTime;
+                var remoteLogicalTime = conflict.RemoteSave.VectorClock.TotalLogicalTime;
+                
+                LogService.Instance.Debug(
+                    $"LastModifiedWins: local vclock={localLogicalTime}, remote vclock={remoteLogicalTime}", "SaveSync");
+                
+                // If logical times are equal, fall back to timestamp (with warning)
+                bool remoteWins;
+                if (localLogicalTime != remoteLogicalTime)
+                {
+                    remoteWins = remoteLogicalTime > localLogicalTime;
+                }
+                else
+                {
+                    // Fallback to timestamp when vector clocks are equal
+                    LogService.Instance.Warning(
+                        $"Vector clocks equal for {conflict.GameName}, falling back to timestamps (may be unreliable)", "SaveSync");
+                    remoteWins = conflict.RemoteSave.Timestamp > conflict.LocalSave.Timestamp;
+                }
+                
+                if (remoteWins)
+                {
+                    // Remote wins - backup local first
+                    await CreateTimestampedBackupAsync(conflict.AppId, state.SavePath, "local_overwritten");
+                    state.VectorClock.Merge(conflict.RemoteSave.VectorClock);
+                    state.VectorClock.Increment(_settingsService.Settings.DeviceId);
+                    LogService.Instance.Info($"Remote save wins for {conflict.GameName}, local backed up as .bak", "SaveSync");
+                }
+                else
+                {
+                    // Local wins - increment clock to show we resolved the conflict
+                    state.VectorClock.Increment(_settingsService.Settings.DeviceId);
+                    state.LastSyncTime = DateTime.Now;
+                    LogService.Instance.Info($"Local save wins for {conflict.GameName}, keeping local", "SaveSync");
+                }
                 break;
         }
     }
@@ -449,6 +508,51 @@ public class SaveSyncService : IDisposable
         }
 
         SaveVersionsMetadata(appId);
+    }
+
+    /// <summary>
+    /// Creates a timestamped .bak backup file of the current saves.
+    /// These backups are kept alongside the save directory for easy rollback.
+    /// Uses format: saves_YYYYMMDD_HHmmss_{reason}.bak.zip
+    /// </summary>
+    private async Task CreateTimestampedBackupAsync(int appId, string savePath, string reason = "backup")
+    {
+        if (!Directory.Exists(savePath))
+        {
+            LogService.Instance.Warning($"Cannot backup - save path doesn't exist: {savePath}", "SaveSync");
+            return;
+        }
+
+        try
+        {
+            // Create .bak file in the same parent directory as the saves
+            var parentDir = Path.GetDirectoryName(savePath) ?? savePath;
+            var saveDirName = Path.GetFileName(savePath);
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var bakFileName = $"{saveDirName}_{timestamp}_{reason}.bak.zip";
+            var bakPath = Path.Combine(parentDir, bakFileName);
+
+            await Task.Run(() =>
+            {
+                // Create backup zip
+                if (File.Exists(bakPath))
+                    File.Delete(bakPath);
+                    
+                ZipFile.CreateFromDirectory(savePath, bakPath);
+            });
+
+            LogService.Instance.Info($"Created timestamped backup: {bakFileName}", "SaveSync");
+
+            // Also add to versioned backups for the UI
+            if (_syncStates.TryGetValue(appId, out var state))
+            {
+                await CreateVersionBackupAsync(appId, savePath, $"_{reason}");
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Failed to create timestamped backup: {ex.Message}", ex, "SaveSync");
+        }
     }
 
     private void LoadSaveVersions(int appId)

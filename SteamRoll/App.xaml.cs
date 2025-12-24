@@ -1,4 +1,5 @@
 ﻿using System.Windows;
+using SteamRoll.Services;
 
 namespace SteamRoll;
 
@@ -7,6 +8,8 @@ namespace SteamRoll;
 /// </summary>
 public partial class App : Application
 {
+    private ServiceContainer? _services;
+    
     protected override void OnStartup(StartupEventArgs e)
     {
         // Hook global exception handlers
@@ -23,10 +26,21 @@ public partial class App : Application
         };
         
         base.OnStartup(e);
+        
+        // Initialize service container for dependency injection
+        _services = new ServiceContainer();
+        ServiceContainer.Initialize(_services);
 
         // Manually initialize and show the main window to ensure Resources are loaded first
         // This prevents "StaticResource" resolution errors in single-file builds
-        var mainWindow = new MainWindow();
+        var mainWindow = new MainWindow(_services);
         mainWindow.Show();
+    }
+    
+    protected override void OnExit(ExitEventArgs e)
+    {
+        // Dispose services on exit
+        _services?.Dispose();
+        base.OnExit(e);
     }
 }

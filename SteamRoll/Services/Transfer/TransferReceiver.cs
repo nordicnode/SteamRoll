@@ -1,8 +1,11 @@
 using System.Text.Json;
 using System.Buffers;
 using System.IO;
+using System.IO.Hashing;
 using System.Net.Sockets;
-using System.Security.Cryptography;
+using System.Security;
+using SteamRoll.Services.DeltaSync;
+using SteamRoll.Services.Security;
 
 namespace SteamRoll.Services.Transfer;
 
@@ -12,10 +15,14 @@ namespace SteamRoll.Services.Transfer;
 public class TransferReceiver
 {
     private const int BUFFER_SIZE = 81920; // 80KB chunks
-    private const string PROTOCOL_MAGIC_V1 = "STEAMROLL_TRANSFER_V1";
-    private const string PROTOCOL_MAGIC_V2 = "STEAMROLL_TRANSFER_V2";
+    private const string PROTOCOL_MAGIC_V1 = ProtocolConstants.TRANSFER_MAGIC_V1;
+    private const string PROTOCOL_MAGIC_V2 = ProtocolConstants.TRANSFER_MAGIC_V2;
+    private const string PROTOCOL_MAGIC_V3 = ProtocolConstants.TRANSFER_MAGIC_V3;
 
-    private readonly string _receiveBasePath;
+    private string _receiveBasePath;
+    private readonly DeltaService _deltaService = new();
+    private readonly PairingService _pairingService = new();
+    private readonly SettingsService? _settingsService;
     // Using a shared dictionary for path locks to prevent concurrent writes to same path
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _pathLocks;
 
@@ -28,18 +35,23 @@ public class TransferReceiver
     public event Func<List<Models.RemoteGame>>? LocalLibraryRequested;
     public event Func<string, string, int, Task>? PullPackageRequested;
 
-    public TransferReceiver(string receiveBasePath, System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> pathLocks)
+    public TransferReceiver(string receiveBasePath, System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> pathLocks, SettingsService? settingsService = null)
     {
         _receiveBasePath = receiveBasePath;
         _pathLocks = pathLocks;
+        _settingsService = settingsService;
     }
 
+    /// <summary>
+    /// Updates the receive path for incoming transfers.
+    /// Called when the user changes output path in settings.
+    /// </summary>
     public void UpdateReceivePath(string newPath)
     {
-        // _receiveBasePath is readonly in this context but if we want to support update we'd need to change it.
-        // For now, let's assume it's fixed per instance or we recreate the receiver.
-        // Actually, let's make it settable via a method in the service, but since I moved logic here,
-        // I should probably allow updating it. But field is readonly. I'll fix by removing readonly.
+        if (string.IsNullOrWhiteSpace(newPath)) return;
+        
+        _receiveBasePath = newPath;
+        LogService.Instance.Info($"Receive path updated to: {newPath}", "TransferReceiver");
     }
 
     public async Task HandleIncomingTransferAsync(TcpClient client, CancellationToken ct)
@@ -56,14 +68,42 @@ public class TransferReceiver
             // Check protocol compatibility
             bool isV1 = header.Magic == PROTOCOL_MAGIC_V1;
             bool isV2 = header.Magic == PROTOCOL_MAGIC_V2;
+            bool isV3 = header.Magic == PROTOCOL_MAGIC_V3;
 
-            if (!isV1 && !isV2)
+            if (!isV1 && !isV2 && !isV3)
             {
                 LogService.Instance.Warning($"Unknown transfer protocol magic: {header.Magic}", "TransferReceiver");
                 return;
             }
 
-            bool isCompressed = isV2 && header.Compression == "GZip";
+            // Handle encryption for V3 protocol
+            Stream dataStream = networkStream;
+            if (isV3)
+            {
+                var remoteEndpoint = client.Client.RemoteEndPoint?.ToString()?.Split(':')[0] ?? "unknown";
+                var knownKey = _pairingService.GetPairedKey(remoteEndpoint);
+                var localDeviceId = _settingsService?.Settings.DeviceId ?? "UNKNOWN";
+                
+                if (knownKey == null)
+                {
+                    LogService.Instance.Warning($"V3 encrypted transfer requested but no paired key for {remoteEndpoint}", "TransferReceiver");
+                    return;
+                }
+                
+                var handshakeResult = await TransferHandshake.RespondToHandshakeAsync(
+                    networkStream, knownKey, localDeviceId, ct);
+                
+                if (!handshakeResult.Success)
+                {
+                    LogService.Instance.Warning($"Encryption handshake failed: {handshakeResult.ErrorMessage}", "TransferReceiver");
+                    return;
+                }
+                
+                dataStream = new EncryptedStream(networkStream, knownKey, leaveOpen: true);
+                LogService.Instance.Info($"Encrypted connection established with {handshakeResult.RemoteDeviceId}", "TransferReceiver");
+            }
+
+            bool isCompressed = (isV2 || isV3) && header.Compression == "GZip";
 
             // Receive file list
             var fileInfos = await TransferUtils.ReceiveJsonAsync<List<TransferFileInfo>>(networkStream, ct);
@@ -161,6 +201,7 @@ public class TransferReceiver
 
                 // Smart Sync Analysis
                 var skippedFiles = new List<string>();
+                var deltaSignatures = new Dictionary<string, string>();
 
                 if (Directory.Exists(destPath))
                 {
@@ -205,8 +246,11 @@ public class TransferReceiver
                                     {
                                         if (!string.IsNullOrEmpty(fileInfo.Sha256))
                                         {
-                                            // Offload synchronous hashing to prevent blocking the thread pool
-                                            var computedHash = await Task.Run(() => ComputeSha256(localPath), ct);
+                                            // Hash small files synchronously to reduce thread pool pressure
+                                            // Only offload larger files (>1MB) to background threads
+                                            var computedHash = fi.Length < 1024 * 1024
+                                                ? ComputeXxHash64(localPath)
+                                                : await Task.Run(() => ComputeXxHash64(localPath), ct);
                                             if (string.Equals(computedHash, fileInfo.Sha256, StringComparison.OrdinalIgnoreCase))
                                             {
                                                 matches = true;
@@ -221,6 +265,23 @@ public class TransferReceiver
                             {
                                 skippedFiles.Add(fileInfo.RelativePath);
                             }
+                            else if (header.SupportsDelta && fi.Length >= DeltaCalculator.MIN_DELTA_SIZE)
+                            {
+                                // File exists but differs - generate signatures for delta sync
+                                try
+                                {
+                                    var sigs = _deltaService.GenerateSignatures(localPath);
+                                    if (sigs.Count > 0)
+                                    {
+                                        var sigBytes = DeltaService.SerializeSignatures(sigs);
+                                        deltaSignatures[fileInfo.RelativePath] = System.Text.Encoding.UTF8.GetString(sigBytes);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    LogService.Instance.Debug($"Failed to generate delta signatures: {ex.Message}", "TransferReceiver");
+                                }
+                            }
                         }
 
                         // Analysis progress
@@ -233,7 +294,19 @@ public class TransferReceiver
                     }
                 }
 
-                await TransferUtils.SendJsonAsync(networkStream, new TransferAck { Accepted = true, SkippedFiles = skippedFiles }, ct);
+                // Send ACK with skip list and delta signatures
+                await TransferUtils.SendJsonAsync(networkStream, new TransferAck 
+                { 
+                    Accepted = true, 
+                    SkippedFiles = skippedFiles,
+                    SupportsDelta = true,
+                    DeltaSignatures = deltaSignatures
+                }, ct);
+                
+                if (deltaSignatures.Count > 0)
+                {
+                    LogService.Instance.Info($"Sent delta signatures for {deltaSignatures.Count} files", "TransferReceiver");
+                }
 
                 Directory.CreateDirectory(destPath);
 
@@ -290,8 +363,9 @@ public class TransferReceiver
                         if (!IsPathSafe(localRelativePath))
                         {
                             LogService.Instance.Warning($"Blocked potentially malicious file path: {localRelativePath}", "TransferReceiver");
-                            await ConsumeStreamBytes(inputStream, fileInfo.Size, buffer, ct);
-                            continue;
+                            // SECURITY: Do NOT consume stream data from malicious peers.
+                            // Throw exception to immediately close connection and prevent DoS attacks.
+                            throw new SecurityException($"Malicious path detected: {localRelativePath}. Connection terminated.");
                         }
 
                         if (completedFiles.Contains(fileInfo.RelativePath))
@@ -318,45 +392,138 @@ public class TransferReceiver
 
                         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
 
-                        using var fileStream = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true);
-                        using var hasher = !string.IsNullOrEmpty(fileInfo.Sha256) ? IncrementalHash.CreateHash(HashAlgorithmName.SHA256) : null;
-
-                        long remaining = fileInfo.Size;
-                        while (remaining > 0)
+                        // Check for delta mode flag if we sent delta signatures
+                        bool isDeltaTransfer = false;
+                        if (deltaSignatures.ContainsKey(fileInfo.RelativePath))
                         {
-                            var toRead = (int)Math.Min(remaining, buffer.Length);
-                            var bytesRead = await inputStream.ReadAsync(buffer.AsMemory(0, toRead), ct);
-                            if (bytesRead == 0) break;
-
-                            await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-                            if (hasher != null) hasher.AppendData(buffer, 0, bytesRead);
-
-                            remaining -= bytesRead;
-                            receivedBytes += bytesRead;
-
-                            var progressNow = DateTime.UtcNow;
-                            if ((progressNow - lastProgressTime).TotalMilliseconds >= 100)
+                            var modeFlagBuffer = new byte[1];
+                            var modeRead = await inputStream.ReadAsync(modeFlagBuffer, ct);
+                            if (modeRead == 1)
                             {
-                                lastProgressTime = progressNow;
-                                ProgressChanged?.Invoke(this, new TransferProgress
-                                {
-                                    GameName = gameName,
-                                    CurrentFile = fileInfo.RelativePath,
-                                    BytesTransferred = receivedBytes,
-                                    TotalBytes = header.TotalSize,
-                                    IsSending = false
-                                });
+                                isDeltaTransfer = modeFlagBuffer[0] == 1;
                             }
                         }
 
-                        if (!string.IsNullOrEmpty(fileInfo.Sha256) && hasher != null)
+                        if (isDeltaTransfer)
                         {
-                            var actualHashBytes = hasher.GetHashAndReset();
-                            var actualHash = Convert.ToHexString(actualHashBytes).ToLowerInvariant();
-                            if (!string.Equals(actualHash, fileInfo.Sha256, StringComparison.OrdinalIgnoreCase))
+                            // Delta transfer mode - read and apply delta
+                            var intBuffer = new byte[4];
+                            
+                            // Read instruction count
+                            await inputStream.ReadAsync(intBuffer, ct);
+                            var instructionCount = BitConverter.ToInt32(intBuffer);
+                            
+                            // Read literal data size
+                            await inputStream.ReadAsync(intBuffer, ct);
+                            var literalDataSize = BitConverter.ToInt32(intBuffer);
+                            
+                            // Read instruction bytes length
+                            await inputStream.ReadAsync(intBuffer, ct);
+                            var instructionBytesLength = BitConverter.ToInt32(intBuffer);
+                            
+                            // Read instructions
+                            var instructionBytes = new byte[instructionBytesLength];
+                            var totalInstructionRead = 0;
+                            while (totalInstructionRead < instructionBytesLength)
                             {
-                                LogService.Instance.Error($"Checksum mismatch for {fileInfo.RelativePath}", category: "TransferReceiver");
-                                throw new InvalidDataException($"Checksum verification failed for {fileInfo.RelativePath}");
+                                var read = await inputStream.ReadAsync(
+                                    instructionBytes.AsMemory(totalInstructionRead, instructionBytesLength - totalInstructionRead), ct);
+                                if (read == 0) break;
+                                totalInstructionRead += read;
+                            }
+                            
+                            // Read literal data
+                            var literalData = new byte[literalDataSize];
+                            var totalLiteralRead = 0;
+                            while (totalLiteralRead < literalDataSize)
+                            {
+                                var read = await inputStream.ReadAsync(
+                                    literalData.AsMemory(totalLiteralRead, literalDataSize - totalLiteralRead), ct);
+                                if (read == 0) break;
+                                totalLiteralRead += read;
+                            }
+                            
+                            // Deserialize instructions and apply delta
+                            var instructions = DeltaService.DeserializeInstructions(instructionBytes);
+                            
+                            // Create temp file for delta application
+                            var tempPath = fullPath + ".delta_tmp";
+                            var existingPath = fullPath; // The file we have signatures for
+                            
+                            try
+                            {
+                                _deltaService.ApplyDelta(existingPath, tempPath, instructions, literalData);
+                                
+                                // Replace original with reconstructed file
+                                if (File.Exists(fullPath))
+                                    File.Delete(fullPath);
+                                File.Move(tempPath, fullPath);
+                            }
+                            finally
+                            {
+                                // Clean up temp file if it still exists (e.g., on failure)
+                                if (File.Exists(tempPath))
+                                {
+                                    try { File.Delete(tempPath); } catch { /* Ignore cleanup failures */ }
+                                }
+                            }
+                            
+                            receivedBytes += fileInfo.Size; // Count as full file for progress
+                            
+                            LogService.Instance.Info($"Applied delta for {fileInfo.RelativePath}", "TransferReceiver");
+                            
+                            ProgressChanged?.Invoke(this, new TransferProgress
+                            {
+                                GameName = gameName,
+                                CurrentFile = fileInfo.RelativePath + " (delta applied)",
+                                BytesTransferred = receivedBytes,
+                                TotalBytes = header.TotalSize,
+                                IsSending = false
+                            });
+                        }
+                        else
+                        {
+                            // Full file transfer mode
+                            using var fileStream = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true);
+                            // Use XxHash64 for faster integrity checking (10-20x faster than SHA-256)
+                            var hasher = !string.IsNullOrEmpty(fileInfo.Sha256) ? new XxHash64() : null;
+
+                            long remaining = fileInfo.Size;
+                            while (remaining > 0)
+                            {
+                                var toRead = (int)Math.Min(remaining, buffer.Length);
+                                var bytesRead = await inputStream.ReadAsync(buffer.AsMemory(0, toRead), ct);
+                                if (bytesRead == 0) break;
+
+                                await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                                hasher?.Append(buffer.AsSpan(0, bytesRead));
+
+                                remaining -= bytesRead;
+                                receivedBytes += bytesRead;
+
+                                var progressNow = DateTime.UtcNow;
+                                if ((progressNow - lastProgressTime).TotalMilliseconds >= 100)
+                                {
+                                    lastProgressTime = progressNow;
+                                    ProgressChanged?.Invoke(this, new TransferProgress
+                                    {
+                                        GameName = gameName,
+                                        CurrentFile = fileInfo.RelativePath,
+                                        BytesTransferred = receivedBytes,
+                                        TotalBytes = header.TotalSize,
+                                        IsSending = false
+                                    });
+                                }
+                            }
+
+                            if (!string.IsNullOrEmpty(fileInfo.Sha256) && hasher != null)
+                            {
+                                var actualHash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
+                                if (!string.Equals(actualHash, fileInfo.Sha256, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    LogService.Instance.Error($"Checksum mismatch for {fileInfo.RelativePath}", category: "TransferReceiver");
+                                    throw new InvalidDataException($"Checksum verification failed for {fileInfo.RelativePath}");
+                                }
                             }
                         }
 
@@ -520,12 +687,15 @@ public class TransferReceiver
         await File.WriteAllTextAsync(markerPath, json);
     }
 
-    private static string ComputeSha256(string filePath)
+    /// <summary>
+    /// Computes XxHash64 for a file. 10-20x faster than SHA-256.
+    /// </summary>
+    private static string ComputeXxHash64(string filePath)
     {
-        using var sha256 = SHA256.Create();
         using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, FileOptions.SequentialScan);
-        var hash = sha256.ComputeHash(stream);
-        return Convert.ToHexString(hash).ToLowerInvariant();
+        var hash = new XxHash64();
+        hash.Append(stream);
+        return Convert.ToHexString(hash.GetCurrentHash()).ToLowerInvariant();
     }
 
     private static bool IsPathSafe(string relativePath)

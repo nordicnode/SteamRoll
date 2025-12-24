@@ -85,6 +85,11 @@ public class PackageBuilder
             // Path might be invalid or network path that DriveInfo doesn't like, proceed with caution
             LogService.Instance.Warning($"Could not check disk space for {outputPath}", "PackageBuilder");
         }
+        catch (IOException ioEx)
+        {
+            // UNC paths (\\Server\Share) may throw IOException on some Windows configurations
+            LogService.Instance.Warning($"Could not check disk space for {outputPath}: {ioEx.Message}", "PackageBuilder");
+        }
         
         // Initialize or use existing state
         var state = resumeState ?? new PackageState
@@ -141,24 +146,8 @@ public class PackageBuilder
                 SavePackageState(state);
             }
 
-            // Step 2: Detect interfaces
-            List<string> interfaces = new();
-            if (state.CurrentStep <= PackagingStep.DetectingInterfaces)
-            {
-                state.CurrentStep = PackagingStep.DetectingInterfaces;
-                SavePackageState(state);
-                
-                ReportProgress("Detecting Steam interfaces...", 70);
-                interfaces = DetectGameInterfaces(packageDir);
-                
-                // Checkpoint
-                SavePackageState(state);
-            }
-            else
-            {
-                // Re-detect if skipping (it's fast)
-                interfaces = DetectGameInterfaces(packageDir); 
-            }
+            // Note: Interface detection is now handled internally by GoldbergPatcher
+            // which scans original DLLs before replacement for stability
 
             bool emulatorApplied = false;
             
@@ -192,7 +181,7 @@ public class PackageBuilder
                     }
                     ReportProgress("Applying Goldberg Emulator...", 80);
                     emulatorApplied = _goldbergService.ApplyGoldberg(packageDir, game.AppId, options.GoldbergConfig);
-                    if (interfaces.Count > 0) _goldbergService.CreateInterfacesFile(packageDir, interfaces);
+                    // Interface detection/writing is now handled internally by GoldbergPatcher
                 }
                 
                 // Checkpoint

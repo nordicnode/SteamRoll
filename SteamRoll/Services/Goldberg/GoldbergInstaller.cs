@@ -254,6 +254,7 @@ public class GoldbergInstaller
 
             if (releaseElement.TryGetProperty("assets", out var assets))
             {
+                // First pass: Look for specific naming patterns (most reliable)
                 foreach (var asset in assets.EnumerateArray())
                 {
                     var name = asset.GetProperty("name").GetString() ?? "";
@@ -270,6 +271,7 @@ public class GoldbergInstaller
                     }
                 }
 
+                // Second pass: Look for emu-win pattern
                 foreach (var asset in assets.EnumerateArray())
                 {
                     var name = asset.GetProperty("name").GetString() ?? "";
@@ -279,6 +281,23 @@ public class GoldbergInstaller
                          name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)))
                     {
                         var url = asset.GetProperty("browser_download_url").GetString();
+                        return (url, version);
+                    }
+                }
+
+                // Fallback: Grab any .zip or .7z that isn't source code
+                // This handles cases where maintainer changes naming convention
+                foreach (var asset in assets.EnumerateArray())
+                {
+                    var name = asset.GetProperty("name").GetString() ?? "";
+                    if ((name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) || 
+                         name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase)) &&
+                        !name.Contains("source", StringComparison.OrdinalIgnoreCase) &&
+                        !name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
+                        !name.Contains("mac", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var url = asset.GetProperty("browser_download_url").GetString();
+                        LogService.Instance.Debug($"Using fallback asset: {name}", "GoldbergInstaller");
                         return (url, version);
                     }
                 }

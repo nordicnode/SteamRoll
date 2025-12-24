@@ -56,7 +56,8 @@ It creates portable, LAN-ready game packages by automatically applying compatibi
     *   **Manual Sync Button**: One-click "Sync Saves" button in game details to sync saves on demand.
     *   **Automatic Background Sync**: Optional setting to automatically sync saves in the background.
     *   **Versioned Backups**: Automatically maintains up to 5 versioned backups of your saves.
-    *   **Conflict Detection**: Smart detection of save conflicts with resolution options.
+    *   **Last Modified Wins**: Default conflict resolution uses the newest save, always backing up the "losing" save as a timestamped `.bak.zip` file.
+    *   **Never Lose Data**: Every overwrite creates a timestamped backup first - save data is precious!
 *   **Package Import**: Easily ingest external SteamRoll packages (ZIPs) via drag-and-drop or the Import button.
 *   **Update System**: Checks for updates to both the SteamRoll application and the Goldberg Emulator (supports GitHub fork for newer Steam SDKs).
 

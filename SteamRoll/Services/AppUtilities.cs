@@ -68,14 +68,31 @@ public static class AppConstants
     // ============================================
     
     /// <summary>
-    /// Interval between peer announcements in milliseconds.
+    /// Base interval between peer announcements in milliseconds.
+    /// Actual interval will be randomized with jitter to prevent broadcast storms.
     /// </summary>
     public const int ANNOUNCE_INTERVAL_MS = 5000;
     
     /// <summary>
-    /// Time before a peer is considered lost in milliseconds.
+    /// Maximum jitter to add to the announce interval in milliseconds.
+    /// Prevents multiple clients from broadcasting simultaneously.
+    /// Actual delay will be: ANNOUNCE_INTERVAL_MS + random(0, ANNOUNCE_JITTER_MS)
     /// </summary>
-    public const int PEER_TIMEOUT_MS = 15000;
+    public const int ANNOUNCE_JITTER_MS = 2000;
+    
+    /// <summary>
+    /// Maximum random delay at startup before first announcement.
+    /// Prevents burst of announcements when multiple clients start together.
+    /// </summary>
+    public const int ANNOUNCE_STARTUP_JITTER_MS = 3000;
+    
+    /// <summary>
+    /// Time before a peer is considered lost in milliseconds.
+    /// Must be greater than 2x (ANNOUNCE_INTERVAL_MS + ANNOUNCE_JITTER_MS) to handle 
+    /// 2 consecutive dropped UDP packets with max jitter applied.
+    /// Math: 2 × (5000 + 2000) = 14000ms, so 20000ms gives comfortable margin.
+    /// </summary>
+    public const int PEER_TIMEOUT_MS = 20000;
     
     // ============================================
     // UI Constants
@@ -182,3 +199,36 @@ public static class FormatUtils
         return sanitized;
     }
 }
+
+/// <summary>
+/// Network-related utility methods.
+/// </summary>
+public static class NetworkUtils
+{
+    /// <summary>
+    /// Gets the local IP address of the primary network interface.
+    /// Falls back to 0.0.0.0 if no suitable address is found.
+    /// </summary>
+    public static string GetLocalIpAddress()
+    {
+        try
+        {
+            // Get the first non-loopback IPv4 address
+            var host = System.Net.Dns.GetHostEntry(System.Net.Dns.GetHostName());
+            foreach (var ip in host.AddressList)
+            {
+                if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                {
+                    return ip.ToString();
+                }
+            }
+        }
+        catch
+        {
+            // Fall through to default
+        }
+        
+        return "0.0.0.0";
+    }
+}
+

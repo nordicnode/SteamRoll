@@ -44,6 +44,12 @@ public class SyncedSave
     public int Version { get; set; }
 
     /// <summary>
+    /// Vector clock for distributed causality tracking.
+    /// Used to detect concurrent modifications without relying on synchronized clocks.
+    /// </summary>
+    public VectorClock VectorClock { get; set; } = new();
+
+    /// <summary>
     /// Formatted size for display.
     /// </summary>
     [JsonIgnore]
@@ -99,6 +105,11 @@ public class GameSyncState
     public DateTime LastSyncTime { get; set; }
     public int LocalVersion { get; set; }
     public bool SyncEnabled { get; set; } = true;
+    
+    /// <summary>
+    /// Vector clock tracking modifications to this game's saves.
+    /// </summary>
+    public VectorClock VectorClock { get; set; } = new();
 }
 
 /// <summary>
@@ -112,6 +123,11 @@ public class SaveSyncOffer
     public DateTime Timestamp { get; set; }
     public long SizeBytes { get; set; }
     public int Version { get; set; }
+
+    /// <summary>
+    /// Vector clock for distributed conflict detection.
+    /// </summary>
+    public VectorClock VectorClock { get; set; } = new();
 }
 
 /// <summary>
@@ -119,7 +135,25 @@ public class SaveSyncOffer
 /// </summary>
 public enum SaveConflictResolution
 {
+    /// <summary>
+    /// Keep the local save, ignore remote changes.
+    /// </summary>
     KeepLocal,
+    
+    /// <summary>
+    /// Use the remote save, backup local as .bak first.
+    /// </summary>
     UseRemote,
-    KeepBoth
+    
+    /// <summary>
+    /// Keep both saves (local with _local suffix, remote applied).
+    /// </summary>
+    KeepBoth,
+    
+    /// <summary>
+    /// Automatically use the most recently modified save.
+    /// The "losing" save is always backed up with a timestamped .bak file.
+    /// This is the recommended default for automatic sync.
+    /// </summary>
+    LastModifiedWins
 }

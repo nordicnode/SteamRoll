@@ -74,7 +74,18 @@ public partial class MainWindow : Window
     }
 
 
-    public MainWindow()
+    /// <summary>
+    /// Creates MainWindow with default service container (for designer support).
+    /// </summary>
+    public MainWindow() : this(ServiceContainer.Instance)
+    {
+    }
+    
+    /// <summary>
+    /// Creates MainWindow with injected services.
+    /// </summary>
+    /// <param name="services">The service container providing all dependencies.</param>
+    public MainWindow(ServiceContainer services)
     {
         InitializeComponent();
 
@@ -82,43 +93,28 @@ public partial class MainWindow : Window
         LogService.Instance.Info("SteamRoll starting up", "App");
         LogService.Instance.CleanupOldLogs();
         
-        // Load settings
-        _settingsService = new SettingsService();
-        _settingsService.Load();
-        
-        // Initialize services
-        _steamLocator = new SteamLocator();
-        _libraryScanner = new LibraryScanner(_steamLocator);
-        _goldbergService = new GoldbergService();
-        _dlcService = new DlcService();
-        _packageScanner = new PackageScanner(_settingsService);
-        _cacheService = new CacheService();
-        _packageBuilder = new PackageBuilder(_goldbergService, _settingsService, _dlcService);
-        
-        // Initialize LibraryManager for library operations
-        _libraryManager = new LibraryManager(
-            _steamLocator, _libraryScanner, _packageScanner, 
-            _cacheService, _dlcService, _settingsService);
-        _libraryManager.ProgressChanged += status => Dispatcher.Invoke(() => StatusText.Text = status);
+        // Use injected services instead of creating them inline
+        _settingsService = services.Settings;
+        _steamLocator = services.SteamLocator;
+        _libraryScanner = services.LibraryScanner;
+        _goldbergService = services.GoldbergService;
+        _dlcService = services.DlcService;
+        _packageScanner = services.PackageScanner;
+        _cacheService = services.CacheService;
+        _packageBuilder = services.PackageBuilder;
+        _libraryManager = services.LibraryManager;
+        _lanDiscoveryService = services.LanDiscoveryService;
+        _transferService = services.TransferService;
+        _saveGameService = services.SaveGameService;
+        _integrityService = services.IntegrityService;
+        _updateService = services.UpdateService;
         
         // Set output path from settings
         _outputPath = _settingsService.Settings.OutputPath;
         
-        // Initialize LAN services
-        _lanDiscoveryService = new LanDiscoveryService();
-        _transferService = new TransferService(_outputPath);
-        
-        // Initialize SaveGameService
-        _saveGameService = new SaveGameService(_settingsService);
-
-        // Initialize IntegrityService
-        _integrityService = new IntegrityService();
-
-        // Initialize update service
-        _updateService = new UpdateService(_goldbergService.GoldbergPath);
+        // Subscribe to events
+        _libraryManager.ProgressChanged += status => Dispatcher.Invoke(() => StatusText.Text = status);
         _updateService.UpdateAvailable += OnUpdateAvailable;
-        
-        // Subscribe to progress updates
         _packageBuilder.ProgressChanged += OnPackageProgress;
         _transferService.ProgressChanged += OnTransferProgress;
         _transferService.TransferComplete += OnTransferComplete;
@@ -350,7 +346,7 @@ public partial class MainWindow : Window
         _transferService.StartListening();
         
         // Initialize Mesh Library Service for network game aggregation
-        _meshLibraryService = new MeshLibraryService(_lanDiscoveryService);
+        _meshLibraryService = new MeshLibraryService(_lanDiscoveryService, _transferService);
         _meshLibraryService.NetworkLibraryChanged += OnNetworkLibraryChanged;
         
         // Set up callback to provide local game list to peers
@@ -472,15 +468,8 @@ public partial class MainWindow : Window
         _lanDiscoveryService.PeerLost -= OnPeerLost;
         _lanDiscoveryService.TransferRequested -= OnTransferRequested;
         
-        // Clean up LAN services
-        _lanDiscoveryService.Stop();
-        _transferService.StopListening();
-        _lanDiscoveryService.Dispose();
-        _transferService.Dispose();
-        
-        // Dispose services with IDisposable
-        _goldbergService.Dispose();
-        _dlcService.Dispose();
+        // Note: Service disposal is handled by ServiceContainer.Dispose() in App.OnExit
+        // We only unsubscribe from events here to prevent any callbacks during shutdown
         
         // Flush logs before exit
         LogService.Instance.Dispose();
@@ -881,7 +870,9 @@ public partial class MainWindow : Window
         }
         
         // Create cancellation token for this operation
+        // Properly dispose old CTS to prevent kernel handle leaks
         _currentOperationCts?.Cancel();
+        _currentOperationCts?.Dispose();
         _currentOperationCts = new CancellationTokenSource();
         var ct = _currentOperationCts.Token;
         

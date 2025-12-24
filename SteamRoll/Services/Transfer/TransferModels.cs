@@ -24,6 +24,11 @@ public class TransferHeader
     /// Compression mode used for file transfer (e.g., "None", "GZip").
     /// </summary>
     public string Compression { get; set; } = "None";
+
+    /// <summary>
+    /// Whether this transfer supports delta sync for reduced bandwidth.
+    /// </summary>
+    public bool SupportsDelta { get; set; } = true;
 }
 
 public class TransferFileInfo
@@ -32,9 +37,25 @@ public class TransferFileInfo
     public long Size { get; set; }
 
     /// <summary>
-    /// SHA256 hash of the file for integrity verification.
+    /// XxHash64 hash of the file for integrity verification.
+    /// Note: Named Sha256 for backwards compatibility but uses XxHash64.
     /// </summary>
     public string? Sha256 { get; set; }
+
+    /// <summary>
+    /// Whether this file should use delta sync (only changed blocks).
+    /// </summary>
+    public bool UseDelta { get; set; }
+
+    /// <summary>
+    /// For delta transfers: literal data size to transfer.
+    /// </summary>
+    public long DeltaLiteralSize { get; set; }
+
+    /// <summary>
+    /// For delta transfers: number of instructions.
+    /// </summary>
+    public int DeltaInstructionCount { get; set; }
 }
 
 
@@ -51,6 +72,17 @@ public class TransferAck
     /// List of relative paths of files that the receiver already has and wants to skip.
     /// </summary>
     public List<string> SkippedFiles { get; set; } = new();
+
+    /// <summary>
+    /// List of files that the receiver has and wants to update via delta sync.
+    /// Maps relative path to serialized block signatures.
+    /// </summary>
+    public Dictionary<string, string> DeltaSignatures { get; set; } = new();
+
+    /// <summary>
+    /// Whether the receiver supports delta sync protocol.
+    /// </summary>
+    public bool SupportsDelta { get; set; }
 }
 
 public class TransferComplete

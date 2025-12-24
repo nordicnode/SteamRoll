@@ -10,6 +10,7 @@ namespace SteamRoll.Services;
 public class MeshLibraryService : IDisposable
 {
     private readonly LanDiscoveryService _discoveryService;
+    private readonly TransferService _transferService;
     private readonly ConcurrentDictionary<string, List<PeerGameInfo>> _peerGames = new();
     private readonly ConcurrentDictionary<int, List<PeerGameInfo>> _gamesByAppId = new();
     private readonly object _updateLock = new();
@@ -24,11 +25,13 @@ public class MeshLibraryService : IDisposable
     /// </summary>
     public event EventHandler<string>? PeerGameListReceived;
 
-    public MeshLibraryService(LanDiscoveryService discoveryService)
+    public MeshLibraryService(LanDiscoveryService discoveryService, TransferService transferService)
     {
         _discoveryService = discoveryService;
+        _transferService = transferService;
         _discoveryService.PeerDiscovered += OnPeerDiscovered;
         _discoveryService.PeerLost += OnPeerLost;
+        // Keep UDP GameListReceived as fallback for backwards compatibility with older peers
         _discoveryService.GameListReceived += OnGameListReceived;
     }
 
@@ -88,27 +91,66 @@ public class MeshLibraryService : IDisposable
     }
 
     /// <summary>
-    /// Requests game lists from all known peers.
+    /// Requests game lists from all known peers using reliable TCP connection.
     /// </summary>
     public async Task RefreshNetworkLibraryAsync()
     {
         var peers = _discoveryService.GetPeers();
-        var tasks = peers.Select(peer => _discoveryService.RequestGameListAsync(peer));
+        var tasks = peers.Select(peer => RequestGameListFromPeerTcpAsync(peer));
         await Task.WhenAll(tasks);
     }
 
     /// <summary>
-    /// Requests game list from a specific peer.
+    /// Requests game list from a specific peer using reliable TCP connection.
     /// </summary>
     public Task RequestGameListFromPeerAsync(PeerInfo peer)
     {
-        return _discoveryService.RequestGameListAsync(peer);
+        return RequestGameListFromPeerTcpAsync(peer);
+    }
+
+    /// <summary>
+    /// TCP-based game list request. Reliable and handles large game lists without fragmentation.
+    /// </summary>
+    private async Task RequestGameListFromPeerTcpAsync(PeerInfo peer)
+    {
+        try
+        {
+            var games = await _transferService.RequestLibraryListAsync(peer.IpAddress, peer.TransferPort);
+            
+            if (games != null && games.Count > 0)
+            {
+                // Convert RemoteGame to PeerGameInfo and update local cache
+                var peerId = $"{peer.IpAddress}:{peer.TransferPort}";
+                var peerGames = games.Select(g => new PeerGameInfo
+                {
+                    AppId = g.AppId,
+                    Name = g.Name,
+                    SizeBytes = g.SizeBytes,
+                    BuildId = g.BuildId,
+                    PeerHostName = peer.HostName,
+                    PeerIp = peer.IpAddress,
+                    PeerPort = peer.TransferPort
+                }).ToList();
+
+                UpdatePeerGames(peerId, peer.HostName, peer.IpAddress, peer.TransferPort, peerGames);
+                
+                LogService.Instance.Debug($"TCP: Received {games.Count} games from {peer.HostName}", "MeshLibrary");
+            }
+            else
+            {
+                LogService.Instance.Debug($"TCP: No games from {peer.HostName} (empty or null response)", "MeshLibrary");
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Warning($"TCP game list request failed for {peer.HostName}: {ex.Message}", "MeshLibrary");
+        }
     }
 
     private void OnPeerDiscovered(object? sender, PeerInfo peer)
     {
-        // Request game list from the newly discovered peer
-        _ = _discoveryService.RequestGameListAsync(peer);
+        // Request game list from the newly discovered peer via TCP
+        _ = RequestGameListFromPeerTcpAsync(peer);
     }
 
     private void OnPeerLost(object? sender, PeerInfo peer)
@@ -182,8 +224,46 @@ public class MeshLibraryService : IDisposable
             }
         }
 
-        LogService.Instance.Info($"Received game list from {e.PeerHostName}: {e.Games.Count} games", "MeshLibrary");
+        LogService.Instance.Info($"Received game list from {e.PeerHostName}: {e.Games.Count} games (UDP fallback)", "MeshLibrary");
         PeerGameListReceived?.Invoke(this, e.PeerHostName);
+        NetworkLibraryChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Updates the game list for a specific peer. Used by both TCP and UDP handlers.
+    /// </summary>
+    private void UpdatePeerGames(string peerId, string peerHostName, string peerIp, int peerPort, List<PeerGameInfo> peerGames)
+    {
+        lock (_updateLock)
+        {
+            // Remove old games from this peer
+            if (_peerGames.TryGetValue(peerId, out var oldGames))
+            {
+                foreach (var game in oldGames)
+                {
+                    if (_gamesByAppId.TryGetValue(game.AppId, out var peerList))
+                    {
+                        peerList.RemoveAll(g => g.PeerIp == peerIp && g.PeerPort == peerPort);
+                        if (peerList.Count == 0)
+                        {
+                            _gamesByAppId.TryRemove(game.AppId, out _);
+                        }
+                    }
+                }
+            }
+
+            // Update peer games
+            _peerGames[peerId] = peerGames;
+
+            // Update AppId index
+            foreach (var game in peerGames)
+            {
+                var list = _gamesByAppId.GetOrAdd(game.AppId, _ => new List<PeerGameInfo>());
+                list.Add(game);
+            }
+        }
+
+        PeerGameListReceived?.Invoke(this, peerHostName);
         NetworkLibraryChanged?.Invoke(this, EventArgs.Empty);
     }
 

@@ -8,11 +8,28 @@ namespace SteamRoll.Services;
 /// </summary>
 public class SettingsService
 {
-    private static readonly string SettingsPath = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "SteamRoll",
-        "settings.json"
-    );
+    private static readonly string SettingsPath = GetSettingsPath();
+    
+    /// <summary>
+    /// Gets the path to the settings file, supporting portable mode.
+    /// If settings.json exists next to the executable, uses that (portable mode).
+    /// Otherwise uses LocalAppData (installed mode).
+    /// </summary>
+    private static string GetSettingsPath()
+    {
+        // Check for portable mode (settings.json next to executable)
+        var portablePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
+        if (File.Exists(portablePath))
+        {
+            return portablePath;
+        }
+        
+        // Default to LocalAppData
+        return System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "SteamRoll",
+            "settings.json");
+    }
     
     private AppSettings _settings = new();
     
@@ -213,6 +230,12 @@ public class SettingsService
 public class AppSettings
 {
     /// <summary>
+    /// Unique device identifier for vector clock synchronization.
+    /// Auto-generated on first run, persisted for consistent identification.
+    /// </summary>
+    public string DeviceId { get; set; } = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+    
+    /// <summary>
     /// Output directory for packaged games.
     /// </summary>
     public string OutputPath { get; set; } = System.IO.Path.Combine(
@@ -327,4 +350,55 @@ public class AppSettings
     /// Whether to show network availability badges on games available from LAN peers.
     /// </summary>
     public bool ShowNetworkBadges { get; set; } = true;
+
+    /// <summary>
+    /// When true, network services bind only to local LAN interface instead of all interfaces.
+    /// Improves security on public networks (e.g., cafes, airports).
+    /// </summary>
+    public bool BindToLocalIpOnly { get; set; } = false;
+
+    /// <summary>
+    /// Whether to require encryption for file transfers.
+    /// When enabled, only paired devices can send/receive files.
+    /// </summary>
+    public bool RequireTransferEncryption { get; set; } = false;
+
+    /// <summary>
+    /// Friendly device name shown to other peers during pairing.
+    /// </summary>
+    public string DeviceName { get; set; } = Environment.MachineName;
+
+    /// <summary>
+    /// Whether to remember and auto-restore direct connect peers on startup.
+    /// When enabled, manually added peers persist across app restarts.
+    /// </summary>
+    public bool RememberDirectConnectPeers { get; set; } = true;
+
+    /// <summary>
+    /// List of manually configured peer addresses for direct connection.
+    /// Used for VPN/VLAN scenarios where UDP broadcast doesn't work.
+    /// Only used if RememberDirectConnectPeers is enabled.
+    /// </summary>
+    public List<DirectConnectPeer> DirectConnectPeers { get; set; } = new();
+}
+
+/// <summary>
+/// A manually configured peer for direct connection.
+/// </summary>
+public class DirectConnectPeer
+{
+    /// <summary>
+    /// IP address of the peer.
+    /// </summary>
+    public string IpAddress { get; set; } = "";
+
+    /// <summary>
+    /// Transfer port of the peer.
+    /// </summary>
+    public int Port { get; set; } = AppConstants.DEFAULT_TRANSFER_PORT;
+
+    /// <summary>
+    /// Optional friendly name for this peer.
+    /// </summary>
+    public string? DisplayName { get; set; }
 }

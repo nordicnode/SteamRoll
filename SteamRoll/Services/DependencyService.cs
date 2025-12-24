@@ -97,93 +97,141 @@ public class DependencyService
 
     /// <summary>
     /// Detects which dependencies are required for a game based on DLLs found in the game folder.
+    /// Uses PE header parsing to detect x86 vs x64 architecture and only install required redistributables.
     /// </summary>
     public async Task<List<DependencyInfo>> DetectRequiredDependenciesAsync(string gamePath)
     {
-        var dependencies = new List<DependencyInfo>();
+        var dependencies = new HashSet<DependencyType>();
 
         try
         {
-            var dllFiles = Directory.GetFiles(gamePath, "*.dll", SearchOption.AllDirectories)
+            // Get full paths for architecture detection
+            var allDllPaths = Directory.GetFiles(gamePath, "*.dll", SearchOption.AllDirectories);
+            
+            // Create lookup sets for pattern matching
+            var dllFileNames = allDllPaths
                 .Select(Path.GetFileName)
                 .Where(f => f != null)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            // Check for VC++ runtime DLLs
-            var vcpp2015PlusPatterns = new[]
+            // Define patterns and their corresponding dependency types
+            var vcpp2015PlusPatterns = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "vcruntime140.dll", "vcruntime140d.dll", 
                 "vcruntime140_1.dll", "msvcp140.dll",
                 "concrt140.dll", "vccorlib140.dll"
             };
 
-            var vcpp2013Patterns = new[]
+            var vcpp2013Patterns = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "msvcr120.dll", "msvcp120.dll", "vccorlib120.dll"
             };
 
-            var vcpp2012Patterns = new[] { "msvcr110.dll", "msvcp110.dll" };
-            var vcpp2010Patterns = new[] { "msvcr100.dll", "msvcp100.dll" };
-            var vcpp2008Patterns = new[] { "msvcr90.dll", "msvcp90.dll" };
+            var vcpp2012Patterns = new HashSet<string>(StringComparer.OrdinalIgnoreCase) 
+            { 
+                "msvcr110.dll", "msvcp110.dll" 
+            };
             
-            // Check for physx
-            var physxPatterns = new[] { "physxloader.dll", "physxcooking.dll", "physxcore.dll" };
+            var vcpp2010Patterns = new HashSet<string>(StringComparer.OrdinalIgnoreCase) 
+            { 
+                "msvcr100.dll", "msvcp100.dll" 
+            };
+            
+            var vcpp2008Patterns = new HashSet<string>(StringComparer.OrdinalIgnoreCase) 
+            { 
+                "msvcr90.dll", "msvcp90.dll" 
+            };
+            
+            var physxPatterns = new HashSet<string>(StringComparer.OrdinalIgnoreCase) 
+            { 
+                "physxloader.dll", "physxcooking.dll", "physxcore.dll" 
+            };
 
-            // Detect VC++ 2015-2022
-            if (vcpp2015PlusPatterns.Any(p => dllFiles.Contains(p)))
+            // Process each DLL to detect required dependencies with correct architecture
+            foreach (var dllPath in allDllPaths)
             {
-                dependencies.Add(CreateDependencyInfo(DependencyType.VcRedist2015to2022_x64));
-                dependencies.Add(CreateDependencyInfo(DependencyType.VcRedist2015to2022_x86));
+                var fileName = Path.GetFileName(dllPath);
+                if (string.IsNullOrEmpty(fileName)) continue;
+
+                // Determine which VC++ version this DLL belongs to
+                (DependencyType x64Type, DependencyType x86Type)? vcppTypes = null;
+
+                if (vcpp2015PlusPatterns.Contains(fileName))
+                    vcppTypes = (DependencyType.VcRedist2015to2022_x64, DependencyType.VcRedist2015to2022_x86);
+                else if (vcpp2013Patterns.Contains(fileName))
+                    vcppTypes = (DependencyType.VcRedist2013_x64, DependencyType.VcRedist2013_x86);
+                else if (vcpp2012Patterns.Contains(fileName))
+                    vcppTypes = (DependencyType.VcRedist2012_x64, DependencyType.VcRedist2012_x86);
+                else if (vcpp2010Patterns.Contains(fileName))
+                    vcppTypes = (DependencyType.VcRedist2010_x64, DependencyType.VcRedist2010_x86);
+                else if (vcpp2008Patterns.Contains(fileName))
+                    vcppTypes = (DependencyType.VcRedist2008_x64, DependencyType.VcRedist2008_x86);
+
+                if (vcppTypes.HasValue)
+                {
+                    // Use PE parser to detect architecture
+                    var is64Bit = DetectDllArchitecture(dllPath);
+                    
+                    if (is64Bit.HasValue)
+                    {
+                        dependencies.Add(is64Bit.Value ? vcppTypes.Value.x64Type : vcppTypes.Value.x86Type);
+                    }
+                    else
+                    {
+                        // Fallback: if we can't determine architecture, install both (safe)
+                        dependencies.Add(vcppTypes.Value.x64Type);
+                        dependencies.Add(vcppTypes.Value.x86Type);
+                    }
+                }
             }
 
-            // Detect VC++ 2013
-            if (vcpp2013Patterns.Any(p => dllFiles.Contains(p)))
+            // Detect PhysX (doesn't need architecture-specific handling)
+            if (physxPatterns.Any(p => dllFileNames.Contains(p)))
             {
-                dependencies.Add(CreateDependencyInfo(DependencyType.VcRedist2013_x64));
-                dependencies.Add(CreateDependencyInfo(DependencyType.VcRedist2013_x86));
+                dependencies.Add(DependencyType.PhysX);
             }
 
-            // Detect VC++ 2012
-            if (vcpp2012Patterns.Any(p => dllFiles.Contains(p)))
+            // Convert to DependencyInfo list and check installation status
+            var result = new List<DependencyInfo>();
+            foreach (var depType in dependencies)
             {
-                dependencies.Add(CreateDependencyInfo(DependencyType.VcRedist2012_x64));
-                dependencies.Add(CreateDependencyInfo(DependencyType.VcRedist2012_x86));
+                var info = CreateDependencyInfo(depType);
+                info.IsInstalled = await Task.Run(() => IsDependencyInstalled(depType));
+                result.Add(info);
             }
 
-            // Detect VC++ 2010
-            if (vcpp2010Patterns.Any(p => dllFiles.Contains(p)))
-            {
-                dependencies.Add(CreateDependencyInfo(DependencyType.VcRedist2010_x64));
-                dependencies.Add(CreateDependencyInfo(DependencyType.VcRedist2010_x86));
-            }
+            var archBreakdown = result.Count(d => d.Type.ToString().EndsWith("x64")) + " x64, " +
+                               result.Count(d => d.Type.ToString().EndsWith("x86")) + " x86";
+            LogService.Instance.Info($"Detected {result.Count} dependencies ({archBreakdown}) for game at {gamePath}", "DependencyService");
 
-            // Detect VC++ 2008
-            if (vcpp2008Patterns.Any(p => dllFiles.Contains(p)))
-            {
-                dependencies.Add(CreateDependencyInfo(DependencyType.VcRedist2008_x64));
-                dependencies.Add(CreateDependencyInfo(DependencyType.VcRedist2008_x86));
-            }
-
-            // Detect PhysX
-            if (physxPatterns.Any(p => dllFiles.Contains(p)))
-            {
-                dependencies.Add(CreateDependencyInfo(DependencyType.PhysX));
-            }
-
-            // Check installation status for each dependency
-            foreach (var dep in dependencies)
-            {
-                dep.IsInstalled = await Task.Run(() => IsDependencyInstalled(dep.Type));
-            }
-
-            LogService.Instance.Info($"Detected {dependencies.Count} dependencies for game at {gamePath}", "DependencyService");
+            return result;
         }
         catch (Exception ex)
         {
             LogService.Instance.Error($"Failed to detect dependencies: {ex.Message}", ex, "DependencyService");
+            return new List<DependencyInfo>();
         }
+    }
 
-        return dependencies;
+    /// <summary>
+    /// Detects whether a DLL is 64-bit or 32-bit by parsing its PE header.
+    /// Returns null if unable to determine.
+    /// </summary>
+    private bool? DetectDllArchitecture(string dllPath)
+    {
+        try
+        {
+            var pe = Parsers.PeParser.Parse(dllPath);
+            if (pe != null && pe.IsValid)
+            {
+                return pe.Is64Bit;
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Debug($"Failed to detect architecture for {dllPath}: {ex.Message}", "DependencyService");
+        }
+        return null;
     }
 
     /// <summary>
@@ -290,6 +338,10 @@ public class DependencyService
 
     /// <summary>
     /// Installs a dependency silently.
+    /// Uses different command-line arguments based on installer type:
+    /// - Modern VC++ (2012+): Uses Burn engine with /install /quiet /norestart
+    /// - Legacy VC++ (2008/2010): Uses older installer with /q /norestart
+    /// - DirectX: Self-extracting archive that needs extract + DXSETUP.exe /silent
     /// </summary>
     public async Task<bool> InstallDependencyAsync(DependencyType type, IProgress<string>? status = null)
     {
@@ -299,35 +351,82 @@ public class DependencyService
             return false;
         }
 
+        // Declare tempDir outside try block so finally can access it for cleanup
+        string? tempDir = null;
+
         try
         {
             status?.Report($"Installing {DependencyDefinitions[type].Name}...");
-            
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = installerPath,
-                Arguments = "/install /quiet /norestart",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
 
-            using var process = Process.Start(startInfo);
-            if (process == null)
+            // Determine arguments based on installer type
+            string args;
+            string exeToRun = installerPath;
+            string? workingDir = null;
+
+            switch (type)
             {
-                LogService.Instance.Error($"Failed to start installer for {type}", null, "DependencyService");
-                return false;
+                // Modern Burn Engine (2012+) - uses /install flag
+                case DependencyType.VcRedist2012_x64:
+                case DependencyType.VcRedist2012_x86:
+                case DependencyType.VcRedist2013_x64:
+                case DependencyType.VcRedist2013_x86:
+                case DependencyType.VcRedist2015to2022_x64:
+                case DependencyType.VcRedist2015to2022_x86:
+                    args = "/install /quiet /norestart";
+                    break;
+
+                // Legacy Installers (2008/2010) - do NOT understand /install
+                case DependencyType.VcRedist2008_x64:
+                case DependencyType.VcRedist2008_x86:
+                case DependencyType.VcRedist2010_x64:
+                case DependencyType.VcRedist2010_x86:
+                    args = "/q /norestart";
+                    break;
+
+                // DirectX (Special Case: Self-Extracting Archive -> Extract + Install)
+                case DependencyType.DirectX:
+                    tempDir = Path.Combine(Path.GetTempPath(), $"SteamRoll_DX_{Guid.NewGuid():N}");
+                    Directory.CreateDirectory(tempDir);
+
+                    // Step A: Extract the self-extracting archive
+                    status?.Report("Extracting DirectX files...");
+                    var extractArgs = $"/Q /T:\"{tempDir}\"";
+                    var extractSuccess = await RunProcessAsync(installerPath, extractArgs);
+                    if (!extractSuccess)
+                    {
+                        LogService.Instance.Warning("Failed to extract DirectX archive", "DependencyService");
+                        CleanupTempDir(tempDir);
+                        return false;
+                    }
+
+                    // Step B: Run the actual DXSETUP.exe from extracted folder
+                    exeToRun = Path.Combine(tempDir, "DXSETUP.exe");
+                    if (!File.Exists(exeToRun))
+                    {
+                        LogService.Instance.Warning($"DXSETUP.exe not found in {tempDir}", "DependencyService");
+                        CleanupTempDir(tempDir);
+                        return false;
+                    }
+                    args = "/silent";
+                    workingDir = tempDir;
+                    break;
+
+                // Default fallback for .NET, PhysX, etc.
+                default:
+                    args = "/quiet /norestart";
+                    break;
             }
 
-            await process.WaitForExitAsync();
+            // Run the installer process
+            var success = await RunProcessAsync(exeToRun, args, workingDir);
 
-            var success = process.ExitCode == 0 || process.ExitCode == 3010; // 3010 = success, reboot required
             if (success)
             {
                 LogService.Instance.Info($"Successfully installed {DependencyDefinitions[type].Name}", "DependencyService");
             }
             else
             {
-                LogService.Instance.Warning($"Installer for {type} exited with code {process.ExitCode}", "DependencyService");
+                LogService.Instance.Warning($"Installer for {type} failed", "DependencyService");
             }
 
             return success;
@@ -336,6 +435,67 @@ public class DependencyService
         {
             LogService.Instance.Error($"Failed to install {type}: {ex.Message}", ex, "DependencyService");
             return false;
+        }
+        finally
+        {
+            // Guaranteed cleanup of temp directory even on exceptions or cancellation
+            if (tempDir != null)
+            {
+                CleanupTempDir(tempDir);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Runs an installer process and waits for completion.
+    /// </summary>
+    private async Task<bool> RunProcessAsync(string fileName, string args, string? workingDir = null)
+    {
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = args,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = workingDir ?? Path.GetDirectoryName(fileName) ?? ""
+            };
+
+            using var process = Process.Start(startInfo);
+            if (process == null)
+            {
+                LogService.Instance.Error($"Failed to start process: {fileName}", null, "DependencyService");
+                return false;
+            }
+
+            await process.WaitForExitAsync();
+
+            // 0 = Success, 3010 = Success (Reboot Required)
+            return process.ExitCode == 0 || process.ExitCode == 3010;
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Process execution failed: {ex.Message}", ex, "DependencyService");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Safely cleans up a temporary directory.
+    /// </summary>
+    private static void CleanupTempDir(string tempDir)
+    {
+        try
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Debug($"Failed to cleanup temp dir {tempDir}: {ex.Message}", "DependencyService");
         }
     }
 

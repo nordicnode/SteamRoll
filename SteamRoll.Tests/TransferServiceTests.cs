@@ -1,4 +1,5 @@
 using SteamRoll.Services;
+using SteamRoll.Services.Transfer;
 using Xunit;
 using System.Reflection;
 
@@ -18,7 +19,8 @@ public class TransferServiceTests
     public void IsPathSafe_ValidatesPaths(string path, bool expected)
     {
         // IsPathSafe is private, so we use reflection to test it.
-        var method = typeof(TransferService).GetMethod("IsPathSafe", BindingFlags.NonPublic | BindingFlags.Static);
+        // Note: Method is in TransferReceiver class
+        var method = typeof(TransferReceiver).GetMethod("IsPathSafe", BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
 
         var result = (bool)method.Invoke(null, new object[] { path })!;

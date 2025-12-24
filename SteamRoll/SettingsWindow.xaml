@@ -523,7 +523,81 @@
                                             <TextBox x:Name="TransferPortBox" Style="{DynamicResource SettingsTextBoxStyle}" PreviewTextInput="NumberValidationTextBox" DataObject.Pasting="TextBox_Pasting"/>
                                         </StackPanel>
                                     </Grid>
-                                    <TextBlock Text="Requires restart. Ensure these ports are open in your firewall." Style="{DynamicResource SettingDescription}"/>
+                                    <TextBlock Text="Requires restart. Ensure these ports are open in your firewall." Style="{DynamicResource SettingDescription}" Margin="0,5,0,15"/>
+
+                                    <CheckBox x:Name="RememberDirectConnectPeersCheck" Content="Remember Direct Connect Peers" Style="{DynamicResource SettingsCheckBoxStyle}"/>
+                                    <TextBlock Text="Automatically restore manually added peer connections on startup. Useful for VPN/VLAN setups where UDP broadcast doesn't work." Style="{DynamicResource SettingDescription}" Margin="24,0,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- Security Tab -->
+                <TabItem Header="Security">
+                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,16">
+                        <StackPanel>
+                            <TextBlock Text="Transfer Encryption" Style="{DynamicResource SectionHeader}"/>
+                            <Border Background="#27272A" CornerRadius="8" Padding="16" Margin="0,0,0,20">
+                                <StackPanel>
+                                    <CheckBox x:Name="RequireEncryptionCheck" Content="Require Encrypted Transfers" Style="{DynamicResource SettingsCheckBoxStyle}"/>
+                                    <TextBlock Text="When enabled, only paired devices can send or receive files. Uses AES-256-GCM encryption." Style="{DynamicResource SettingDescription}" Margin="24,0,0,15"/>
+
+                                    <Grid Margin="0,10,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="Device Name" Style="{DynamicResource SettingLabel}"/>
+                                            <TextBlock Text="How this device appears to others" Foreground="#71717A" FontSize="11"/>
+                                        </StackPanel>
+                                        <TextBox Grid.Column="1" x:Name="DeviceNameBox" Width="200" Style="{DynamicResource SettingsTextBoxStyle}"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <TextBlock Text="Device Pairing" Style="{DynamicResource SectionHeader}"/>
+                            <Border Background="#27272A" CornerRadius="8" Padding="16" Margin="0,0,0,20">
+                                <StackPanel>
+                                    <TextBlock Text="Pair a new device to enable encrypted transfers between them." Style="{DynamicResource SettingDescription}" Margin="0,0,0,10"/>
+                                    <Button x:Name="PairDeviceBtn" Content="🔐 Pair New Device" Click="PairDevice_Click" Style="{DynamicResource PrimaryButton}" HorizontalAlignment="Left"/>
+                                </StackPanel>
+                            </Border>
+
+                            <TextBlock Text="Paired Devices" Style="{DynamicResource SectionHeader}"/>
+                            <Border Background="#27272A" CornerRadius="8" Padding="16" Margin="0,0,0,20">
+                                <StackPanel>
+                                    <ListBox x:Name="PairedDevicesList" 
+                                             Background="Transparent" 
+                                             BorderThickness="0"
+                                             MaxHeight="150"
+                                             ItemsSource="{Binding PairedDevices}">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="#1C1C1E" CornerRadius="6" Padding="12,10" Margin="0,0,0,8">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Grid.Column="0">
+                                                            <TextBlock Text="{Binding DeviceName}" Foreground="White" FontWeight="SemiBold"/>
+                                                            <TextBlock Text="{Binding DeviceId}" Foreground="#71717A" FontSize="11"/>
+                                                        </StackPanel>
+                                                        <Button Grid.Column="1" Content="✕" 
+                                                                Tag="{Binding DeviceId}"
+                                                                Click="UnpairDevice_Click"
+                                                                Background="Transparent" Foreground="#F85149" 
+                                                                BorderThickness="0" Cursor="Hand" FontWeight="Bold"
+                                                                VerticalAlignment="Center"/>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                    <TextBlock x:Name="NoPairedDevicesText" Text="No paired devices yet. Click 'Pair New Device' to add one." 
+                                               Foreground="#71717A" FontSize="12"/>
                                 </StackPanel>
                             </Border>
                         </StackPanel>
