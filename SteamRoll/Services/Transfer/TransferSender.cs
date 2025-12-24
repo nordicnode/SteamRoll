@@ -53,10 +53,10 @@ public class TransferSender
 
             using var networkStream = client.GetStream();
 
-            // Gather file list with checksums
+            // Gather file list with checksums - use EnumerateFiles for lazy evaluation
             var files = File.Exists(sourcePath)
                 ? new[] { sourcePath }
-                : Directory.GetFiles(sourcePath, "*", SearchOption.AllDirectories);
+                : Directory.EnumerateFiles(sourcePath, "*", SearchOption.AllDirectories);
 
             // Base path for relative calculations
             var basePath = File.Exists(sourcePath) ? System.IO.Path.GetDirectoryName(sourcePath)! : sourcePath;
@@ -84,7 +84,12 @@ public class TransferSender
             catch { /* Ignore metadata read errors */ }
 
             // Sequential processing for HDD-friendly I/O (parallel thrashes mechanical drives)
-            var fileInfos = files.Select(f => {
+            // Process files iteratively with cancellation checks for responsiveness
+            var fileInfos = new List<TransferFileInfo>();
+            foreach (var f in files)
+            {
+                ct.ThrowIfCancellationRequested(); // Allow cancellation between files
+                
                 var relativePath = System.IO.Path.GetRelativePath(basePath, f).Replace('\\', '/');
                 var fi = new FileInfo(f);
                 var size = fi.Length;
@@ -111,13 +116,13 @@ public class TransferSender
                      hash = ComputeXxHash64(f);
                 }
 
-                return new TransferFileInfo
+                fileInfos.Add(new TransferFileInfo
                 {
                     RelativePath = relativePath, // Always send forward slashes
                     Size = size,
                     Sha256 = hash
-                };
-            }).ToList();
+                });
+            }
 
             var totalSize = fileInfos.Sum(f => f.Size);
 
@@ -150,9 +155,11 @@ public class TransferSender
                 }
                 else
                 {
-                    // No paired key - fallback to unencrypted with warning
-                    LogService.Instance.Warning($"No paired key for {targetIp}, falling back to unencrypted transfer", "TransferSender");
-                    protocolMagic = PROTOCOL_MAGIC_V2;
+                    // SECURITY: Do not fallback to unencrypted when encryption is required
+                    var msg = $"Encryption required but no paired key found for {targetIp}. Pair the device first.";
+                    LogService.Instance.Error(msg, category: "TransferSender");
+                    Error?.Invoke(this, msg);
+                    return false;
                 }
             }
 
