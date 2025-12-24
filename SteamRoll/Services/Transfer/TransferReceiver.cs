@@ -127,24 +127,19 @@ public class TransferReceiver
             var gameName = FormatUtils.SanitizeFileName(header.GameName ?? "Unknown");
 
             // --- Security Check: Disk Space ---
-            try
+            long safetyBuffer = 500 * 1024 * 1024; // 500 MB buffer
+            long required = header.TotalSize + safetyBuffer;
+            var (hasSpace, spaceError) = Utils.DiskUtils.HasSufficientSpace(_receiveBasePath, required);
+            
+            if (!hasSpace && spaceError != null && spaceError.Contains("Insufficient"))
             {
-                var root = Path.GetPathRoot(Path.GetFullPath(_receiveBasePath)) ?? _receiveBasePath;
-                var drive = new DriveInfo(root);
-                long safetyBuffer = 500 * 1024 * 1024; // 500 MB buffer
-                long required = header.TotalSize + safetyBuffer;
-
-                if (drive.AvailableFreeSpace < required)
-                {
-                    var msg = $"Insufficient disk space. Required: {FormatUtils.FormatBytes(required)}, Available: {FormatUtils.FormatBytes(drive.AvailableFreeSpace)}";
-                    LogService.Instance.Warning($"Rejected transfer: {msg}", "TransferReceiver");
-                    await TransferUtils.SendJsonAsync(networkStream, new TransferAck { Accepted = false, Reason = msg }, ct);
-                    return;
-                }
+                LogService.Instance.Warning($"Rejected transfer: {spaceError}", "TransferReceiver");
+                await TransferUtils.SendJsonAsync(networkStream, new TransferAck { Accepted = false, Reason = spaceError }, ct);
+                return;
             }
-            catch (Exception ex)
+            else if (!hasSpace)
             {
-                LogService.Instance.Warning($"Could not verify disk space: {ex.Message}", "TransferReceiver");
+                LogService.Instance.Warning($"Could not verify disk space: {spaceError}", "TransferReceiver");
             }
 
             // Handle Special Requests

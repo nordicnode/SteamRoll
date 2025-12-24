@@ -67,28 +67,18 @@ public class PackageBuilder
              throw new UnauthorizedAccessException($"Output path is not writable: {outputPath}. {ex.Message}");
         }
 
-        // Check available disk space
-        try
+        // Check available disk space using utility helper
+        var requiredSpace = game.SizeOnDisk + (200 * 1024 * 1024); // 200MB safety buffer
+        var (hasSpace, spaceError) = Utils.DiskUtils.HasSufficientSpace(outputPath, requiredSpace);
+        if (!hasSpace && spaceError != null)
         {
-            var driveInfo = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(outputPath)) ?? outputPath);
-            // Add 200MB safety buffer
-            var requiredSpace = game.SizeOnDisk + (200 * 1024 * 1024);
+            // Only fail on confirmed insufficient space, not on check failures (UNC paths, etc.)
+            if (spaceError.Contains("Insufficient"))
+                throw new IOException(spaceError);
+            else
+                LogService.Instance.Warning($"Could not check disk space: {spaceError}", "PackageBuilder");
+        }
 
-            if (driveInfo.AvailableFreeSpace < requiredSpace)
-            {
-                throw new IOException($"Insufficient disk space. Required: {FormatUtils.FormatBytes(requiredSpace)}, Available: {FormatUtils.FormatBytes(driveInfo.AvailableFreeSpace)}");
-            }
-        }
-        catch (ArgumentException)
-        {
-            // Path might be invalid or network path that DriveInfo doesn't like, proceed with caution
-            LogService.Instance.Warning($"Could not check disk space for {outputPath}", "PackageBuilder");
-        }
-        catch (IOException ioEx)
-        {
-            // UNC paths (\\Server\Share) may throw IOException on some Windows configurations
-            LogService.Instance.Warning($"Could not check disk space for {outputPath}: {ioEx.Message}", "PackageBuilder");
-        }
         
         // Initialize or use existing state
         var state = resumeState ?? new PackageState

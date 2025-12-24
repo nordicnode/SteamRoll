@@ -55,37 +55,33 @@ public static class TransferHandshake
                 aes.Encrypt(nonce, fullMessage, ciphertext, tag);
             }
 
-            // Send: [nonce][ciphertext][tag]
-            await stream.WriteAsync(nonce, ct);
-            await stream.WriteAsync(ciphertext, ct);
-            await stream.WriteAsync(tag, ct);
+            // Build framed message: [nonce][ciphertext][tag]
+            var framedData = new byte[NONCE_SIZE + ciphertext.Length + TAG_SIZE];
+            nonce.CopyTo(framedData, 0);
+            ciphertext.CopyTo(framedData, NONCE_SIZE);
+            tag.CopyTo(framedData, NONCE_SIZE + ciphertext.Length);
+            
+            // Send with length prefix
+            await WriteFramedAsync(stream, framedData, ct);
             await stream.FlushAsync(ct);
 
-            // Read response: [nonce][encrypted response][tag]
-            var responseNonce = new byte[NONCE_SIZE];
-            var responseRead = await ReadExactAsync(stream, responseNonce, ct);
-            if (responseRead < NONCE_SIZE)
-                return new HandshakeResult { Success = false, ErrorMessage = "Failed to read response nonce" };
-
-            // Response should contain: remoteDeviceId + reversed challenge
-            var expectedResponseLen = 64 + CHALLENGE_SIZE; // Max device ID + challenge
-            var responseCiphertext = new byte[expectedResponseLen];
-            var responseTag = new byte[TAG_SIZE];
-
-            var cipherRead = await ReadExactAsync(stream, responseCiphertext, ct);
-            var tagRead = await ReadExactAsync(stream, responseTag, ct);
-
-            if (tagRead < TAG_SIZE)
+            // Read framed response
+            var responseData = await ReadFramedAsync(stream, ct);
+            if (responseData == null || responseData.Length < NONCE_SIZE + TAG_SIZE)
                 return new HandshakeResult { Success = false, ErrorMessage = "Failed to read response" };
 
+            // Parse response: [nonce][ciphertext][tag]
+            var responseNonce = responseData.AsSpan(0, NONCE_SIZE).ToArray();
+            var responseCiphertextLen = responseData.Length - NONCE_SIZE - TAG_SIZE;
+            var responseCiphertext = responseData.AsSpan(NONCE_SIZE, responseCiphertextLen).ToArray();
+            var responseTag = responseData.AsSpan(NONCE_SIZE + responseCiphertextLen, TAG_SIZE).ToArray();
+
             // Decrypt response
-            var responsePlaintext = new byte[cipherRead];
+            var responsePlaintext = new byte[responseCiphertextLen];
             try
             {
                 using var aes = new AesGcm(sharedKey, TAG_SIZE);
-                var cipherSlice = new byte[cipherRead];
-                Array.Copy(responseCiphertext, 0, cipherSlice, 0, cipherRead);
-                aes.Decrypt(responseNonce, cipherSlice, responseTag, responsePlaintext);
+                aes.Decrypt(responseNonce, responseCiphertext, responseTag, responsePlaintext);
             }
             catch (CryptographicException)
             {
@@ -127,31 +123,23 @@ public static class TransferHandshake
     {
         try
         {
-            // Read challenge: [nonce][ciphertext][tag]
-            var nonce = new byte[NONCE_SIZE];
-            var nonceRead = await ReadExactAsync(stream, nonce, ct);
-            if (nonceRead < NONCE_SIZE)
-                return new HandshakeResult { Success = false, ErrorMessage = "Failed to read challenge nonce" };
-
-            // Read ciphertext (prefix + device ID + challenge)
-            var maxCiphertextLen = 64 + CHALLENGE_SIZE + CHALLENGE_PREFIX.Length;
-            var ciphertext = new byte[maxCiphertextLen];
-            var tag = new byte[TAG_SIZE];
-
-            var cipherRead = await ReadExactAsync(stream, ciphertext, ct);
-            var tagRead = await ReadExactAsync(stream, tag, ct);
-
-            if (tagRead < TAG_SIZE)
+            // Read framed challenge
+            var challengeData = await ReadFramedAsync(stream, ct);
+            if (challengeData == null || challengeData.Length < NONCE_SIZE + TAG_SIZE)
                 return new HandshakeResult { Success = false, ErrorMessage = "Failed to read challenge" };
 
+            // Parse challenge: [nonce][ciphertext][tag]
+            var nonce = challengeData.AsSpan(0, NONCE_SIZE).ToArray();
+            var ciphertextLen = challengeData.Length - NONCE_SIZE - TAG_SIZE;
+            var ciphertext = challengeData.AsSpan(NONCE_SIZE, ciphertextLen).ToArray();
+            var tag = challengeData.AsSpan(NONCE_SIZE + ciphertextLen, TAG_SIZE).ToArray();
+
             // Decrypt challenge
-            var plaintext = new byte[cipherRead];
+            var plaintext = new byte[ciphertextLen];
             try
             {
                 using var aes = new AesGcm(sharedKey, TAG_SIZE);
-                var cipherSlice = new byte[cipherRead];
-                Array.Copy(ciphertext, 0, cipherSlice, 0, cipherRead);
-                aes.Decrypt(nonce, cipherSlice, tag, plaintext);
+                aes.Decrypt(nonce, ciphertext, tag, plaintext);
             }
             catch (CryptographicException)
             {
@@ -183,10 +171,14 @@ public static class TransferHandshake
                 aes.Encrypt(responseNonce, fullResponse, responseCiphertext, responseTag);
             }
 
-            // Send response
-            await stream.WriteAsync(responseNonce, ct);
-            await stream.WriteAsync(responseCiphertext, ct);
-            await stream.WriteAsync(responseTag, ct);
+            // Build framed response: [nonce][ciphertext][tag]
+            var framedResponse = new byte[NONCE_SIZE + responseCiphertext.Length + TAG_SIZE];
+            responseNonce.CopyTo(framedResponse, 0);
+            responseCiphertext.CopyTo(framedResponse, NONCE_SIZE);
+            responseTag.CopyTo(framedResponse, NONCE_SIZE + responseCiphertext.Length);
+
+            // Send with length prefix
+            await WriteFramedAsync(stream, framedResponse, ct);
             await stream.FlushAsync(ct);
 
             return new HandshakeResult { Success = true, RemoteDeviceId = remoteDeviceId };
@@ -195,6 +187,38 @@ public static class TransferHandshake
         {
             return new HandshakeResult { Success = false, ErrorMessage = ex.Message };
         }
+    }
+
+    /// <summary>
+    /// Writes data with a 4-byte length prefix to prevent deadlock from variable-length messages.
+    /// </summary>
+    private static async Task WriteFramedAsync(Stream stream, byte[] data, CancellationToken ct)
+    {
+        var length = BitConverter.GetBytes(data.Length);
+        await stream.WriteAsync(length, ct);
+        await stream.WriteAsync(data, ct);
+    }
+
+    /// <summary>
+    /// Reads length-prefixed data. Returns null if stream ends or data is invalid.
+    /// </summary>
+    private static async Task<byte[]?> ReadFramedAsync(Stream stream, CancellationToken ct)
+    {
+        var lengthBytes = new byte[4];
+        if (await ReadExactAsync(stream, lengthBytes, ct) < 4)
+            return null;
+        
+        var length = BitConverter.ToInt32(lengthBytes);
+        
+        // Sanity check: handshake messages should be small (<1MB)
+        if (length < 0 || length > 1024 * 1024)
+            return null;
+        
+        var buffer = new byte[length];
+        if (await ReadExactAsync(stream, buffer, ct) < length)
+            return null;
+        
+        return buffer;
     }
 
     private static async Task<int> ReadExactAsync(Stream stream, byte[] buffer, CancellationToken ct)

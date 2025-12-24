@@ -76,22 +76,29 @@ public class EncryptedStream : Stream
         // Generate random nonce
         var nonce = RandomNumberGenerator.GetBytes(NONCE_SIZE);
 
-        // Allocate buffers
-        var ciphertext = new byte[plaintext.Length];
-        var tag = new byte[TAG_SIZE];
+        // Rent buffers from pool to reduce GC pressure during large transfers
+        var ciphertext = ArrayPool<byte>.Shared.Rent(plaintext.Length);
+        var tag = ArrayPool<byte>.Shared.Rent(TAG_SIZE);
+        try
+        {
+            // Encrypt with AES-GCM
+            using var aes = new AesGcm(_key, TAG_SIZE);
+            aes.Encrypt(nonce, plaintext.Span, ciphertext.AsSpan(0, plaintext.Length), tag.AsSpan(0, TAG_SIZE));
 
-        // Encrypt with AES-GCM
-        using var aes = new AesGcm(_key, TAG_SIZE);
-        aes.Encrypt(nonce, plaintext.Span, ciphertext, tag);
+            // Write framed message: [length][nonce][ciphertext][tag]
+            var totalLength = NONCE_SIZE + plaintext.Length + TAG_SIZE;
+            var lengthBytes = BitConverter.GetBytes(totalLength);
 
-        // Write framed message: [length][nonce][ciphertext][tag]
-        var totalLength = NONCE_SIZE + ciphertext.Length + TAG_SIZE;
-        var lengthBytes = BitConverter.GetBytes(totalLength);
-
-        await _innerStream.WriteAsync(lengthBytes, ct);
-        await _innerStream.WriteAsync(nonce, ct);
-        await _innerStream.WriteAsync(ciphertext, ct);
-        await _innerStream.WriteAsync(tag, ct);
+            await _innerStream.WriteAsync(lengthBytes, ct);
+            await _innerStream.WriteAsync(nonce, ct);
+            await _innerStream.WriteAsync(ciphertext.AsMemory(0, plaintext.Length), ct);
+            await _innerStream.WriteAsync(tag.AsMemory(0, TAG_SIZE), ct);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(ciphertext);
+            ArrayPool<byte>.Shared.Return(tag);
+        }
     }
 
     /// <summary>
@@ -155,14 +162,33 @@ public class EncryptedStream : Stream
         if (totalLength < NONCE_SIZE + TAG_SIZE || totalLength > MAX_CHUNK_SIZE + NONCE_SIZE + TAG_SIZE)
             throw new CryptographicException("Invalid encrypted chunk length");
 
-        // Read encrypted data
-        var encryptedData = new byte[totalLength];
-        var dataRead = await ReadExactAsync(_innerStream, encryptedData, ct);
-        if (dataRead < totalLength)
-            throw new CryptographicException("Unexpected end of encrypted stream");
+        // Rent buffer from pool to reduce GC pressure
+        var encryptedData = ArrayPool<byte>.Shared.Rent(totalLength);
+        try
+        {
+            var dataRead = await ReadExactAsync(_innerStream, encryptedData.AsMemory(0, totalLength), ct);
+            if (dataRead < totalLength)
+                throw new CryptographicException("Unexpected end of encrypted stream");
 
-        // Decrypt in sync method to avoid Span-in-async issue (C# 12 limitation)
-        return DecryptChunk(encryptedData, totalLength);
+            // Decrypt in sync method to avoid Span-in-async issue (C# 12 limitation)
+            return DecryptChunk(encryptedData, totalLength);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(encryptedData);
+        }
+    }
+
+    private static async Task<int> ReadExactAsync(Stream stream, Memory<byte> buffer, CancellationToken ct)
+    {
+        var totalRead = 0;
+        while (totalRead < buffer.Length)
+        {
+            var read = await stream.ReadAsync(buffer.Slice(totalRead), ct);
+            if (read == 0) break;
+            totalRead += read;
+        }
+        return totalRead;
     }
 
     private byte[] DecryptChunk(byte[] encryptedData, int totalLength)
