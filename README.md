@@ -26,20 +26,36 @@ It creates portable, LAN-ready game packages by automatically applying compatibi
 ### 🚀 Advanced LAN Transfer
 *   **Zero-Config Discovery**: Automatically finds other SteamRoll clients on your local network via UDP broadcast (Port 27050).
 *   **Smart Sync (Differential Transfer)**: Uses a file-level transfer protocol to analyze the destination folder before sending. It intelligently skips files that match in size and hash, making it perfect for resuming interrupted transfers or pushing small game updates without re-sending the whole game.
+*   **Delta Sync**: For files that differ, SteamRoll uses rsync-style delta synchronization to transfer only the changed portions, dramatically reducing bandwidth for game updates.
 *   **Resumable Transfers**: Transfers can be paused or interrupted and resumed later. State is tracked via `.steamroll_transfer_state` to ensure seamless continuation.
-*   **Smart Hashing**: Intelligently uses existing package metadata to skip re-hashing unchanged files on the source, ensuring instant transfer initialization for large games.
+*   **Smart Hashing**: Intelligently uses existing package metadata to skip re-hashing unchanged files on the source, ensuring instant transfer initialization for large games. Files under 1MB are hashed synchronously to reduce thread pool pressure.
 *   **Compression**: Optional GZip compression (negotiated via `STEAMROLL_TRANSFER_V2` protocol) to reduce bandwidth usage during transfers.
-*   **Integrity Verification**: Uses SHA-256 hashing to ensure every file is transferred correctly and matches the source.
+*   **Integrity Verification**: Uses XxHash64 (10-20x faster than SHA-256) for real-time integrity checking during transfers.
 *   **Remote Library Browsing**: Browse the library of other SteamRoll peers on your network and request "Pull" transfers directly from their machine.
 *   **Repair from Peer**: Verify local game files against a peer's copy and download only the missing or corrupt files to repair a broken package.
 *   **Network Speed Test**: Built-in tool to measure raw transfer throughput between peers.
 *   **Bandwidth Control**: Configurable transfer speed limits to prevent network saturation.
+
+### 🔐 Encrypted Transfers & Device Pairing
+*   **AES-256-GCM Encryption**: Secure all file transfers with authenticated encryption.
+*   **Device Pairing**: Pair devices using a 6-digit code to establish trusted connections.
+*   **PSK-Based Authentication**: Uses PBKDF2 key derivation (100k iterations) to convert pairing codes into strong encryption keys.
+*   **Require Encryption Mode**: Optional setting to only accept transfers from paired devices.
+*   **Paired Device Management**: View, add, and remove paired devices from the Settings panel.
+*   **Platform-Aware Key Storage**: Uses Windows DPAPI for secure key storage (with fallback obfuscation on other platforms).
 
 ### 🌐 Global Mesh Library
 *   **Unified Game View**: See all games available across your entire LAN in one unified library view.
 *   **Network Availability Badges**: Games available from peers display a "📡 Network Available" badge.
 *   **One-Click Install from Peer**: Install games directly from any peer on your network with a single click.
 *   **Automatic Game List Sharing**: Peers automatically share their game lists when connecting to the network.
+*   **Persistent Direct Connect Peers**: Save manually-added peer addresses for VPN/VLAN setups where UDP broadcast doesn't work. Peers are automatically restored on startup when enabled.
+
+### 🔄 Package Updates
+*   **Steam Build ID Tracking**: Packages store the Steam Build ID at creation time.
+*   **Update Detection**: Automatically detect when a game has been updated on Steam by comparing Build IDs.
+*   **Smart Updates**: Update packages using the same Smart Sync technology—only changed files are re-packaged.
+*   **Visual Update Indicators**: Games with available updates display an "⬆️ Update Available" badge.
 
 ### ⚡ Batch Operations
 *   **Batch Packaging**: Select multiple games in the library and package them sequentially in one go.
@@ -70,8 +86,9 @@ It creates portable, LAN-ready game packages by automatically applying compatibi
 
 ### 🔒 Security
 *   **Defender Exclusion Helper**: An optional utility to safely add Windows Defender exclusions for SteamRoll folders to prevent false positives.
-*   **Path Validation**: Strict security checks during transfers to prevent directory traversal attacks.
+*   **Path Validation**: Strict security checks during transfers to prevent directory traversal attacks. Malicious paths immediately terminate the connection (DoS protection).
 *   **Isolated Environment**: SteamRoll works in its own output directory and does **not** modify your actual Steam installation.
+*   **Delta Temp File Cleanup**: Automatic cleanup of temporary files during delta sync operations, even on failure.
 
 ## 🚀 How to Use
 
@@ -95,12 +112,22 @@ Run **SteamRoll** on the computer where the games are installed. It will automat
 4.  Select the destination PC from the list.
 5.  On the destination PC, accept the incoming transfer request.
 
-**Option B: Manual Copy**
+**Option B: Secure Encrypted Transfer**
+1.  On both PCs, go to **Settings → Security → Device Pairing**.
+2.  Click **Pair New Device** and share the 6-digit code.
+3.  Enable **Require Encrypted Transfers** for maximum security.
+4.  Transfers will now be encrypted with AES-256-GCM.
+
+**Option C: Manual Copy**
 1.  Click **Open Folder** to view the package.
 2.  Copy the folder to a USB drive or network share.
 3.  Paste it onto the target PC.
 
-### 4. Play!
+### 4. Update a Package
+1.  If a game has been updated on Steam, SteamRoll shows an "⬆️ Update Available" badge.
+2.  Click **Update Package** to apply only the changed files.
+
+### 5. Play!
 On the target PC, open the game folder:
 *   **Windows**: Run **`LAUNCH.bat`**.
 *   **Linux / Steam Deck**: Run **`launch.sh`** (ensure Wine is installed if running Windows executables).
@@ -118,9 +145,14 @@ On the target PC, open the game folder:
     *   **TCP 27051**: File transfer
     *   **UDP 27050**: Peer discovery
 *   **Configuration**: Settings are stored in `%LocalAppData%/SteamRoll/settings.json`.
+*   **Paired Devices**: Encryption keys are stored in `%AppData%/SteamRoll/paired_devices.json` (DPAPI-protected on Windows).
 *   **Goldberg Path**: Emulator files are managed in `%LocalAppData%/SteamRoll/Goldberg`.
-*   **Metadata**: Each package contains a `steamroll.json` file with build info, emulator version, and SHA-256 file hashes for integrity checks.
+*   **Metadata**: Each package contains a `steamroll.json` file with build info, emulator version, and XxHash64 file hashes for integrity checks.
 *   **Dependencies**: The generated `install_deps.bat` script can silently install common redistributables found in the game folder (e.g., `_CommonRedist`).
+*   **Transfer Protocols**:
+    *   `STEAMROLL_TRANSFER_V1`: Basic uncompressed transfer
+    *   `STEAMROLL_TRANSFER_V2`: With GZip compression
+    *   `STEAMROLL_TRANSFER_V3`: Encrypted (AES-256-GCM) with authenticated handshake
 
 ## System Requirements
 *   **OS**: Windows 10/11 (64-bit)
