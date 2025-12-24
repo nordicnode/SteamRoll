@@ -75,9 +75,10 @@ public partial class MainWindow
 
         Dispatcher.Invoke(() =>
         {
-            var packageableCount = _allGames.Count(g => g.IsPackageable);
-            var totalDlc = _allGames.Sum(g => g.TotalDlcCount);
-            StatusText.Text = $"✓ {_allGames.Count} games • {packageableCount} packageable • {totalDlc} DLC available";
+            var allGames = _libraryManager.Games;
+            var packageableCount = allGames.Count(g => g.IsPackageable);
+            var totalDlc = allGames.Sum(g => g.TotalDlcCount);
+            StatusText.Text = $"✓ {allGames.Count} games • {packageableCount} packageable • {totalDlc} DLC available";
             GameLibraryViewControl.RefreshList();
 
             foreach (var game in games)

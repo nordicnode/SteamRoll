@@ -27,13 +27,12 @@ public class PackageBuilder
     /// </summary>
     public event Action<string, int>? ProgressChanged;
 
-    public PackageBuilder(GoldbergService goldbergService, SettingsService settingsService, DlcService? dlcService = null, CreamApiService? creamApiService = null)
+    public PackageBuilder(GoldbergService goldbergService, SettingsService settingsService, DlcService? dlcService = null, CreamApiService? creamApiService = null, SteamStoreService? steamStoreService = null)
     {
         _goldbergService = goldbergService;
         _dlcService = dlcService ?? new DlcService();
         _creamApiService = creamApiService ?? new CreamApiService(settingsService);
-        // Use shared singleton instance to avoid multiple HttpClient instances
-        _steamStoreService = SteamStoreService.Instance;
+        _steamStoreService = steamStoreService ?? throw new ArgumentNullException(nameof(steamStoreService), "SteamStoreService is required");
 
         _fileHandler = new PackageFileHandler();
         _fileHandler.ProgressChanged += (status, percentage) => ReportProgress(status, percentage);

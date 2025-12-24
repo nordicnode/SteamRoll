@@ -219,16 +219,13 @@ public partial class MainWindow
 
                 if (game.LibraryPath == _outputPath)
                 {
-                    lock (_gamesLock)
-                    {
-                        _allGames.Remove(game);
-                    }
+                    _libraryManager.RemoveGame(game);
                 }
 
                 _cacheService.UpdateCache(game);
                 _cacheService.SaveCache();
 
-                UpdateGamesList(_allGames);
+                UpdateGamesList(GetGamesSnapshot());
 
                 ToastService.Instance.ShowSuccess("Package Deleted", $"Deleted package for {game.Name}");
             }

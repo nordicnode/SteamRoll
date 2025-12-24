@@ -14,7 +14,8 @@ public partial class MainWindow
 
     private void UpdateBatchActionBar()
     {
-        var selectedGames = _allGames.Where(g => g.IsSelected).ToList();
+        var allGames = _libraryManager.Games;
+        var selectedGames = allGames.Where(g => g.IsSelected).ToList();
         var selectedCount = selectedGames.Count;
         var sendableCount = selectedGames.Count(g => g.IsPackaged);
 
@@ -25,12 +26,12 @@ public partial class MainWindow
 
     private void ClearSelection_Click(object sender, RoutedEventArgs e)
     {
-        foreach (var game in _allGames)
+        foreach (var game in _libraryManager.Games)
         {
             game.IsSelected = false;
         }
 
-        UpdateGamesList(_allGames);
+        UpdateGamesList(GetGamesSnapshot());
         UpdateBatchActionBar();
     }
 
@@ -41,7 +42,7 @@ public partial class MainWindow
 
     private async void BatchPackage_Click(object sender, RoutedEventArgs e)
     {
-        var selectedGames = _allGames.Where(g => g.IsSelected && g.IsPackageable).ToList();
+        var selectedGames = _libraryManager.Games.Where(g => g.IsSelected && g.IsPackageable).ToList();
 
         if (selectedGames.Count == 0)
         {
@@ -103,14 +104,14 @@ public partial class MainWindow
         finally
         {
             GameLibraryViewControl.SetBatchButtonsEnabled(true);
-            UpdateGamesList(_allGames);
+            UpdateGamesList(GetGamesSnapshot());
             UpdateBatchActionBar();
         }
     }
 
     private async void BatchSendToPeer_Click(object sender, RoutedEventArgs e)
     {
-        var selectedGames = _allGames.Where(g => g.IsSelected && g.IsPackaged && !string.IsNullOrEmpty(g.PackagePath)).ToList();
+        var selectedGames = _libraryManager.Games.Where(g => g.IsSelected && g.IsPackaged && !string.IsNullOrEmpty(g.PackagePath)).ToList();
 
         if (selectedGames.Count == 0)
         {
@@ -209,7 +210,7 @@ public partial class MainWindow
         finally
         {
             GameLibraryViewControl.SetBatchButtonsEnabled(true);
-            UpdateGamesList(_allGames);
+            UpdateGamesList(GetGamesSnapshot());
             UpdateBatchActionBar();
         }
     }

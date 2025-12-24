@@ -29,49 +29,20 @@ public partial class MainWindow : Window
     private readonly UpdateService _updateService;
     private readonly IntegrityService _integrityService;
     private readonly LibraryManager _libraryManager;
+    private readonly SteamStoreService _storeService;
     private CancellationTokenSource? _currentOperationCts;
     private CancellationTokenSource? _scanCts;
     private bool _isLibraryViewActive = true;
-    private List<InstalledGame> _allGames = new();
-    private readonly object _gamesLock = new(); // Thread-safety lock for _allGames modifications
     private string _outputPath;
     private MeshLibraryService? _meshLibraryService;
 
     // Per-game Goldberg configuration storage
     private readonly Dictionary<int, GoldbergConfig> _gameGoldbergConfigs = new();
 
-    /// <summary>
-    /// Gets a thread-safe snapshot of all games for read operations.
-    /// </summary>
-    private List<InstalledGame> GetGamesSnapshot()
-    {
-        lock (_gamesLock)
-        {
-            return _allGames.ToList();
-        }
-    }
-    
-    /// <summary>
-    /// Gets a game by AppId in a thread-safe manner.
-    /// </summary>
-    private InstalledGame? FindGameByAppId(int appId)
-    {
-        lock (_gamesLock)
-        {
-            return _allGames.FirstOrDefault(g => g.AppId == appId);
-        }
-    }
-    
-    /// <summary>
-    /// Finds a game by predicate in a thread-safe manner.
-    /// </summary>
-    private InstalledGame? FindGame(Func<InstalledGame, bool> predicate)
-    {
-        lock (_gamesLock)
-        {
-            return _allGames.FirstOrDefault(predicate);
-        }
-    }
+    // Convenience accessors that delegate to LibraryManager (single source of truth)
+    private List<InstalledGame> GetGamesSnapshot() => _libraryManager.GetGamesSnapshot();
+    private InstalledGame? FindGameByAppId(int appId) => _libraryManager.FindGameByAppId(appId);
+    private InstalledGame? FindGame(Func<InstalledGame, bool> predicate) => _libraryManager.FindGame(predicate);
 
 
     /// <summary>
@@ -108,6 +79,7 @@ public partial class MainWindow : Window
         _saveGameService = services.SaveGameService;
         _integrityService = services.IntegrityService;
         _updateService = services.UpdateService;
+        _storeService = services.SteamStoreService;
         
         // Set output path from settings
         _outputPath = _settingsService.Settings.OutputPath;
@@ -168,6 +140,7 @@ public partial class MainWindow : Window
 
         
         // Subscribe to GameDetailsView events
+        GameDetailsView.SetStoreService(_storeService);
         GameDetailsView.BackRequested += OnDetailsBackRequested;
         GameDetailsView.PackageRequested += OnDetailsPackageRequested;
     }
@@ -557,15 +530,9 @@ public partial class MainWindow : Window
 
         try
         {
-            // Use LibraryManager to scan libraries
+            // Use LibraryManager to scan libraries (LibraryManager owns the games collection)
             var scanResult = await _libraryManager.ScanLibrariesAsync(ct);
             ct.ThrowIfCancellationRequested();
-            
-            // Update local reference for UI (sync with manager)
-            lock (_gamesLock)
-            {
-                _allGames = scanResult.AllGames;
-            }
             
             // Only analyze games not in cache
             if (scanResult.GamesToAnalyze.Count > 0)
@@ -630,7 +597,7 @@ public partial class MainWindow : Window
                 // Skip games that already have cached review data (unless forcing refresh)
                 if (!forceRefresh && (game.HasReviewScore || game.HasMetacriticScore)) continue;
 
-                var details = await SteamStoreService.Instance.GetGameDetailsAsync(game.AppId, ct);
+                var details = await _storeService.GetGameDetailsAsync(game.AppId, ct);
                 if (details != null)
                 {
                     Application.Current.Dispatcher.Invoke(() =>
@@ -671,10 +638,8 @@ public partial class MainWindow : Window
             var scannedPackages = await Task.Run(() => _packageScanner.ScanPackages(ct), ct);
             ct.ThrowIfCancellationRequested();
 
-            lock (_gamesLock)
-            {
-                _allGames = scannedPackages;
-            }
+            // Use LibraryManager as single source of truth
+            _libraryManager.SetGames(scannedPackages);
 
             // Apply cache if possible to get better metadata (images, etc)
             // Skip path validation since package path differs from original install path
@@ -717,7 +682,7 @@ public partial class MainWindow : Window
         GameLibraryViewControl.SetViewMode(HeaderControl.IsViewModeList);
 
         // Update empty state message based on context
-        if (games.Count == 0 && _allGames.Count > 0)
+        if (games.Count == 0 && _libraryManager.Games.Count > 0)
         {
             GameLibraryViewControl.SetEmptyStateMessage("No Matching Games", "No games match your current filters. Try adjusting your filters or search.");
         }

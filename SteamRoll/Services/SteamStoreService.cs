@@ -6,19 +6,10 @@ namespace SteamRoll.Services;
 
 /// <summary>
 /// Service for fetching game details from the Steam Store API.
-/// Use SteamStoreService.Instance for shared access to avoid multiple HttpClient instances.
+/// Registered in ServiceContainer for dependency injection.
 /// </summary>
 public class SteamStoreService : IDisposable
 {
-    // Thread-safe lazy singleton instance - shared across the application
-    private static readonly Lazy<SteamStoreService> _instance = new(() => new SteamStoreService());
-    
-    /// <summary>
-    /// Gets the shared singleton instance of the SteamStoreService.
-    /// Prefer this over creating new instances to share cache and HttpClient.
-    /// </summary>
-    public static SteamStoreService Instance => _instance.Value;
-    
     private readonly HttpClient _httpClient;
     private readonly ConcurrentDictionary<int, CachedStoreEntry> _cache = new();
     private bool _disposed;

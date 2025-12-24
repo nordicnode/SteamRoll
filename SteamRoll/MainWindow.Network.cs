@@ -52,7 +52,7 @@ public partial class MainWindow
             if (!_activeTransferIds.TryGetValue(key, out var transferId))
             {
                 // Start tracking this transfer
-                var game = _allGames.FirstOrDefault(g => 
+                var game = GetGamesSnapshot().FirstOrDefault(g => 
                     g.Name.Equals(progress.GameName, StringComparison.OrdinalIgnoreCase));
                 var appId = game?.AppId ?? 0;
                 
@@ -94,7 +94,7 @@ public partial class MainWindow
                     {
                         try
                         {
-                            var game = _allGames.FirstOrDefault(g => g.Name.Equals(result.GameName, StringComparison.OrdinalIgnoreCase));
+                            var game = GetGamesSnapshot().FirstOrDefault(g => g.Name.Equals(result.GameName, StringComparison.OrdinalIgnoreCase));
 
                             if (game != null)
                             {
@@ -171,7 +171,7 @@ public partial class MainWindow
         Dispatcher.Invoke(() =>
         {
             // Try to extract AppId from game name if the game exists in our library
-            var existingGame = _allGames.FirstOrDefault(g => 
+            var existingGame = GetGamesSnapshot().FirstOrDefault(g => 
                 g.Name.Equals(e.GameName, StringComparison.OrdinalIgnoreCase));
             var appId = existingGame?.AppId ?? 0;
 

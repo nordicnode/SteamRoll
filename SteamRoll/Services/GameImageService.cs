@@ -8,17 +8,12 @@ namespace SteamRoll.Services;
 
 /// <summary>
 /// Service for resolving game header images from multiple sources with fallback chain.
+/// Registered in ServiceContainer for dependency injection.
 /// </summary>
 public class GameImageService : IDisposable
 {
-    private static readonly Lazy<GameImageService> _instance = new(() => new GameImageService());
-    
-    /// <summary>
-    /// Shared singleton instance.
-    /// </summary>
-    public static GameImageService Instance => _instance.Value;
-    
     private readonly HttpClient _httpClient;
+    private readonly SteamStoreService _storeService;
     private readonly ConcurrentDictionary<int, string> _imageUrlCache = new();
     private readonly ConcurrentDictionary<int, bool> _failedAppIds = new();
     
@@ -40,8 +35,9 @@ public class GameImageService : IDisposable
         "https://steamcdn-a.akamaihd.net/steam/apps/{0}/library_600x900.jpg",
     };
 
-    public GameImageService()
+    public GameImageService(SteamStoreService storeService)
     {
+        _storeService = storeService;
         _httpClient = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(5)
@@ -104,7 +100,7 @@ public class GameImageService : IDisposable
         // Steam uses hash-based URLs for many games now, which we can only get from the API
         try
         {
-            var details = await SteamStoreService.Instance.GetGameDetailsAsync(appId, ct);
+            var details = await _storeService.GetGameDetailsAsync(appId, ct);
             if (details != null && !string.IsNullOrEmpty(details.HeaderImage))
             {
                 // Verify the API URL is accessible

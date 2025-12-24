@@ -40,6 +40,8 @@ public class ServiceContainer : IDisposable
     public UpdateService UpdateService { get; }
     public IntegrityService IntegrityService { get; }
     public LibraryManager LibraryManager { get; }
+    public SteamStoreService SteamStoreService { get; }
+    public GameImageService GameImageService { get; }
     
     /// <summary>
     /// Creates a new service container with default WPF services.
@@ -75,11 +77,16 @@ public class ServiceContainer : IDisposable
         DlcService = new DlcService();
         PackageScanner = new PackageScanner(Settings);
         CacheService = new CacheService();
-        PackageBuilder = new PackageBuilder(GoldbergService, Settings, DlcService);
+        
+        // HTTP-based services (share cache and HttpClient)
+        SteamStoreService = new SteamStoreService();
+        GameImageService = new GameImageService(SteamStoreService);
+        
+        PackageBuilder = new PackageBuilder(GoldbergService, Settings, DlcService, steamStoreService: SteamStoreService);
         
         LibraryManager = new LibraryManager(
             SteamLocator, LibraryScanner, PackageScanner,
-            CacheService, DlcService, Settings);
+            CacheService, DlcService, Settings, SteamStoreService, GameImageService);
         
         LanDiscoveryService = new LanDiscoveryService();
         TransferService = new TransferService(Settings.Settings.OutputPath, Settings);
@@ -106,6 +113,8 @@ public class ServiceContainer : IDisposable
             TransferService?.Dispose();
             GoldbergService?.Dispose();
             DlcService?.Dispose();
+            SteamStoreService?.Dispose();
+            GameImageService?.Dispose();
         }
         catch (Exception ex)
         {

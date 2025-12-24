@@ -18,12 +18,11 @@ public partial class GameDetailsWindow : Window
     private readonly Action<InstalledGame, PackageMode>? _packageCallback;
     private readonly SteamStoreService _storeService;
 
-    public GameDetailsWindow(InstalledGame game, Action<InstalledGame>? packageCallback = null)
+    public GameDetailsWindow(InstalledGame game, SteamStoreService storeService, Action<InstalledGame>? packageCallback = null)
     {
         InitializeComponent();
         _game = game;
-        // Use shared singleton instance to avoid multiple HttpClient instances
-        _storeService = SteamStoreService.Instance;
+        _storeService = storeService;
         _packageCallback = packageCallback != null 
             ? (g, m) => packageCallback(g) 
             : null;
@@ -33,12 +32,11 @@ public partial class GameDetailsWindow : Window
     }
 
     
-    public GameDetailsWindow(InstalledGame game, Action<InstalledGame, PackageMode>? packageCallback)
+    public GameDetailsWindow(InstalledGame game, SteamStoreService storeService, Action<InstalledGame, PackageMode>? packageCallback)
     {
         InitializeComponent();
         _game = game;
-        // Use shared singleton instance to avoid multiple HttpClient instances
-        _storeService = SteamStoreService.Instance;
+        _storeService = storeService;
         _packageCallback = packageCallback;
         
         LoadGameDetails();

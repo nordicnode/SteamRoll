@@ -1,4 +1,6 @@
+using System.Collections.ObjectModel;
 using System.IO;
+using System.Windows.Data;
 using SteamRoll.Models;
 
 namespace SteamRoll.Services;
@@ -15,14 +17,26 @@ public class LibraryManager
     private readonly CacheService _cacheService;
     private readonly DlcService _dlcService;
     private readonly SettingsService _settingsService;
+    private readonly SteamStoreService _storeService;
+    private readonly GameImageService _imageService;
     
-    private List<InstalledGame> _allGames = new();
+    private readonly ObservableCollection<InstalledGame> _allGames = new();
     private readonly object _gamesLock = new();
+    
+    /// <summary>
+    /// Gets the observable collection of games. Thread-safe for WPF binding.
+    /// </summary>
+    public ObservableCollection<InstalledGame> Games => _allGames;
     
     /// <summary>
     /// Event raised when scan progress updates.
     /// </summary>
     public event Action<string>? ProgressChanged;
+    
+    /// <summary>
+    /// Event raised when the games collection is replaced (after a scan).
+    /// </summary>
+    public event Action? GamesChanged;
 
     public LibraryManager(
         SteamLocator steamLocator,
@@ -30,7 +44,9 @@ public class LibraryManager
         PackageScanner packageScanner,
         CacheService cacheService,
         DlcService dlcService,
-        SettingsService settingsService)
+        SettingsService settingsService,
+        SteamStoreService storeService,
+        GameImageService imageService)
     {
         _steamLocator = steamLocator;
         _libraryScanner = libraryScanner;
@@ -38,6 +54,11 @@ public class LibraryManager
         _cacheService = cacheService;
         _dlcService = dlcService;
         _settingsService = settingsService;
+        _storeService = storeService;
+        _imageService = imageService;
+        
+        // Enable cross-thread access for WPF data binding
+        BindingOperations.EnableCollectionSynchronization(_allGames, _gamesLock);
     }
     
     /// <summary>
@@ -48,6 +69,33 @@ public class LibraryManager
         lock (_gamesLock)
         {
             return _allGames.ToList();
+        }
+    }
+    
+    /// <summary>
+    /// Replaces the games collection with a new list (for switching views, e.g. packages).
+    /// </summary>
+    public void SetGames(List<InstalledGame> games)
+    {
+        lock (_gamesLock)
+        {
+            _allGames.Clear();
+            foreach (var game in games)
+            {
+                _allGames.Add(game);
+            }
+        }
+        GamesChanged?.Invoke();
+    }
+    
+    /// <summary>
+    /// Removes a game from the collection in a thread-safe manner.
+    /// </summary>
+    public bool RemoveGame(InstalledGame game)
+    {
+        lock (_gamesLock)
+        {
+            return _allGames.Remove(game);
         }
     }
     
@@ -91,10 +139,18 @@ public class LibraryManager
         var scannedGames = await Task.Run(() => _libraryScanner.ScanAllLibraries(), ct);
         ct.ThrowIfCancellationRequested();
         
+        // Replace collection contents thread-safely
         lock (_gamesLock)
         {
-            _allGames = scannedGames;
+            _allGames.Clear();
+            foreach (var game in scannedGames)
+            {
+                _allGames.Add(game);
+            }
         }
+        
+        // Notify listeners that games have changed
+        GamesChanged?.Invoke();
         
         // Apply cache to games - separate into cached and uncached
         var gamesToAnalyze = new List<InstalledGame>();
@@ -282,7 +338,7 @@ public class LibraryManager
             
             try
             {
-                var details = await SteamStoreService.Instance.GetGameDetailsAsync(game.AppId, ct);
+                var details = await _storeService.GetGameDetailsAsync(game.AppId, ct);
                 if (details != null)
                 {
                     game.ReviewPositivePercent = details.ReviewPositivePercent;
@@ -362,7 +418,7 @@ public class LibraryManager
             {
                 try
                 {
-                    var imageUrl = await GameImageService.Instance.GetHeaderImageUrlAsync(
+                    var imageUrl = await _imageService.GetHeaderImageUrlAsync(
                         game.AppId, 
                         game.LocalHeaderPath, 
                         token);

@@ -16,7 +16,7 @@ namespace SteamRoll.Controls;
 public partial class GameDetailsView : UserControl
 {
     private InstalledGame? _game;
-    private readonly SteamStoreService _storeService;
+    private SteamStoreService? _storeService;
     
     public event EventHandler? BackRequested;
     public event EventHandler<(InstalledGame Game, PackageMode Mode)>? PackageRequested;
@@ -25,8 +25,14 @@ public partial class GameDetailsView : UserControl
     public GameDetailsView()
     {
         InitializeComponent();
-        // Use shared singleton instance to avoid multiple HttpClient instances
-        _storeService = SteamStoreService.Instance;
+    }
+    
+    /// <summary>
+    /// Sets the store service for fetching Steam data. Call this before LoadGameAsync.
+    /// </summary>
+    public void SetStoreService(SteamStoreService storeService)
+    {
+        _storeService = storeService;
     }
 
 
@@ -230,7 +236,7 @@ public partial class GameDetailsView : UserControl
 
     private async Task LoadSteamStoreDataAsync()
     {
-        if (_game == null) return;
+        if (_game == null || _storeService == null) return;
         
         try
         {
