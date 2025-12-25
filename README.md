@@ -19,12 +19,14 @@ It creates portable, LAN-ready game packages by automatically applying compatibi
     *   **Launcher Generation**:
         *   **Windows**: Creates custom `LAUNCH.bat` scripts for easy one-click play.
         *   **Linux / Steam Deck**: Generates `launch.sh` scripts that handle Wine detection, path conversion, and `LD_LIBRARY_PATH` configuration.
+    *   **Playtime Tracking**: Generated launchers automatically track playtime by creating a `.steamroll_playing` marker file while the game is running.
     *   **Dependency Scripting**: Automatically detects redistributables (DirectX, VC++, PhysX) and generates an `install_deps.bat` for silent installation.
 *   **Rich Metadata**: Fetches game details (descriptions, release dates, ratings) from the Steam Store and generates a detailed `README.txt` and machine-readable `steamroll.json` for every package.
 *   **Resumable Packaging**: If a packaging operation is interrupted, SteamRoll can detect the partial state and resume from the last completed step (Copying, Interface Detection, etc.).
 
 ### 🚀 Advanced LAN Transfer
 *   **Zero-Config Discovery**: Automatically finds other SteamRoll clients on your local network via UDP broadcast (Port 27050).
+*   **IPv6 Support**: Full support for IPv6 networks and Dual Mode (IPv4 + IPv6) connectivity.
 *   **Smart Sync (Differential Transfer)**: Uses a file-level transfer protocol to analyze the destination folder before sending. It intelligently skips files that match in size and hash, making it perfect for resuming interrupted transfers or pushing small game updates without re-sending the whole game.
 *   **Delta Sync**: For files that differ, SteamRoll uses rsync-style delta synchronization to transfer only the changed portions, dramatically reducing bandwidth for game updates.
 *   **Resumable Transfers**: Transfers can be paused or interrupted and resumed later. State is tracked via `.steamroll_transfer_state` to ensure seamless continuation.
@@ -72,7 +74,7 @@ It creates portable, LAN-ready game packages by automatically applying compatibi
     *   **Manual Sync Button**: One-click "Sync Saves" button in game details to sync saves on demand.
     *   **Automatic Background Sync**: Optional setting to automatically sync saves in the background.
     *   **Versioned Backups**: Automatically maintains up to 5 versioned backups of your saves.
-    *   **Last Modified Wins**: Default conflict resolution uses the newest save, always backing up the "losing" save as a timestamped `.bak.zip` file.
+    *   **Smart Conflict Resolution**: Uses **Vector Clocks** to reliably detect conflicts and causal ordering between devices, falling back to timestamps only when necessary.
     *   **Never Lose Data**: Every overwrite creates a timestamped backup first - save data is precious!
 *   **Package Import**: Easily ingest external SteamRoll packages (ZIPs) via drag-and-drop or the Import button.
 *   **Update System**: Checks for updates to both the SteamRoll application and the Goldberg Emulator (supports GitHub fork for newer Steam SDKs).
@@ -149,6 +151,8 @@ On the target PC, open the game folder:
 *   **Goldberg Path**: Emulator files are managed in `%LocalAppData%/SteamRoll/Goldberg`.
 *   **Metadata**: Each package contains a `steamroll.json` file with build info, emulator version, and XxHash64 file hashes for integrity checks.
 *   **Dependencies**: The generated `install_deps.bat` script can silently install common redistributables found in the game folder (e.g., `_CommonRedist`).
+*   **Playtime Tracking**: Launchers create a `.steamroll_playing` file containing the AppID and start time. This is monitored to track session duration.
+*   **Source Engine**: Special logic detects the correct game content folder (via `gameinfo.txt`) and configures the `-game` launch parameter automatically.
 *   **Transfer Protocols**:
     *   `STEAMROLL_TRANSFER_V1`: Basic uncompressed transfer
     *   `STEAMROLL_TRANSFER_V2`: With GZip compression
