@@ -18,6 +18,10 @@ public class TransferReceiver
     private const string PROTOCOL_MAGIC_V1 = ProtocolConstants.TRANSFER_MAGIC_V1;
     private const string PROTOCOL_MAGIC_V2 = ProtocolConstants.TRANSFER_MAGIC_V2;
     private const string PROTOCOL_MAGIC_V3 = ProtocolConstants.TRANSFER_MAGIC_V3;
+    
+    // Security: Maximum sizes for delta sync allocations to prevent DoS attacks
+    private const int MAX_DELTA_LITERAL_SIZE = 64 * 1024 * 1024; // 64MB max literal data
+    private const int MAX_INSTRUCTION_BYTES = 16 * 1024 * 1024;  // 16MB max instructions
 
     private string _receiveBasePath;
     private readonly DeltaService _deltaService = new();
@@ -419,6 +423,16 @@ public class TransferReceiver
                             // Read instruction bytes length
                             await inputStream.ReadAsync(intBuffer, ct);
                             var instructionBytesLength = BitConverter.ToInt32(intBuffer);
+                            
+                            // Security: Validate sizes before allocation to prevent DoS
+                            if (instructionBytesLength < 0 || instructionBytesLength > MAX_INSTRUCTION_BYTES)
+                            {
+                                throw new InvalidDataException($"Invalid delta instruction size: {instructionBytesLength}. Max allowed: {MAX_INSTRUCTION_BYTES}");
+                            }
+                            if (literalDataSize < 0 || literalDataSize > MAX_DELTA_LITERAL_SIZE)
+                            {
+                                throw new InvalidDataException($"Invalid delta literal data size: {literalDataSize}. Max allowed: {MAX_DELTA_LITERAL_SIZE}");
+                            }
                             
                             // Read instructions
                             var instructionBytes = new byte[instructionBytesLength];

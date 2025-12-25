@@ -37,6 +37,43 @@ public partial class GameLibraryView : UserControl
     public event RoutedEventHandler? ContextMenuUpdatePackageClicked;
     public event RoutedEventHandler? InstallFromPeerClicked;
 
+    // Dependency Properties for Data Binding (Phase I)
+    public static readonly DependencyProperty ItemsSourceProperty =
+        DependencyProperty.Register(nameof(ItemsSource), typeof(IEnumerable), typeof(GameLibraryView),
+            new PropertyMetadata(null, OnItemsSourceChanged));
+
+    public static readonly DependencyProperty IsLoadingProperty =
+        DependencyProperty.Register(nameof(IsLoading), typeof(bool), typeof(GameLibraryView),
+            new PropertyMetadata(false, OnIsLoadingChanged));
+
+    public IEnumerable? ItemsSource
+    {
+        get => (IEnumerable?)GetValue(ItemsSourceProperty);
+        set => SetValue(ItemsSourceProperty, value);
+    }
+
+    public bool IsLoading
+    {
+        get => (bool)GetValue(IsLoadingProperty);
+        set => SetValue(IsLoadingProperty, value);
+    }
+
+    private static void OnItemsSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is GameLibraryView view && e.NewValue is IEnumerable games)
+        {
+            view.SetGames(games);
+        }
+    }
+
+    private static void OnIsLoadingChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is GameLibraryView view && e.NewValue is bool isLoading)
+        {
+            view.SetLoading(isLoading);
+        }
+    }
+
     public GameLibraryView()
     {
         InitializeComponent();

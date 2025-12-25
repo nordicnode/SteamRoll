@@ -68,7 +68,7 @@ public partial class MainWindow
             for (int i = 0; i < selectedGames.Count; i++)
             {
                 var game = selectedGames[i];
-                StatusText.Text = $"📦 Packaging {i + 1}/{selectedGames.Count}: {game.Name}";
+                SetStatus($"📦 Packaging {i + 1}/{selectedGames.Count}: {game.Name}");
 
                 try
                 {
@@ -99,7 +99,7 @@ public partial class MainWindow
                 );
             }
 
-            StatusText.Text = $"✓ Batch packaging complete: {successCount} succeeded, {failCount} failed";
+            SetStatus($"✓ Batch packaging complete: {successCount} succeeded, {failCount} failed");
         }
         finally
         {
@@ -163,7 +163,7 @@ public partial class MainWindow
             for (int i = 0; i < selectedGames.Count; i++)
             {
                 var game = selectedGames[i];
-                StatusText.Text = $"📤 Sending {i + 1}/{selectedGames.Count}: {game.Name} to {selectedPeer.HostName}...";
+                SetStatus($"📤 Sending {i + 1}/{selectedGames.Count}: {game.Name} to {selectedPeer.HostName}...");
 
                 try
                 {
@@ -205,7 +205,7 @@ public partial class MainWindow
                 );
             }
 
-            StatusText.Text = $"✓ Batch transfer complete: {successCount} sent, {failCount} failed";
+            SetStatus($"✓ Batch transfer complete: {successCount} sent, {failCount} failed");
         }
         finally
         {

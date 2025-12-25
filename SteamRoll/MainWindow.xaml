@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         xmlns:controls="clr-namespace:SteamRoll.Controls"
+        xmlns:vm="clr-namespace:SteamRoll.ViewModels"
         mc:Ignorable="d"
         Title="SteamRoll - LAN Game Sharing" 
         Height="800" Width="1400"
@@ -303,6 +304,8 @@
         
         <!-- Library View Container (game list) -->
         <controls:GameLibraryView x:Name="GameLibraryViewControl" Grid.Row="3"
+                                  ItemsSource="{Binding FilteredGames}"
+                                  IsLoading="{Binding IsLoading}"
                                   RefreshClicked="RefreshButton_Click"
                                   GameCardClicked="GameCard_Click"
                                   FavoriteToggled="FavoriteToggle_Click"
@@ -353,7 +356,7 @@
                 </Grid.ColumnDefinitions>
                 
                 <TextBlock x:Name="StatusText" Grid.Column="0" 
-                           Text="Ready — Select a game to view details or create a package"
+                           Text="{Binding StatusText, FallbackValue='Ready — Select a game to view details or create a package'}"
                            FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
                            VerticalAlignment="Center"/>
                 

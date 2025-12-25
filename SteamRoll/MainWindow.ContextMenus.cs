@@ -147,7 +147,7 @@ public partial class MainWindow
 
         try
         {
-            StatusText.Text = $"⏳ Sending saves for {game.Name} to {selectedPeer.HostName}...";
+            SetStatus($"⏳ Sending saves for {game.Name} to {selectedPeer.HostName}...");
             LoadingOverlay.Show("Sending saves...");
 
             // Check if we have saves to send
@@ -178,12 +178,12 @@ public partial class MainWindow
 
             if (success)
             {
-                StatusText.Text = $"✓ Sent saves for {game.Name} to {selectedPeer.HostName}";
+                SetStatus($"✓ Sent saves for {game.Name} to {selectedPeer.HostName}");
                 ToastService.Instance.ShowSuccess("Save Sync", "Saves sent successfully!");
             }
             else
             {
-                StatusText.Text = "⚠ Failed to send saves";
+                SetStatus("⚠ Failed to send saves");
                 ToastService.Instance.ShowError("Save Sync Failed", "Peer rejected or error occurred.");
             }
         }
@@ -290,7 +290,7 @@ public partial class MainWindow
 
         try
         {
-            StatusText.Text = $"⏳ Requesting repair for {game.Name}...";
+            SetStatus($"⏳ Requesting repair for {game.Name}...");
             await _transferService.RequestPullPackageAsync(selectedPeer.IpAddress, selectedPeer.TransferPort, game.Name);
             ToastService.Instance.ShowSuccess("Repair Requested", $"Asked {selectedPeer.HostName} to send clean files.");
         }
@@ -306,7 +306,7 @@ public partial class MainWindow
         if (game == null || !game.IsPackaged || string.IsNullOrEmpty(game.PackagePath)) return;
 
         LoadingOverlay.Show($"Verifying {game.Name} integrity...");
-        StatusText.Text = $"🛡️ Verifying {game.Name}...";
+        SetStatus($"🛡️ Verifying {game.Name}...");
 
         try
         {
@@ -315,7 +315,7 @@ public partial class MainWindow
                 Dispatcher.Invoke(() =>
                 {
                     LoadingOverlay.UpdateProgress("Verifying files...", p);
-                    StatusText.Text = $"🛡️ Verifying {game.Name}: {p}%";
+                    SetStatus($"🛡️ Verifying {game.Name}: {p}%");
                 });
             });
 
@@ -325,12 +325,12 @@ public partial class MainWindow
 
             if (result.IsValid)
             {
-                StatusText.Text = $"✓ Verification passed: {game.Name}";
+                SetStatus($"✓ Verification passed: {game.Name}");
                 ToastService.Instance.ShowSuccess("Verification Passed", $"{game.Name} is valid and intact.");
             }
             else
             {
-                StatusText.Text = $"⚠ Verification failed: {game.Name}";
+                SetStatus($"⚠ Verification failed: {game.Name}");
 
                 var message = $"{result.MissingFiles.Count} missing files, {result.MismatchedFiles.Count} modified files.\n\n" +
                               "Would you like to see the detailed report?";
@@ -357,7 +357,7 @@ public partial class MainWindow
         catch (Exception ex)
         {
             LoadingOverlay.Hide();
-            StatusText.Text = $"⚠ Verification error: {ex.Message}";
+            SetStatus($"⚠ Verification error: {ex.Message}");
             ToastService.Instance.ShowError("Verification Error", ex.Message);
         }
     }
@@ -393,7 +393,7 @@ public partial class MainWindow
         _currentOperationCts = new CancellationTokenSource();
 
         LoadingOverlay.Show($"Updating {game.Name}...");
-        StatusText.Text = $"⏳ Updating package for {game.Name}...";
+        SetStatus($"⏳ Updating package for {game.Name}...");
 
         try
         {
@@ -403,7 +403,7 @@ public partial class MainWindow
                 ct: _currentOperationCts.Token);
 
             LoadingOverlay.Hide();
-            StatusText.Text = $"✓ Package updated: {game.Name}";
+            SetStatus($"✓ Package updated: {game.Name}");
             ToastService.Instance.ShowSuccess("Package Updated", $"Updated {game.Name} to Build {game.BuildId}");
 
             // Refresh package data
@@ -418,12 +418,12 @@ public partial class MainWindow
         catch (OperationCanceledException)
         {
             LoadingOverlay.Hide();
-            StatusText.Text = "Update cancelled";
+            SetStatus("Update cancelled");
         }
         catch (Exception ex)
         {
             LoadingOverlay.Hide();
-            StatusText.Text = $"⚠ Update failed: {ex.Message}";
+            SetStatus($"⚠ Update failed: {ex.Message}");
             ToastService.Instance.ShowError("Update Failed", ex.Message);
             LogService.Instance.Error($"Package update failed for {game.Name}", ex, "MainWindow");
         }

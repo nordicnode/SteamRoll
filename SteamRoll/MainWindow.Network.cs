@@ -27,7 +27,7 @@ public partial class MainWindow
         Dispatcher.Invoke(() =>
         {
             UpdateNetworkStatus();
-            StatusText.Text = $"🔗 Found peer: {peer.HostName}";
+            SetStatus($"🔗 Found peer: {peer.HostName}");
             ToastService.Instance.ShowInfo("Peer Found", $"Connected to {peer.HostName}");
         });
     }
@@ -45,7 +45,7 @@ public partial class MainWindow
         Dispatcher.Invoke(() =>
         {
             var direction = progress.IsSending ? "📤 Sending" : "📥 Receiving";
-            StatusText.Text = $"{direction} {progress.GameName}: {progress.FormattedProgress}";
+            SetStatus($"{direction} {progress.GameName}: {progress.FormattedProgress}");
             
             // Track in TransferManager
             var key = $"{progress.GameName}_{progress.IsSending}";
@@ -107,12 +107,12 @@ public partial class MainWindow
                                 if (confirm == MessageBoxResult.Yes)
                                 {
                                     await _saveGameService.RestoreSavesAsync(result.Path, game.AppId, game.PackagePath);
-                                    StatusText.Text = $"✓ Synced saves for {result.GameName}";
+                                    SetStatus($"✓ Synced saves for {result.GameName}");
                                     ToastService.Instance.ShowSuccess("Save Sync", "Local saves updated successfully.");
                                 }
                                 else
                                 {
-                                    StatusText.Text = $"⚠ Save sync skipped for {result.GameName}";
+                                    SetStatus($"⚠ Save sync skipped for {result.GameName}");
                                 }
                             }
                             else
@@ -134,7 +134,7 @@ public partial class MainWindow
 
                     if (result.VerificationPassed)
                     {
-                        StatusText.Text = $"✓ Successfully {action}: {result.GameName} (Verified ✓)";
+                        SetStatus($"✓ Successfully {action}: {result.GameName} (Verified ✓)");
                         ToastService.Instance.ShowSuccess("Transfer Complete",
                             $"Successfully {action} {result.GameName}\n✓ Package integrity verified");
                     }
@@ -143,7 +143,7 @@ public partial class MainWindow
                         var errorSummary = result.VerificationErrors.Count > 0
                             ? string.Join(", ", result.VerificationErrors.Take(3))
                             : "Unknown verification error";
-                        StatusText.Text = $"⚠ {action}: {result.GameName} (Verification failed)";
+                        SetStatus($"⚠ {action}: {result.GameName} (Verification failed)");
                         ToastService.Instance.ShowWarning("Transfer Complete - Verification Failed",
                             $"{result.GameName} was received but verification failed:\n{errorSummary}");
                     }
@@ -154,13 +154,13 @@ public partial class MainWindow
                 }
                 else
                 {
-                    StatusText.Text = $"✓ Successfully {action}: {result.GameName}";
+                    SetStatus($"✓ Successfully {action}: {result.GameName}");
                     ToastService.Instance.ShowSuccess("Transfer Complete", $"Successfully {action} {result.GameName}");
                 }
             }
             else
             {
-                StatusText.Text = $"⚠ Transfer failed: {result.GameName}";
+                SetStatus($"⚠ Transfer failed: {result.GameName}");
                 ToastService.Instance.ShowError("Transfer Failed", $"Failed to transfer {result.GameName}");
             }
         });
@@ -192,12 +192,12 @@ public partial class MainWindow
 
             if (approved)
             {
-                StatusText.Text = $"✓ Accepted transfer of {e.GameName}";
+                SetStatus($"✓ Accepted transfer of {e.GameName}");
                 ToastService.Instance.ShowInfo("Transfer Accepted", $"Receiving {e.GameName}...");
             }
             else
             {
-                StatusText.Text = $"✗ Rejected transfer of {e.GameName}";
+                SetStatus($"✗ Rejected transfer of {e.GameName}");
                 ToastService.Instance.ShowWarning("Transfer Rejected", $"Declined transfer of {e.GameName}");
             }
         });
@@ -208,7 +208,7 @@ public partial class MainWindow
     {
         Dispatcher.Invoke(() =>
         {
-            StatusText.Text = $"📥 Transfer request from {request.FromHostName}: {request.GameName}";
+            SetStatus($"📥 Transfer request from {request.FromHostName}: {request.GameName}");
         });
     }
 
@@ -227,7 +227,7 @@ public partial class MainWindow
         {
             Dispatcher.Invoke(() =>
             {
-                StatusText.Text = $"📤 Sending requested package {game.Name}...";
+                SetStatus($"📤 Sending requested package {game.Name}...");
                 ToastService.Instance.ShowInfo("Transfer Started", $"Sending {game.Name} (Requested by peer)");
             });
 
@@ -257,7 +257,7 @@ public partial class MainWindow
                 return;
             }
 
-            StatusText.Text = $"📡 Requesting {game.Name} from {peerWithGame.PeerHostName}...";
+            SetStatus($"📡 Requesting {game.Name} from {peerWithGame.PeerHostName}...");
             ToastService.Instance.ShowInfo("Transfer Starting", $"Requesting {game.Name} from {peerWithGame.PeerHostName}");
 
             // Request the transfer from the peer

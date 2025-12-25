@@ -135,7 +135,7 @@ public class SettingsService
     }
     
     /// <summary>
-    /// Saves current settings to disk.
+    /// Saves current settings to disk using atomic write to prevent corruption.
     /// </summary>
     public void Save()
     {
@@ -147,13 +147,18 @@ public class SettingsService
                 Directory.CreateDirectory(directory);
             }
             
+            // Use atomic write pattern to prevent corruption on crash/power loss
+            var tempPath = SettingsPath + ".tmp";
             var options = new JsonSerializerOptions 
             { 
                 WriteIndented = true,
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
             };
             var json = JsonSerializer.Serialize(_settings, options);
-            File.WriteAllText(SettingsPath, json);
+            File.WriteAllText(tempPath, json);
+            
+            // Atomic move - replaces destination file in single operation
+            File.Move(tempPath, SettingsPath, overwrite: true);
             
             LogService.Instance.Info($"Settings saved to {SettingsPath}", "Settings");
         }

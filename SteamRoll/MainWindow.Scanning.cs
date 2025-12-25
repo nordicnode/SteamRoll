@@ -27,7 +27,7 @@ public partial class MainWindow
                 {
                     Dispatcher.Invoke(() =>
                     {
-                        StatusText.Text = $"Analyzing DRM: {current}/{total} games...";
+                        SetStatus($"Analyzing DRM: {current}/{total} games...");
                     });
                 }
             });
@@ -60,7 +60,7 @@ public partial class MainWindow
                 {
                     Dispatcher.Invoke(() =>
                     {
-                        StatusText.Text = $"Fetching DLC: {completed}/{total} games ({gamesWithDlc} with DLC)...";
+                        SetStatus($"Fetching DLC: {completed}/{total} games ({gamesWithDlc} with DLC)...");
                         GameLibraryViewControl.RefreshList();
                     });
                 }
@@ -78,7 +78,7 @@ public partial class MainWindow
             var allGames = _libraryManager.Games;
             var packageableCount = allGames.Count(g => g.IsPackageable);
             var totalDlc = allGames.Sum(g => g.TotalDlcCount);
-            StatusText.Text = $"✓ {allGames.Count} games • {packageableCount} packageable • {totalDlc} DLC available";
+            SetStatus($"✓ {allGames.Count} games • {packageableCount} packageable • {totalDlc} DLC available");
             GameLibraryViewControl.RefreshList();
 
             foreach (var game in games)

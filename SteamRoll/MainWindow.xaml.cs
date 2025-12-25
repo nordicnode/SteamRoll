@@ -7,6 +7,7 @@ using SteamRoll.Controls;
 using SteamRoll.Models;
 using SteamRoll.Services;
 using SteamRoll.Services.Transfer;
+using SteamRoll.ViewModels;
 
 namespace SteamRoll;
 
@@ -35,6 +36,23 @@ public partial class MainWindow : Window
     private bool _isLibraryViewActive = true;
     private string _outputPath;
     private MeshLibraryService? _meshLibraryService;
+    
+    // ViewModel for MVVM pattern
+    private readonly MainViewModel _viewModel;
+    
+    /// <summary>
+    /// Gets the ViewModel for use in partial classes.
+    /// </summary>
+    protected MainViewModel ViewModel => _viewModel;
+    
+    /// <summary>
+    /// Sets the status bar text. Updates ViewModel which is bound to XAML.
+    /// </summary>
+    /// <param name="status">The status text to display.</param>
+    private void SetStatus(string status)
+    {
+        _viewModel.StatusText = status;
+    }
 
     // Per-game Goldberg configuration is now persisted in SettingsService
     private Dictionary<int, GoldbergConfig> _gameGoldbergConfigs => _settingsService.Settings.GameGoldbergConfigs;
@@ -84,8 +102,12 @@ public partial class MainWindow : Window
         // Set output path from settings
         _outputPath = _settingsService.Settings.OutputPath;
         
+        // Initialize ViewModel and set as DataContext
+        _viewModel = new MainViewModel(services);
+        DataContext = _viewModel;
+        
         // Subscribe to events
-        _libraryManager.ProgressChanged += status => Dispatcher.Invoke(() => StatusText.Text = status);
+        _libraryManager.ProgressChanged += status => Dispatcher.Invoke(() => SetStatus(status));
         _updateService.UpdateAvailable += OnUpdateAvailable;
         _packageBuilder.ProgressChanged += OnPackageProgress;
         _transferService.ProgressChanged += OnTransferProgress;
@@ -213,7 +235,7 @@ public partial class MainWindow : Window
         if (e.Key == Key.Escape && _currentOperationCts != null)
         {
             _currentOperationCts.Cancel();
-            StatusText.Text = "⏳ Cancelling operation...";
+            SetStatus("⏳ Cancelling operation...");
             e.Handled = true;
         }
     }
@@ -266,7 +288,7 @@ public partial class MainWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            StatusText.Text = $"[{percentage}%] {status}";
+            SetStatus($"[{percentage}%] {status}");
             LoadingOverlay.UpdateProgress(status, percentage);
         });
     }
@@ -275,7 +297,7 @@ public partial class MainWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            StatusText.Text = $"🔧 [{percentage}%] {status}";
+            SetStatus($"🔧 [{percentage}%] {status}");
         });
     }
 
@@ -289,22 +311,22 @@ public partial class MainWindow : Window
         {
             await EnsureDefenderExclusionsAsync();
             
-            StatusText.Text = "🔧 Goldberg Emulator not found - Downloading automatically...";
+            SetStatus("🔧 Goldberg Emulator not found - Downloading automatically...");
             
             var success = await _goldbergService.DownloadGoldbergAsync();
             
             if (success)
             {
-                StatusText.Text = "✓ Goldberg Emulator installed successfully!";
+                SetStatus("✓ Goldberg Emulator installed successfully!");
             }
             else
             {
-                StatusText.Text = "⚠ Could not download Goldberg - packages will need manual setup";
+                SetStatus("⚠ Could not download Goldberg - packages will need manual setup");
             }
         }
         else
         {
-            StatusText.Text = "✓ Goldberg Emulator ready";
+            SetStatus("✓ Goldberg Emulator ready");
             
             // Check for Goldberg updates in the background
             SafeFireAndForget(_updateService.CheckGoldbergUpdateAsync(), "Update Check");
@@ -364,7 +386,7 @@ public partial class MainWindow : Window
     private async Task PerformGoldbergUpdateAsync()
     {
         LoadingOverlay.Show("Updating Goldberg Emulator...");
-        StatusText.Text = "⏳ Downloading Goldberg update...";
+        SetStatus("⏳ Downloading Goldberg update...");
         
         // Subscribe to progress updates
         void OnProgress(string status, int percentage)
@@ -372,7 +394,7 @@ public partial class MainWindow : Window
             Dispatcher.Invoke(() =>
             {
                 LoadingOverlay.UpdateProgress(status, percentage);
-                StatusText.Text = $"⏳ {status}";
+                SetStatus($"⏳ {status}");
             });
         }
         
@@ -385,7 +407,7 @@ public partial class MainWindow : Window
             
             if (success)
             {
-                StatusText.Text = "✓ Goldberg Emulator updated successfully!";
+                SetStatus("✓ Goldberg Emulator updated successfully!");
                 ToastService.Instance.ShowSuccess(
                     "Update Complete",
                     "Goldberg Emulator has been updated to the latest version."
@@ -393,7 +415,7 @@ public partial class MainWindow : Window
             }
             else
             {
-                StatusText.Text = "⚠ Goldberg update failed";
+                SetStatus("⚠ Goldberg update failed");
                 ToastService.Instance.ShowError(
                     "Update Failed",
                     "Failed to download Goldberg update. Check logs for details."
@@ -403,7 +425,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             LoadingOverlay.Hide();
-            StatusText.Text = $"⚠ Update error: {ex.Message}";
+            SetStatus($"⚠ Update error: {ex.Message}");
             ToastService.Instance.ShowError("Update Failed", ex.Message);
             LogService.Instance.Error("Goldberg update failed", ex, "Update");
         }
@@ -469,7 +491,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        StatusText.Text = "🛡️ Checking Windows Defender exclusions...";
+        SetStatus("🛡️ Checking Windows Defender exclusions...");
 
         if (DefenderExclusionHelper.IsRunningAsAdmin())
         {
@@ -484,7 +506,7 @@ public partial class MainWindow : Window
             
             if (shouldProceed)
             {
-                StatusText.Text = "🛡️ Adding Windows Defender exclusions...";
+                SetStatus("🛡️ Adding Windows Defender exclusions...");
                 var exclusionPaths = DefenderExclusionHelper.GetSteamRollExclusionPaths();
                 DefenderExclusionHelper.AddExclusions(exclusionPaths);
                 _settingsService.Update(s => s.DefenderExclusionsAdded = true);
@@ -523,7 +545,7 @@ public partial class MainWindow : Window
         if (steamPath == null)
         {
             GameLibraryViewControl.SetLoading(false);
-            StatusText.Text = "⚠ Steam installation not found. Please ensure Steam is installed.";
+            SetStatus("⚠ Steam installation not found. Please ensure Steam is installed.");
             ToastService.Instance.ShowError("Steam Not Found", "Please ensure Steam is installed.");
             return;
         }
@@ -555,7 +577,7 @@ public partial class MainWindow : Window
             var gamesNeedingDlc = _libraryManager.GetGamesNeedingDlc();
             if (gamesNeedingDlc.Count > 0)
             {
-                StatusText.Text = $"Fetching DLC for {gamesNeedingDlc.Count} games...";
+                SetStatus($"Fetching DLC for {gamesNeedingDlc.Count} games...");
                 SafeFireAndForget(_libraryManager.FetchDlcForGamesAsync(gamesNeedingDlc, ct), "DLC Fetch");
             }
 
@@ -567,7 +589,7 @@ public partial class MainWindow : Window
             
             var packageableCount = scanResult.AllGames.Count(g => g.IsPackageable);
             var packagedCount = scanResult.AllGames.Count(g => g.IsPackaged);
-            StatusText.Text = $"✓ {scanResult.AllGames.Count} games • {packageableCount} ready • {packagedCount} packaged";
+            SetStatus($"✓ {scanResult.AllGames.Count} games • {packageableCount} ready • {packagedCount} packaged");
             GameLibraryViewControl.SetLoading(false);
         }
         catch (OperationCanceledException)
@@ -577,7 +599,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             GameLibraryViewControl.SetLoading(false);
-            StatusText.Text = $"⚠ Error scanning library: {ex.Message}";
+            SetStatus($"⚠ Error scanning library: {ex.Message}");
             ToastService.Instance.ShowError("Scan Failed", ex.Message);
         }
     }
@@ -631,7 +653,7 @@ public partial class MainWindow : Window
     private async Task ScanPackagesAsync(CancellationToken ct = default)
     {
         LoadingOverlay.Show("Scanning packaged games...");
-        StatusText.Text = "Scanning packaged games...";
+        SetStatus("Scanning packaged games...");
 
         try
         {
@@ -657,7 +679,7 @@ public partial class MainWindow : Window
                 FormatUtils.FormatBytes(scannedPackages.Sum(g => g.SizeOnDisk))
             );
 
-            StatusText.Text = $"✓ Found {scannedPackages.Count} packaged games";
+            SetStatus($"✓ Found {scannedPackages.Count} packaged games");
             LoadingOverlay.Hide();
         }
         catch (OperationCanceledException)
@@ -667,7 +689,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             LoadingOverlay.Hide();
-            StatusText.Text = $"⚠ Error scanning packages: {ex.Message}";
+            SetStatus($"⚠ Error scanning packages: {ex.Message}");
             ToastService.Instance.ShowError("Scan Failed", ex.Message);
         }
     }
@@ -848,7 +870,7 @@ public partial class MainWindow : Window
         var actionText = isUpdate ? "Updating package for" : "Packaging";
 
         LoadingOverlay.Show($"{actionText} {game.Name}... (Press ESC to cancel)");
-        StatusText.Text = $"⏳ {actionText} {game.Name}...";
+        SetStatus($"⏳ {actionText} {game.Name}...");
 
         try
         {
@@ -876,7 +898,7 @@ public partial class MainWindow : Window
                 ? "Goldberg Emulator applied!" 
                 : "Manual Goldberg setup required.";
             
-            StatusText.Text = $"✓ Packaged {game.Name} - {goldbergStatus}";
+            SetStatus($"✓ Packaged {game.Name} - {goldbergStatus}");
             GameLibraryViewControl.RefreshList();
             LoadingOverlay.Hide();
             
@@ -885,13 +907,13 @@ public partial class MainWindow : Window
         catch (OperationCanceledException)
         {
             LoadingOverlay.Hide();
-            StatusText.Text = $"⚠ Packaging cancelled for {game.Name}";
+            SetStatus($"⚠ Packaging cancelled for {game.Name}");
             ToastService.Instance.ShowWarning("Packaging Cancelled", $"{game.Name} packaging was cancelled.");
         }
         catch (Exception ex)
         {
             LoadingOverlay.Hide();
-            StatusText.Text = $"⚠ Failed to package {game.Name}: {ex.Message}";
+            SetStatus($"⚠ Failed to package {game.Name}: {ex.Message}");
             ToastService.Instance.ShowError("Package Failed", ex.Message);
         }
         finally
@@ -922,7 +944,7 @@ public partial class MainWindow : Window
         var actionText = isUpdate ? "Updating package for" : "Packaging";
 
         LoadingOverlay.Show($"{actionText} {game.Name}... (Press ESC to cancel)");
-        StatusText.Text = $"⏳ {actionText} {game.Name}...";
+        SetStatus($"⏳ {actionText} {game.Name}...");
         
         try
         {
@@ -956,18 +978,18 @@ public partial class MainWindow : Window
             LoadingOverlay.Hide();
             
             ToastService.Instance.ShowSuccess("Packaging Complete", $"Successfully packaged {game.Name}!");
-            StatusText.Text = $"✓ Packaged {game.Name}";
+            SetStatus($"✓ Packaged {game.Name}");
         }
         catch (OperationCanceledException)
         {
             LoadingOverlay.Hide();
-            StatusText.Text = $"⚠ Packaging cancelled for {game.Name}";
+            SetStatus($"⚠ Packaging cancelled for {game.Name}");
             ToastService.Instance.ShowWarning("Packaging Cancelled", $"{game.Name} packaging was cancelled.");
         }
         catch (Exception ex)
         {
             LoadingOverlay.Hide();
-            StatusText.Text = $"⚠ Failed to package {game.Name}: {ex.Message}";
+            SetStatus($"⚠ Failed to package {game.Name}: {ex.Message}");
             ToastService.Instance.ShowError("Package Failed", ex.Message);
         }
         finally
@@ -1035,7 +1057,7 @@ public partial class MainWindow : Window
             if (confirm != MessageBoxResult.Yes) return;
             
             // Start transfer
-            StatusText.Text = $"📤 Sending {game.Name} to {selectedPeer.HostName}...";
+            SetStatus($"📤 Sending {game.Name} to {selectedPeer.HostName}...");
             button.IsEnabled = false;
             
             try
@@ -1048,16 +1070,16 @@ public partial class MainWindow : Window
                 
                 if (success)
                 {
-                    StatusText.Text = $"✓ Successfully sent {game.Name} to {selectedPeer.HostName}";
+                    SetStatus($"✓ Successfully sent {game.Name} to {selectedPeer.HostName}");
                 }
                 else
                 {
-                    StatusText.Text = $"⚠ Failed to send {game.Name}";
+                    SetStatus($"⚠ Failed to send {game.Name}");
                 }
             }
             catch (Exception ex)
             {
-                StatusText.Text = $"⚠ Transfer error: {ex.Message}";
+                SetStatus($"⚠ Transfer error: {ex.Message}");
             }
             finally
             {
