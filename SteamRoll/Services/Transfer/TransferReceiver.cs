@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.IO;
 using System.IO.Hashing;
 using System.Net.Sockets;
@@ -203,8 +204,8 @@ public class TransferReceiver
                 }
 
                 // Smart Sync Analysis
-                var skippedFiles = new List<string>();
-                var deltaSignatures = new Dictionary<string, string>();
+                var skippedFilesBag = new ConcurrentBag<string>();
+                var deltaSignatures = new ConcurrentDictionary<string, string>();
 
                 if (Directory.Exists(destPath))
                 {
@@ -224,13 +225,15 @@ public class TransferReceiver
                     }
                     catch { /* Ignore */ }
 
-                    foreach (var fileInfo in fileInfos)
+                    // Parallel analysis for faster smart sync
+                    await Parallel.ForEachAsync(fileInfos, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(4, Environment.ProcessorCount), CancellationToken = ct }, async (fileInfo, token) =>
                     {
                         var localRelativePath = fileInfo.RelativePath.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
-                        if (!IsPathSafe(localRelativePath)) continue;
+                        if (!IsPathSafe(localRelativePath)) return;
 
                         var localPath = System.IO.Path.Combine(destPath, localRelativePath);
-                        if (!Path.GetFullPath(localPath).StartsWith(Path.GetFullPath(destPath), StringComparison.OrdinalIgnoreCase)) continue;
+                        // Safe check for path traversal
+                        if (!Path.GetFullPath(localPath).StartsWith(Path.GetFullPath(destPath), StringComparison.OrdinalIgnoreCase)) return;
 
                         if (File.Exists(localPath))
                         {
@@ -249,11 +252,9 @@ public class TransferReceiver
                                     {
                                         if (!string.IsNullOrEmpty(fileInfo.Sha256))
                                         {
-                                            // Hash small files synchronously to reduce thread pool pressure
-                                            // Only offload larger files (>1MB) to background threads
-                                            var computedHash = fi.Length < 1024 * 1024
-                                                ? ComputeXxHash64(localPath)
-                                                : await Task.Run(() => ComputeXxHash64(localPath), ct);
+                                            // Always use async hash calculation for responsiveness
+                                            // Parallel.ForEachAsync handles the concurrency
+                                            var computedHash = await Task.Run(() => ComputeXxHash64(localPath), token);
                                             if (string.Equals(computedHash, fileInfo.Sha256, StringComparison.OrdinalIgnoreCase))
                                             {
                                                 matches = true;
@@ -266,7 +267,7 @@ public class TransferReceiver
 
                             if (matches)
                             {
-                                skippedFiles.Add(fileInfo.RelativePath);
+                                skippedFilesBag.Add(fileInfo.RelativePath);
                             }
                             else if (header.SupportsDelta && fi.Length >= DeltaCalculator.MIN_DELTA_SIZE)
                             {
@@ -277,7 +278,7 @@ public class TransferReceiver
                                     if (sigs.Count > 0)
                                     {
                                         var sigBytes = DeltaService.SerializeSignatures(sigs);
-                                        deltaSignatures[fileInfo.RelativePath] = System.Text.Encoding.UTF8.GetString(sigBytes);
+                                        deltaSignatures.TryAdd(fileInfo.RelativePath, System.Text.Encoding.UTF8.GetString(sigBytes));
                                     }
                                 }
                                 catch (Exception ex)
@@ -287,15 +288,18 @@ public class TransferReceiver
                             }
                         }
 
-                        // Analysis progress
+                        // Report progress (TransferManager handles throttling for UI updates)
                         ProgressChanged?.Invoke(this, new TransferProgress
                         {
                             GameName = gameName,
                             CurrentFile = $"Analyzing local files: {fileInfo.RelativePath}",
                             IsSending = false
                         });
-                    }
+                    });
                 }
+
+                var skippedFiles = skippedFilesBag.ToList();
+                var finalDeltaSignatures = deltaSignatures.ToDictionary(k => k.Key, v => v.Value);
 
                 // Send ACK with skip list and delta signatures
                 await TransferUtils.SendJsonAsync(networkStream, new TransferAck 
@@ -303,7 +307,7 @@ public class TransferReceiver
                     Accepted = true, 
                     SkippedFiles = skippedFiles,
                     SupportsDelta = true,
-                    DeltaSignatures = deltaSignatures
+                    DeltaSignatures = finalDeltaSignatures
                 }, ct);
                 
                 if (deltaSignatures.Count > 0)
