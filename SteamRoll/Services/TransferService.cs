@@ -12,7 +12,7 @@ namespace SteamRoll.Services;
 /// </summary>
 public class TransferService : IDisposable
 {
-    private const int DEFAULT_PORT = 27051;
+    private const int DEFAULT_PORT = AppConstants.DEFAULT_TRANSFER_PORT;
     private const string PROTOCOL_MAGIC_V2 = ProtocolConstants.TRANSFER_MAGIC_V2;
 
     private TcpListener? _listener;
@@ -85,11 +85,17 @@ public class TransferService : IDisposable
             
             // Determine bind address based on settings
             // BindToLocalIpOnly improves security on public networks
-            var bindAddress = _settingsService?.Settings.BindToLocalIpOnly == true
-                ? System.Net.IPAddress.Parse(NetworkUtils.GetLocalIpAddress())
-                : IPAddress.Any;
+            if (_settingsService?.Settings.BindToLocalIpOnly == true)
+            {
+                var bindAddress = System.Net.IPAddress.Parse(NetworkUtils.GetLocalIpAddress());
+                _listener = new TcpListener(bindAddress, port);
+            }
+            else
+            {
+                // Use TcpListener.Create to support Dual Mode (IPv4 + IPv6)
+                _listener = TcpListener.Create(port);
+            }
             
-            _listener = new TcpListener(bindAddress, port);
             _listener.Start();
             IsListening = true;
 
