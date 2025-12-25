@@ -1,5 +1,4 @@
 using System.IO;
-using System.Text.Json;
 
 namespace SteamRoll.Services.DeltaSync;
 
@@ -118,38 +117,107 @@ public class DeltaService
     }
 
     /// <summary>
-    /// Serializes delta instructions for transfer.
+    /// Serializes delta instructions for transfer using compact binary format.
+    /// Format: [count:int32][instruction1][instruction2]...
+    /// Each instruction: [type:byte][targetBlockIndex:int32][offset:int64][length:int32]
     /// </summary>
     public static byte[] SerializeInstructions(List<DeltaInstruction> instructions)
     {
-        var json = JsonSerializer.Serialize(instructions);
-        return System.Text.Encoding.UTF8.GetBytes(json);
+        using var ms = new MemoryStream();
+        using var writer = new BinaryWriter(ms);
+        
+        writer.Write(instructions.Count);
+        foreach (var instr in instructions)
+        {
+            writer.Write((byte)instr.Type);
+            writer.Write(instr.TargetBlockIndex);
+            writer.Write(instr.Offset);
+            writer.Write(instr.Length);
+        }
+        
+        return ms.ToArray();
     }
 
     /// <summary>
-    /// Deserializes delta instructions from transfer data.
+    /// Deserializes delta instructions from binary transfer data.
     /// </summary>
     public static List<DeltaInstruction> DeserializeInstructions(byte[] data)
     {
-        var json = System.Text.Encoding.UTF8.GetString(data);
-        return JsonSerializer.Deserialize<List<DeltaInstruction>>(json) ?? new List<DeltaInstruction>();
+        var instructions = new List<DeltaInstruction>();
+        using var ms = new MemoryStream(data);
+        using var reader = new BinaryReader(ms);
+        
+        var count = reader.ReadInt32();
+        for (int i = 0; i < count; i++)
+        {
+            instructions.Add(new DeltaInstruction
+            {
+                Type = (DeltaInstructionType)reader.ReadByte(),
+                TargetBlockIndex = reader.ReadInt32(),
+                Offset = reader.ReadInt64(),
+                Length = reader.ReadInt32()
+            });
+        }
+        
+        return instructions;
     }
 
     /// <summary>
-    /// Serializes block signatures for transfer.
+    /// Serializes block signatures for transfer using compact binary format.
+    /// Format: [count:int32][sig1][sig2]...
+    /// Each signature: [offset:int64][length:int32][weakHash:uint32][strongHashLen:int32][strongHash:bytes][index:int32]
     /// </summary>
     public static byte[] SerializeSignatures(List<BlockSignature> signatures)
     {
-        var json = JsonSerializer.Serialize(signatures);
-        return System.Text.Encoding.UTF8.GetBytes(json);
+        using var ms = new MemoryStream();
+        using var writer = new BinaryWriter(ms);
+        
+        writer.Write(signatures.Count);
+        foreach (var sig in signatures)
+        {
+            writer.Write(sig.Offset);
+            writer.Write(sig.Length);
+            writer.Write(sig.WeakHash);
+            // Write StrongHash as length-prefixed UTF8 bytes
+            var hashBytes = System.Text.Encoding.UTF8.GetBytes(sig.StrongHash ?? string.Empty);
+            writer.Write(hashBytes.Length);
+            writer.Write(hashBytes);
+            writer.Write(sig.Index);
+        }
+        
+        return ms.ToArray();
     }
 
     /// <summary>
-    /// Deserializes block signatures from transfer data.
+    /// Deserializes block signatures from binary transfer data.
     /// </summary>
     public static List<BlockSignature> DeserializeSignatures(byte[] data)
     {
-        var json = System.Text.Encoding.UTF8.GetString(data);
-        return JsonSerializer.Deserialize<List<BlockSignature>>(json) ?? new List<BlockSignature>();
+        var signatures = new List<BlockSignature>();
+        using var ms = new MemoryStream(data);
+        using var reader = new BinaryReader(ms);
+        
+        var count = reader.ReadInt32();
+        for (int i = 0; i < count; i++)
+        {
+            var offset = reader.ReadInt64();
+            var length = reader.ReadInt32();
+            var weakHash = reader.ReadUInt32();
+            var hashLen = reader.ReadInt32();
+            var hashBytes = reader.ReadBytes(hashLen);
+            var strongHash = System.Text.Encoding.UTF8.GetString(hashBytes);
+            var index = reader.ReadInt32();
+            
+            signatures.Add(new BlockSignature
+            {
+                Offset = offset,
+                Length = length,
+                WeakHash = weakHash,
+                StrongHash = strongHash,
+                Index = index
+            });
+        }
+        
+        return signatures;
     }
 }

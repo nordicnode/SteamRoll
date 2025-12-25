@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -237,6 +238,16 @@ public class TransferManager : INotifyPropertyChanged
     }
 
     private const int MaxHistoryItems = 50;
+    
+    /// <summary>
+    /// Minimum interval between progress updates to prevent UI thread flooding.
+    /// </summary>
+    private const int PROGRESS_UPDATE_INTERVAL_MS = 100;
+    
+    /// <summary>
+    /// Tracks the last progress update time for each transfer to enable throttling.
+    /// </summary>
+    private readonly ConcurrentDictionary<Guid, DateTime> _lastProgressUpdate = new();
 
     /// <summary>
     /// Currently active transfers.
@@ -302,15 +313,36 @@ public class TransferManager : INotifyPropertyChanged
 
     /// <summary>
     /// Updates progress for a transfer.
+    /// Throttled to prevent UI thread flooding - only fires PropertyChanged if:
+    /// - Transfer is complete (100%)
+    /// - At least PROGRESS_UPDATE_INTERVAL_MS has elapsed since last update
     /// </summary>
     public void UpdateProgress(Guid transferId, long transferredBytes, int transferredFiles)
     {
         var transfer = ActiveTransfers.FirstOrDefault(t => t.Id == transferId);
-        if (transfer != null)
+        if (transfer == null) return;
+
+        var now = DateTime.Now;
+        var isComplete = transferredBytes >= transfer.TotalBytes;
+        
+        // Check if we should throttle this update
+        if (!isComplete)
         {
-            transfer.TransferredBytes = transferredBytes;
-            transfer.TransferredFiles = transferredFiles;
+            if (_lastProgressUpdate.TryGetValue(transferId, out var lastUpdate) &&
+                (now - lastUpdate).TotalMilliseconds < PROGRESS_UPDATE_INTERVAL_MS)
+            {
+                // Store the values but don't trigger property change notifications yet
+                // The next non-throttled update or completion will push the latest values
+                return;
+            }
         }
+
+        // Record this update time
+        _lastProgressUpdate[transferId] = now;
+        
+        // Now update the values (which will trigger PropertyChanged)
+        transfer.TransferredBytes = transferredBytes;
+        transfer.TransferredFiles = transferredFiles;
     }
 
     /// <summary>
@@ -318,6 +350,9 @@ public class TransferManager : INotifyPropertyChanged
     /// </summary>
     public void CompleteTransfer(Guid transferId, bool success, string? errorMessage = null)
     {
+        // Clean up throttle tracking
+        _lastProgressUpdate.TryRemove(transferId, out _);
+        
         _dispatcher.Invoke(() =>
         {
             var transfer = ActiveTransfers.FirstOrDefault(t => t.Id == transferId);
@@ -344,6 +379,9 @@ public class TransferManager : INotifyPropertyChanged
     /// </summary>
     public void CancelTransfer(Guid transferId)
     {
+        // Clean up throttle tracking
+        _lastProgressUpdate.TryRemove(transferId, out _);
+        
         _dispatcher.Invoke(() =>
         {
             var transfer = ActiveTransfers.FirstOrDefault(t => t.Id == transferId);

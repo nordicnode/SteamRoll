@@ -1,4 +1,5 @@
 using System.IO;
+using System.IO.Hashing;
 
 namespace SteamRoll.Services.Goldberg;
 
@@ -67,26 +68,21 @@ public class GoldbergPatcher
                     _ => null
                 };
 
+
                 if (goldbergDll != null && File.Exists(goldbergDll))
                 {
-                    // Backup original DLL - but warn if it looks already modified
+                    // Check if already patched with our Goldberg DLL using hash comparison
+                    if (IsAlreadyPatched(originalDll, goldbergDll))
+                    {
+                        LogService.Instance.Info($"{fileName} is already patched with Goldberg - skipping.", "GoldbergPatcher");
+                        replacedCount++; // Count as success, settings may still need updating
+                        continue;
+                    }
+                    
+                    // Backup original DLL if no backup exists
                     var backupPath = originalDll + ".original";
                     if (!File.Exists(backupPath))
                     {
-                        // Heuristic: Goldberg DLLs are larger than Steam originals
-                        // Steam's steam_api.dll is typically ~250KB, Goldberg is ~1.5MB+
-                        // If the "original" is already large, it might be already patched
-                        var originalFileInfo = new FileInfo(originalDll);
-                        var goldbergFileInfo = new FileInfo(goldbergDll);
-                        
-                        // If original is within 10% of Goldberg size, it's likely already patched
-                        if (originalFileInfo.Length > goldbergFileInfo.Length * 0.9)
-                        {
-                            LogService.Instance.Warning(
-                                $"{fileName} appears already modified (size: {originalFileInfo.Length / 1024}KB vs Goldberg: {goldbergFileInfo.Length / 1024}KB). " +
-                                "Backup may not contain original Steam DLL.", "GoldbergPatcher");
-                        }
-                        
                         File.Copy(originalDll, backupPath);
                     }
 
@@ -209,5 +205,39 @@ public class GoldbergPatcher
             return;
 
         File.WriteAllLines(Path.Combine(gameDir, "steam_interfaces.txt"), interfaces);
+    }
+
+    /// <summary>
+    /// Checks if the target DLL is already patched with Goldberg by comparing file hashes.
+    /// </summary>
+    private static bool IsAlreadyPatched(string targetDll, string goldbergDll)
+    {
+        try
+        {
+            var targetHash = ComputeXxHash64(targetDll);
+            var goldbergHash = ComputeXxHash64(goldbergDll);
+            return targetHash == goldbergHash;
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Debug($"Hash comparison failed: {ex.Message}", "GoldbergPatcher");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Computes XxHash64 of a file for fast, reliable comparison.
+    /// </summary>
+    private static ulong ComputeXxHash64(string filePath)
+    {
+        using var stream = File.OpenRead(filePath);
+        var hasher = new XxHash64();
+        var buffer = new byte[81920]; // 80KB buffer for efficient reading
+        int bytesRead;
+        while ((bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            hasher.Append(buffer.AsSpan(0, bytesRead));
+        }
+        return BitConverter.ToUInt64(hasher.GetCurrentHash());
     }
 }

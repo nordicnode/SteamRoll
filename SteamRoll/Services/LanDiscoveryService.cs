@@ -547,50 +547,62 @@ public class LanDiscoveryService : IDisposable
         LogService.Instance.Debug($"Announce startup delay: {startupDelay}ms", "LanDiscovery");
         await Task.Delay(startupDelay, ct);
         
-        while (!ct.IsCancellationRequested && _udpClient != null)
+        // Use PeriodicTimer for more efficient scheduling than while + Task.Delay
+        // PeriodicTimer avoids async state machine overhead on each iteration
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(ANNOUNCE_INTERVAL_MS));
+        
+        try
         {
-            try
+            while (await timer.WaitForNextTickAsync(ct))
             {
-                var message = new DiscoveryMessage
+                if (_udpClient == null) break;
+                
+                try
                 {
-                    Type = MessageType.Announce,
-                    Magic = PROTOCOL_MAGIC,
-                    HostName = _localHostName,
-                    TransferPort = _transferPort,
-                    PackagedGameCount = GetLocalPackagedGameCount()
-                };
+                    // Add per-tick jitter to prevent synchronized broadcasts across clients
+                    var jitter = _jitterRandom.Next(0, ANNOUNCE_JITTER_MS);
+                    if (jitter > 0)
+                    {
+                        await Task.Delay(jitter, ct);
+                    }
+                    
+                    var message = new DiscoveryMessage
+                    {
+                        Type = MessageType.Announce,
+                        Magic = PROTOCOL_MAGIC,
+                        HostName = _localHostName,
+                        TransferPort = _transferPort,
+                        PackagedGameCount = GetLocalPackagedGameCount()
+                    };
 
-                var json = JsonSerializer.Serialize(message);
-                var data = Encoding.UTF8.GetBytes(json);
+                    var json = JsonSerializer.Serialize(message);
+                    var data = Encoding.UTF8.GetBytes(json);
 
-                // Broadcast to all network interfaces
-                var broadcastEndpoint = new IPEndPoint(IPAddress.Broadcast, DISCOVERY_PORT);
-                await _udpClient.SendAsync(data, data.Length, broadcastEndpoint);
-
-                // Add jitter to prevent multiple clients from broadcasting simultaneously
-                var jitter = _jitterRandom.Next(0, ANNOUNCE_JITTER_MS);
-                await Task.Delay(ANNOUNCE_INTERVAL_MS + jitter, ct);
+                    // Broadcast to all network interfaces
+                    var broadcastEndpoint = new IPEndPoint(IPAddress.Broadcast, DISCOVERY_PORT);
+                    await _udpClient.SendAsync(data, data.Length, broadcastEndpoint);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    LogService.Instance.Debug($"Announce error: {ex.Message}", "LanDiscovery");
+                }
             }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                LogService.Instance.Debug($"Announce error: {ex.Message}", "LanDiscovery");
-                await Task.Delay(1000, ct);
-            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected on shutdown
         }
     }
 
     private async Task CleanupPeersAsync(CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested)
+        // Use PeriodicTimer for more efficient scheduling than while + Task.Delay
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        
+        try
         {
-            try
+            while (await timer.WaitForNextTickAsync(ct))
             {
-                await Task.Delay(5000, ct);
-
                 var now = DateTime.Now;
                 List<PeerInfo> lostPeers = new();
 
@@ -613,10 +625,10 @@ public class LanDiscoveryService : IDisposable
                     PeerLost?.Invoke(this, peer);
                 }
             }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected on shutdown
         }
     }
 
