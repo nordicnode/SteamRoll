@@ -7,6 +7,7 @@ using System.Net.Sockets;
 using System.Security;
 using SteamRoll.Services.DeltaSync;
 using SteamRoll.Services.Security;
+using SteamRoll.Services;
 
 namespace SteamRoll.Services.Transfer;
 
@@ -174,7 +175,8 @@ public class TransferReceiver
             // Acquire lock for this destination path
             var pathLock = _pathLocks.GetOrAdd(destPath, _ => new SemaphoreSlim(1, 1));
 
-            if (!await pathLock.WaitAsync(2000, ct))
+            // Increased timeout to 10 seconds to handle slow disk I/O or high contention
+            if (!await pathLock.WaitAsync(10000, ct))
             {
                 var msg = $"Transfer rejected: A transfer for '{gameName}' is already in progress.";
                 LogService.Instance.Warning(msg, "TransferReceiver");
@@ -473,7 +475,10 @@ public class TransferReceiver
                             
                             try
                             {
-                                _deltaService.ApplyDelta(existingPath, tempPath, instructions, literalData);
+                                if (!_deltaService.ApplyDelta(existingPath, tempPath, instructions, literalData))
+                                {
+                                    throw new IOException($"Failed to apply delta for {fileInfo.RelativePath}");
+                                }
                                 
                                 // Replace original with reconstructed file
                                 if (File.Exists(fullPath))
@@ -674,7 +679,7 @@ public class TransferReceiver
         // We need port but we can't get listener port easily here, assume same port config
         // Or pass it via header? But header is standard.
         // Assuming default port for now or we need to pass it in constructor
-        var targetPort = 27051; // DEFAULT_PORT
+        var targetPort = AppConstants.DEFAULT_TRANSFER_PORT;
 
         if (PullPackageRequested != null && header.GameName != null)
         {

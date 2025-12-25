@@ -64,8 +64,14 @@ public class RollingHash
     public void Roll(byte outgoing, byte incoming)
     {
         // Remove outgoing byte contribution
-        _a = (_a - outgoing + incoming + MOD_ADLER) % MOD_ADLER;
-        _b = (_b - (uint)_windowSize * outgoing + _a - 1 + MOD_ADLER * 2) % MOD_ADLER;
+        // Use long arithmetic to prevent underflow before modulo
+        // We cast _a to long first to ensure the subtraction result is a long, preventing unsigned underflow
+        _a = (uint)(( (long)_a - outgoing + incoming + MOD_ADLER) % MOD_ADLER);
+
+        long bCalc = _b - (long)_windowSize * outgoing + _a - 1;
+        // Ensure result is positive before modulo
+        while (bCalc < 0) bCalc += MOD_ADLER;
+        _b = (uint)(bCalc % MOD_ADLER);
 
         // Update window
         _window[_windowPos] = incoming;
