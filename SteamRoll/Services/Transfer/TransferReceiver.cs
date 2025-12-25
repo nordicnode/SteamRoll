@@ -331,12 +331,47 @@ public class TransferReceiver
 
                 if (existingState != null && existingState.FileListHash == fileListHash)
                 {
+                    // Re-verify that completed files actually exist on disk
+                    var validCompletedFiles = new List<string>();
+                    long verifiedBytes = 0;
+
+                    // Use a dictionary for fast lookup of expected sizes
+                    var fileInfoMap = fileInfos.ToDictionary(f => f.RelativePath, f => f, StringComparer.OrdinalIgnoreCase);
+
                     foreach (var completed in existingState.CompletedFiles)
                     {
-                        completedFiles.Add(completed);
+                        var localRelativePath = completed.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+                        var fullPath = System.IO.Path.Combine(destPath, localRelativePath);
+
+                        // Check if file exists and matches expected size
+                        if (File.Exists(fullPath) && fileInfoMap.TryGetValue(completed, out var info))
+                        {
+                            var fi = new FileInfo(fullPath);
+                            if (fi.Length == info.Size)
+                            {
+                                completedFiles.Add(completed);
+                                validCompletedFiles.Add(completed);
+                                verifiedBytes += info.Size;
+                            }
+                        }
                     }
-                    previouslyReceivedBytes = existingState.BytesReceived;
-                    LogService.Instance.Info($"Resuming transfer for {gameName}", "TransferReceiver");
+
+                    // Update state if we found missing files
+                    if (validCompletedFiles.Count != existingState.CompletedFiles.Count)
+                    {
+                        LogService.Instance.Warning($"Found {existingState.CompletedFiles.Count - validCompletedFiles.Count} missing/corrupt files in resume state. Re-downloading...", "TransferReceiver");
+                        existingState.CompletedFiles = validCompletedFiles;
+                        existingState.FilesCompleted = validCompletedFiles.Count;
+                        existingState.BytesReceived = verifiedBytes;
+                        previouslyReceivedBytes = verifiedBytes;
+                        TransferState.Save(destPath, existingState);
+                    }
+                    else
+                    {
+                        previouslyReceivedBytes = existingState.BytesReceived;
+                    }
+
+                    LogService.Instance.Info($"Resuming transfer for {gameName} ({completedFiles.Count} files verified)", "TransferReceiver");
                 }
                 else if (existingState != null)
                 {

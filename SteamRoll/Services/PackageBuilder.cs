@@ -285,6 +285,15 @@ public class PackageBuilder
             if (string.IsNullOrEmpty(packageDir))
                 return;
 
+            // Security check: Prevent deleting root or system directories
+            var root = Path.GetPathRoot(packageDir);
+            if (string.Equals(packageDir, root, StringComparison.OrdinalIgnoreCase) ||
+                packageDir.Length <= 3) // e.g. "C:\" or "/"
+            {
+                LogService.Instance.Error($"Safety check prevented deletion of critical path: {packageDir}", category: "PackageBuilder");
+                return;
+            }
+
             ReportProgress("Cleaning up failed package...", 0);
             
             // Delete folder if it exists

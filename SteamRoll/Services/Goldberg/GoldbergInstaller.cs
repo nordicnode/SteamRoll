@@ -394,7 +394,12 @@ public class GoldbergInstaller
             if (totalBytes > 0)
             {
                 var progress = (int)(10 + ((double)bytesDownloaded / totalBytes * 60)); // 10-70%
-                ReportProgress($"Downloading: {bytesDownloaded / 1024 / 1024}MB / {totalBytes / 1024 / 1024}MB", progress);
+                ReportProgress($"Downloading: {bytesDownloaded / 1024.0 / 1024.0:F1}MB / {totalBytes / 1024.0 / 1024.0:F1}MB", progress);
+            }
+            else
+            {
+                // Indeterminate progress
+                ReportProgress($"Downloading: {bytesDownloaded / 1024.0 / 1024.0:F1}MB...", 40);
             }
         }
     }
