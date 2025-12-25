@@ -27,7 +27,13 @@ public static class TransferUtils
         if (length <= 0 || length > 128_000_000) return default;
 
         using var boundedStream = new BoundedStream(stream, length);
-        return await JsonSerializer.DeserializeAsync<T>(boundedStream, cancellationToken: ct);
+
+        // Add timeout for deserialization to prevent hanging on slow/malicious streams
+        // Use a longer timeout (60s) to accommodate larger file lists on slower connections
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(60));
+
+        return await JsonSerializer.DeserializeAsync<T>(boundedStream, cancellationToken: timeoutCts.Token);
     }
 
     private static async Task ReadExactlyAsync(NetworkStream stream, byte[] buffer, CancellationToken ct)
