@@ -389,6 +389,8 @@
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
                                     
                                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Primary DRM:" FontSize="13"
@@ -396,9 +398,19 @@
                                     <TextBlock Grid.Row="0" Grid.Column="1" x:Name="PrimaryDrmText" Text="SteamStub" FontSize="13"
                                                Foreground="{DynamicResource SuccessBrush}" FontWeight="SemiBold" Margin="0,6"/>
                                     
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Compat Score:" FontSize="13"
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Confidence:" FontSize="13"
                                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6"/>
-                                    <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,6">
+                                    <TextBlock Grid.Row="1" Grid.Column="1" x:Name="DrmConfidenceText" Text="🟢 High" FontSize="13"
+                                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,6"/>
+                                    
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Bypass:" FontSize="13"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="1" x:Name="BypassRecommendText" Text="🟢 Goldberg" FontSize="13"
+                                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,6"/>
+                                    
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Compat Score:" FontSize="13"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6"/>
+                                    <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,6">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -421,9 +433,9 @@
                                         </Grid>
                                     </StackPanel>
                                     
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Status:" FontSize="13"
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Status:" FontSize="13"
                                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6"/>
-                                    <TextBlock Grid.Row="2" Grid.Column="1" x:Name="StatusReasonText" FontSize="13"
+                                    <TextBlock Grid.Row="4" Grid.Column="1" x:Name="StatusReasonText" FontSize="13"
                                                Text="Ready to package" TextWrapping="Wrap"
                                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6"/>
                                 </Grid>

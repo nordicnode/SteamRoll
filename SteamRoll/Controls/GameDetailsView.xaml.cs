@@ -116,6 +116,27 @@ public partial class GameDetailsView : UserControl
             _ => (Brush)FindResource("TextSecondaryBrush")
         };
         
+        // DRM Confidence and Bypass Recommendation
+        if (_game.DrmAnalysis?.DetectedDrmList.Count > 0)
+        {
+            var primaryResult = _game.DrmAnalysis.DetectedDrmList.FirstOrDefault(d => d.Type == _game.PrimaryDrm);
+            if (primaryResult != null)
+            {
+                DrmConfidenceText.Text = primaryResult.ConfidenceDisplay;
+                BypassRecommendText.Text = primaryResult.BypassDisplay;
+            }
+            else
+            {
+                DrmConfidenceText.Text = "🟡 Unknown";
+                BypassRecommendText.Text = "🟡 Manual Review";
+            }
+        }
+        else
+        {
+            DrmConfidenceText.Text = _game.PrimaryDrm == DrmType.None ? "🟢 High" : "🟡 Unknown";
+            BypassRecommendText.Text = _game.PrimaryDrm == DrmType.None ? "✅ Not needed" : "🟡 Unknown";
+        }
+        
         CompatScoreText.Text = $"{_game.CompatibilityScore * 100:F0}%";
         StatusReasonText.Text = _game.CompatibilityReason;
         

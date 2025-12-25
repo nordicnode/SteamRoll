@@ -31,6 +31,7 @@ public class CacheService
         _cache = new GameCache();
         
         LoadCache();
+        LoadHashCache();
     }
 
     /// <summary>
@@ -229,6 +230,110 @@ public class CacheService
     {
         return (_cache.Games.Count, _cache.LastUpdated);
     }
+
+    #region File Hash Caching for Background Indexing
+
+    private readonly Dictionary<string, CachedFileHashes> _fileHashCache = new();
+
+    /// <summary>
+    /// Stores file hashes for a package directory.
+    /// </summary>
+    /// <param name="packagePath">The package directory path.</param>
+    /// <param name="hashes">Dictionary of relative paths to XxHash64 values.</param>
+    public void SetFileHashes(string packagePath, Dictionary<string, string> hashes)
+    {
+        var key = GetPackageKey(packagePath);
+        _fileHashCache[key] = new CachedFileHashes
+        {
+            PackagePath = packagePath,
+            CachedAt = DateTime.Now,
+            Hashes = hashes
+        };
+        
+        SaveHashCache();
+    }
+
+    /// <summary>
+    /// Gets cached file hashes for a package directory.
+    /// Returns null if not cached or cache is invalid (package modified since caching).
+    /// </summary>
+    /// <param name="packagePath">The package directory path.</param>
+    /// <returns>Dictionary of relative paths to XxHash64 values, or null if not cached.</returns>
+    public Dictionary<string, string>? GetFileHashes(string packagePath)
+    {
+        var key = GetPackageKey(packagePath);
+        
+        if (!_fileHashCache.TryGetValue(key, out var cached))
+            return null;
+
+        // Verify cache is still valid - check if steamroll.json has been modified
+        var metadataPath = System.IO.Path.Combine(packagePath, "steamroll.json");
+        if (File.Exists(metadataPath))
+        {
+            var lastWriteTime = File.GetLastWriteTime(metadataPath);
+            if (lastWriteTime > cached.CachedAt)
+            {
+                // Cache is stale - metadata was modified after caching
+                _fileHashCache.Remove(key);
+                return null;
+            }
+        }
+
+        return cached.Hashes;
+    }
+
+    private static string GetPackageKey(string packagePath)
+    {
+        return System.IO.Path.GetFileName(packagePath).ToLowerInvariant();
+    }
+
+    private void SaveHashCache()
+    {
+        try
+        {
+            var hashCachePath = System.IO.Path.Combine(_cacheDir, "hash_cache.json");
+            var json = JsonSerializer.Serialize(_fileHashCache, _jsonOptions);
+            File.WriteAllText(hashCachePath, json);
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Warning($"Failed to save hash cache: {ex.Message}", "CacheService");
+        }
+    }
+
+    private void LoadHashCache()
+    {
+        try
+        {
+            var hashCachePath = System.IO.Path.Combine(_cacheDir, "hash_cache.json");
+            if (File.Exists(hashCachePath))
+            {
+                var json = File.ReadAllText(hashCachePath);
+                var loaded = JsonSerializer.Deserialize<Dictionary<string, CachedFileHashes>>(json, _jsonOptions);
+                if (loaded != null)
+                {
+                    foreach (var kvp in loaded)
+                        _fileHashCache[kvp.Key] = kvp.Value;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Warning($"Failed to load hash cache: {ex.Message}", "CacheService");
+        }
+    }
+
+    #endregion
+}
+
+/// <summary>
+/// Cached file hashes for a package.
+/// </summary>
+public class CachedFileHashes
+{
+    public string PackagePath { get; set; } = "";
+    public DateTime CachedAt { get; set; }
+    public Dictionary<string, string> Hashes { get; set; } = new();
 }
 
 /// <summary>

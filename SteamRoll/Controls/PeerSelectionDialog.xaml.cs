@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net.NetworkInformation;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -31,6 +32,35 @@ public partial class PeerSelectionDialog : Window
         {
             PeerListBox.SelectedIndex = 0;
         }
+        
+        // Ping all peers to get latency info
+        _ = PingAllPeersAsync(peers);
+    }
+    
+    private async Task PingAllPeersAsync(List<PeerInfo> peers)
+    {
+        using var ping = new Ping();
+        var tasks = peers.Select(async peer =>
+        {
+            try
+            {
+                var reply = await ping.SendPingAsync(peer.IpAddress, 3000);
+                if (reply.Status == IPStatus.Success)
+                {
+                    peer.LatencyMs = reply.RoundtripTime;
+                    peer.IsOnline = true;
+                }
+                else
+                {
+                    peer.IsOnline = false;
+                }
+            }
+            catch
+            {
+                peer.IsOnline = false;
+            }
+        });
+        await Task.WhenAll(tasks);
     }
     
     private void SelectButton_Click(object sender, RoutedEventArgs e)

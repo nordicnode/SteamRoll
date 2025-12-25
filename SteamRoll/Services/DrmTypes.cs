@@ -19,6 +19,29 @@ public enum DrmType
 }
 
 /// <summary>
+/// Confidence level for a DRM detection.
+/// </summary>
+public enum DrmConfidence
+{
+    Low = 1,      // Heuristic match, may be false positive
+    Medium = 2,   // Pattern match with some evidence
+    High = 3      // Definitive detection (signature, import, etc.)
+}
+
+/// <summary>
+/// Recommended bypass/emulation approach for DRM.
+/// </summary>
+public enum BypassRecommendation
+{
+    None,               // No bypass needed
+    Goldberg,           // Standard Goldberg Emulator
+    GoldbergExperimental, // Goldberg with experimental features
+    CreamAPI,           // CreamAPI for DLC unlock only
+    ManualPatch,        // Requires manual patches/cracks
+    NotPossible         // No known bypass method
+}
+
+/// <summary>
 /// Complete result of DRM analysis.
 /// </summary>
 public class DrmAnalysisResult
@@ -161,12 +184,86 @@ public class DrmAnalysisResult
 }
 
 /// <summary>
-/// A single detected DRM type with evidence.
+/// A single detected DRM type with evidence and confidence.
 /// </summary>
 public class DetectedDrm
 {
     public DrmType Type { get; set; }
     public string Evidence { get; set; } = "";
+    public DrmConfidence Confidence { get; set; } = DrmConfidence.Medium;
+    
+    /// <summary>
+    /// Recommended bypass method for this specific DRM.
+    /// </summary>
+    public BypassRecommendation RecommendedBypass => GetBypassRecommendation(Type);
+    
+    /// <summary>
+    /// Display string for the DRM type.
+    /// </summary>
+    public string TypeDisplay => GetDrmDisplayName(Type);
+    
+    /// <summary>
+    /// Display string for confidence level.
+    /// </summary>
+    public string ConfidenceDisplay => Confidence switch
+    {
+        DrmConfidence.Low => "🟡 Low",
+        DrmConfidence.Medium => "🟠 Medium",
+        DrmConfidence.High => "🔴 High",
+        _ => "Unknown"
+    };
+    
+    /// <summary>
+    /// Display string for bypass recommendation.
+    /// </summary>
+    public string BypassDisplay => RecommendedBypass switch
+    {
+        BypassRecommendation.None => "✅ Not needed",
+        BypassRecommendation.Goldberg => "🟢 Goldberg",
+        BypassRecommendation.GoldbergExperimental => "🟡 Goldberg (Exp)",
+        BypassRecommendation.CreamAPI => "🔵 CreamAPI",
+        BypassRecommendation.ManualPatch => "🟠 Manual",
+        BypassRecommendation.NotPossible => "🔴 Not possible",
+        _ => "Unknown"
+    };
+    
+    /// <summary>
+    /// Gets the recommended bypass for a DRM type.
+    /// </summary>
+    public static BypassRecommendation GetBypassRecommendation(DrmType type) => type switch
+    {
+        DrmType.None => BypassRecommendation.None,
+        DrmType.SteamStub => BypassRecommendation.Goldberg,
+        DrmType.SteamCEG => BypassRecommendation.GoldbergExperimental,
+        DrmType.Denuvo => BypassRecommendation.NotPossible,
+        DrmType.VMProtect => BypassRecommendation.ManualPatch,
+        DrmType.Themida => BypassRecommendation.NotPossible,
+        DrmType.SecuROM => BypassRecommendation.ManualPatch,
+        DrmType.EpicOnlineServices => BypassRecommendation.ManualPatch,
+        DrmType.EAOrigin => BypassRecommendation.NotPossible,
+        DrmType.UbisoftConnect => BypassRecommendation.NotPossible,
+        DrmType.Custom => BypassRecommendation.ManualPatch,
+        _ => BypassRecommendation.ManualPatch
+    };
+    
+    /// <summary>
+    /// Gets a human-readable name for a DRM type.
+    /// </summary>
+    public static string GetDrmDisplayName(DrmType type) => type switch
+    {
+        DrmType.None => "None",
+        DrmType.SteamStub => "Steam API",
+        DrmType.SteamCEG => "Steam CEG",
+        DrmType.Denuvo => "⚠️ Denuvo",
+        DrmType.VMProtect => "VMProtect",
+        DrmType.Themida => "Themida",
+        DrmType.SecuROM => "SecuROM",
+        DrmType.EpicOnlineServices => "Epic Online Services",
+        DrmType.EAOrigin => "EA App/Origin",
+        DrmType.UbisoftConnect => "Ubisoft Connect",
+        DrmType.Custom => "Custom DRM",
+        _ => "Unknown"
+    };
 }
 
 /// <summary>

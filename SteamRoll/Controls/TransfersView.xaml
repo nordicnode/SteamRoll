@@ -107,13 +107,24 @@
                     </Border.Background>
                 </Border>
                 
-                <!-- Stats -->
+                <!-- Back button and Stats -->
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="32,16,32,16">
+                    <Button x:Name="BackBtn" Click="BackBtn_Click" 
+                            Style="{DynamicResource SecondaryButton}" Margin="0,0,16,0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="←" FontSize="14" Margin="0,0,6,0"/>
+                            <TextBlock Text="Back"/>
+                        </StackPanel>
+                    </Button>
+                    <TextBlock Text="📡" FontSize="18" FontFamily="Segoe UI Emoji" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                    <TextBlock Text="Transfers" FontSize="18" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                    <TextBlock Text=" • " FontSize="14" Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
                     <TextBlock x:Name="ActiveCountText" Text="0 active" FontSize="14"
-                               Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold"/>
-                    <TextBlock Text=" • " FontSize="14" Foreground="{DynamicResource TextMutedBrush}"/>
+                               Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                    <TextBlock Text=" • " FontSize="14" Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
                     <TextBlock x:Name="TotalTransferredText" Text="0 B transferred today" FontSize="14"
-                               Foreground="{DynamicResource TextMutedBrush}"/>
+                               Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
                 </StackPanel>
             </Grid>
         </Border>

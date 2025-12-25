@@ -1,0 +1,96 @@
+<UserControl x:Class="SteamRoll.Controls.RecentGamesWidget"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
+             d:DesignHeight="180" d:DesignWidth="800">
+    
+    <UserControl.Resources>
+        <!-- Recent Game Card Style -->
+        <Style x:Key="RecentGameCard" TargetType="Border">
+            <Setter Property="Background" Value="#21262D"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,0,12,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Width" Value="180"/>
+            <Setter Property="Height" Value="140"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#30363D"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <Border Background="#161B22" CornerRadius="12" Padding="16" Margin="0,0,0,16">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Header -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                <TextBlock Text="🕹️" FontSize="16" FontFamily="Segoe UI Emoji" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock Text="Recently Played" FontSize="14" FontWeight="SemiBold" 
+                           Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                <TextBlock x:Name="TotalPlaytime" Text="" FontSize="12" 
+                           Foreground="{DynamicResource TextSecondaryBrush}" 
+                           VerticalAlignment="Center" Margin="12,0,0,0"/>
+            </StackPanel>
+            
+            <!-- Recent Games List -->
+            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" 
+                          VerticalScrollBarVisibility="Disabled"
+                          PanningMode="HorizontalOnly">
+                <ItemsControl x:Name="RecentGamesList">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource RecentGameCard}" 
+                                    MouseLeftButtonUp="RecentGame_Click" Tag="{Binding}">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="85"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+                                    
+                                    <!-- Game Image -->
+                                    <Border CornerRadius="8,8,0,0" Background="#0D1117">
+                                        <Image Source="{Binding HeaderImageUrl, TargetNullValue={x:Null}}" 
+                                               Stretch="UniformToFill" 
+                                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                                    </Border>
+                                    
+                                    <!-- Game Info -->
+                                    <StackPanel Grid.Row="1" Margin="10,8">
+                                        <TextBlock Text="{Binding GameName}" FontSize="12" FontWeight="SemiBold" 
+                                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                                   TextTrimming="CharacterEllipsis" MaxWidth="160"/>
+                                        <TextBlock FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" 
+                                                   Margin="0,2,0,0">
+                                            <Run Text="⏱️"/>
+                                            <Run Text="{Binding TotalPlaytimeDisplay}"/>
+                                        </TextBlock>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+            
+            <!-- Empty State -->
+            <TextBlock x:Name="EmptyState" Grid.Row="1" Visibility="Collapsed"
+                       Text="No games played yet. Launch a game to start tracking!"
+                       FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
+                       VerticalAlignment="Center" HorizontalAlignment="Center"/>
+        </Grid>
+    </Border>
+</UserControl>

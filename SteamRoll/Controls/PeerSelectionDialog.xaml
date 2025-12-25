@@ -35,13 +35,52 @@
                  ItemContainerStyle="{DynamicResource PeerListItemStyle}">
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <StackPanel Orientation="Horizontal" Margin="8,6">
-                        <TextBlock Text="🖥️ " FontSize="16" VerticalAlignment="Center"/>
-                        <StackPanel Margin="8,0,0,0">
-                            <TextBlock Text="{Binding HostName}" FontWeight="SemiBold" FontSize="13"/>
-                            <TextBlock Text="{Binding IpAddress}" FontSize="11" Opacity="0.7"/>
+                    <Grid Margin="8,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        
+                        <TextBlock Grid.Column="0" Text="🖥️ " FontSize="16" VerticalAlignment="Center"/>
+                        
+                        <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                            <TextBlock Text="{Binding HostName}" FontWeight="SemiBold" FontSize="13"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                            <TextBlock Text="{Binding IpAddress}" FontSize="11" Opacity="0.7"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"/>
                         </StackPanel>
-                    </StackPanel>
+                        
+                        <!-- Connection Health Indicator -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Ellipse Width="8" Height="8" Margin="0,0,6,0">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Fill" Value="#6E7681"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding QualityDisplay}" Value="🟢 Excellent">
+                                                <Setter Property="Fill" Value="#3FB950"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding QualityDisplay}" Value="🟢 Good">
+                                                <Setter Property="Fill" Value="#3FB950"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding QualityDisplay}" Value="🟡 Fair">
+                                                <Setter Property="Fill" Value="#D9A000"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding QualityDisplay}" Value="🟠 Poor">
+                                                <Setter Property="Fill" Value="#F0883E"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding QualityDisplay}" Value="🔴 Offline">
+                                                <Setter Property="Fill" Value="#F85149"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <TextBlock Text="{Binding LatencyDisplay}" FontSize="11" 
+                                       Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>

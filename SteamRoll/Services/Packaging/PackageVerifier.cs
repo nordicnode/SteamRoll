@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using SteamRoll.Models;
+using SteamRoll.Utils;
 
 namespace SteamRoll.Services.Packaging;
 
@@ -11,12 +12,15 @@ public static class PackageVerifier
 {
     /// <summary>
     /// Verifies the integrity of a package by comparing current file hashes against stored hashes.
+    /// Uses parallel processing and memory-mapped files for large files.
     /// </summary>
     /// <param name="packageDir">Path to the package directory.</param>
+    /// <param name="ct">Optional cancellation token.</param>
     /// <returns>A tuple with (isValid, mismatches) where mismatches is a list of files that failed verification.</returns>
-    public static async Task<(bool IsValid, List<string> Mismatches)> VerifyIntegrityAsync(string packageDir)
+    public static async Task<(bool IsValid, List<string> Mismatches)> VerifyIntegrityAsync(
+        string packageDir, CancellationToken ct = default)
     {
-        var mismatches = new List<string>();
+        var mismatches = new System.Collections.Concurrent.ConcurrentBag<string>();
         var metadataPath = System.IO.Path.Combine(packageDir, "steamroll.json");
 
         if (!File.Exists(metadataPath))
@@ -26,34 +30,51 @@ public static class PackageVerifier
 
         try
         {
-            var json = await File.ReadAllTextAsync(metadataPath);
+            var json = await File.ReadAllTextAsync(metadataPath, ct);
             var metadata = JsonSerializer.Deserialize<PackageMetadata>(json);
 
             if (metadata?.FileHashes == null || metadata.FileHashes.Count == 0)
             {
-                return (true, mismatches); // No hashes stored, assume valid
+                return (true, new List<string>()); // No hashes stored, assume valid
             }
 
-            foreach (var (relativePath, expectedHash) in metadata.FileHashes)
+            // Process files in parallel for better performance
+            var parallelOptions = new ParallelOptions
             {
+                MaxDegreeOfParallelism = Environment.ProcessorCount,
+                CancellationToken = ct
+            };
+
+            await Parallel.ForEachAsync(metadata.FileHashes, parallelOptions, async (entry, token) =>
+            {
+                var (relativePath, expectedHash) = entry;
                 var filePath = System.IO.Path.Combine(packageDir, relativePath);
 
                 if (!File.Exists(filePath))
                 {
                     mismatches.Add($"Missing: {relativePath}");
-                    continue;
+                    return;
                 }
 
-                using var sha256 = System.Security.Cryptography.SHA256.Create();
-                using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
-                var hashBytes = await sha256.ComputeHashAsync(stream);
-                var actualHash = Convert.ToHexString(hashBytes).ToLowerInvariant();
-
-                if (actualHash != expectedHash)
+                try
                 {
-                    mismatches.Add($"Modified: {relativePath}");
+                    // Use MemoryMappedHasher for efficient large file handling
+                    var actualHash = await MemoryMappedHasher.ComputeSha256Async(filePath, token);
+
+                    if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        mismatches.Add($"Modified: {relativePath}");
+                    }
                 }
-            }
+                catch (Exception ex)
+                {
+                    mismatches.Add($"Error: {relativePath} ({ex.Message})");
+                }
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -61,7 +82,9 @@ public static class PackageVerifier
             return (false, new List<string> { $"Verification error: {ex.Message}" });
         }
 
-        return (mismatches.Count == 0, mismatches);
+        var mismatchList = mismatches.ToList();
+        mismatchList.Sort();
+        return (mismatchList.Count == 0, mismatchList);
     }
 
     /// <summary>
@@ -119,6 +142,10 @@ public static class PackageVerifier
                 var relativePath = Path.GetRelativePath(packageDir, file).Replace('\\', '/');
                 try
                 {
+                    // Use synchronous MemoryMappedHasher for large files
+                    // Note: For hash generation at packaging time, SHA256 is used for compatibility
+                    var hash = MemoryMappedHasher.ComputeXxHash64(file);
+                    // We use XxHash internally but store SHA256 for backward compat
                     using var sha256 = System.Security.Cryptography.SHA256.Create();
                     using var stream = File.OpenRead(file);
                     var hashBytes = sha256.ComputeHash(stream);

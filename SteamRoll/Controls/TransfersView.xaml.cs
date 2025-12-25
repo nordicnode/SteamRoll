@@ -135,7 +135,7 @@ public partial class TransfersView : UserControl
         UpdateEmptyStates();
     }
 
-    private void BackButton_Click(object sender, RoutedEventArgs e)
+    private void BackBtn_Click(object sender, RoutedEventArgs e)
     {
         BackClicked?.Invoke(this, e);
     }

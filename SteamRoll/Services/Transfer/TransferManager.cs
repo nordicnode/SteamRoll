@@ -12,6 +12,7 @@ public enum TransferStatus
 {
     Pending,
     Active,
+    Paused,
     Completed,
     Failed,
     Cancelled
@@ -200,6 +201,7 @@ public class TransferInfo : INotifyPropertyChanged
     {
         TransferStatus.Pending => "⏳ Pending",
         TransferStatus.Active => IsSending ? "📤 Sending" : "📥 Receiving",
+        TransferStatus.Paused => "⏸ Paused",
         TransferStatus.Completed => "✓ Completed",
         TransferStatus.Failed => "✗ Failed",
         TransferStatus.Cancelled => "⊘ Cancelled",

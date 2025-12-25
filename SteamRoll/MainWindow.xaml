@@ -287,6 +287,7 @@
                                    OpenOutputClicked="OpenOutputButton_Click"
                                    ImportPackageClicked="ImportPackageButton_Click"
                                    SettingsClicked="SettingsButton_Click"
+                                   StatsClicked="StatsButton_Click"
                                    TransfersClicked="TransfersButton_Click"
                                    BrowsePeerClicked="BrowsePeerButton_Click"
                                    ViewModeToggleClicked="ViewModeToggle_Click"
@@ -341,6 +342,12 @@
         <controls:TransfersView x:Name="TransfersViewControl" Grid.Row="3" 
                                 Visibility="Collapsed"
                                 BackClicked="TransfersView_BackClicked"/>
+
+        <!-- Playtime Stats View (hidden by default) -->
+        <controls:PlaytimeStatsView x:Name="PlaytimeStatsViewControl" Grid.Row="3" 
+                                    Visibility="Collapsed"
+                                    BackClicked="PlaytimeStatsView_BackClicked"
+                                    GameClicked="PlaytimeStatsView_GameClicked"/>
 
         
 

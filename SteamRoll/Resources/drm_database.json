@@ -1,0 +1,300 @@
+{
+    "version": "1.0",
+    "lastUpdated": "2025-12-25",
+    "games": {
+        "1174180": {
+            "name": "Red Dead Redemption 2",
+            "drm": [
+                "Rockstar",
+                "SteamStub"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "NotPossible",
+            "notes": "Requires Rockstar Games Launcher authentication"
+        },
+        "271590": {
+            "name": "Grand Theft Auto V",
+            "drm": [
+                "Rockstar",
+                "SteamStub"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "NotPossible",
+            "notes": "Requires Rockstar Social Club"
+        },
+        "1245620": {
+            "name": "Elden Ring",
+            "drm": [
+                "SteamStub",
+                "EasyAntiCheat"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "GoldbergExperimental",
+            "notes": "Online features require EAC, offline works with Goldberg"
+        },
+        "1593500": {
+            "name": "God of War",
+            "drm": [
+                "SteamStub"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "Goldberg",
+            "notes": "Simple Steam DRM, fully compatible"
+        },
+        "1817070": {
+            "name": "Hogwarts Legacy",
+            "drm": [
+                "Denuvo",
+                "SteamStub"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "NotPossible",
+            "notes": "Protected by Denuvo Anti-Tamper"
+        },
+        "1091500": {
+            "name": "Cyberpunk 2077",
+            "drm": [
+                "None"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "None",
+            "notes": "DRM-free, direct copy compatible"
+        },
+        "1158310": {
+            "name": "Crusader Kings III",
+            "drm": [
+                "SteamStub"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "Goldberg",
+            "notes": "Standard Steamworks DRM"
+        },
+        "292030": {
+            "name": "The Witcher 3: Wild Hunt",
+            "drm": [
+                "None"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "None",
+            "notes": "DRM-free by CD Projekt RED"
+        },
+        "1086940": {
+            "name": "Baldur's Gate 3",
+            "drm": [
+                "SteamStub"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "Goldberg",
+            "notes": "Standard Steamworks, fully compatible"
+        },
+        "1938090": {
+            "name": "Call of Duty: Modern Warfare II",
+            "drm": [
+                "Battle.net",
+                "SteamStub"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "NotPossible",
+            "notes": "Requires Battle.net authentication"
+        },
+        "1332010": {
+            "name": "Stray",
+            "drm": [
+                "SteamStub"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "Goldberg",
+            "notes": "Simple Steam DRM"
+        },
+        "1151640": {
+            "name": "Horizon Zero Dawn",
+            "drm": [
+                "SteamStub"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "Goldberg",
+            "notes": "Standard Steamworks DRM"
+        },
+        "814380": {
+            "name": "Sekiro: Shadows Die Twice",
+            "drm": [
+                "Denuvo",
+                "SteamStub"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "NotPossible",
+            "notes": "Denuvo protected"
+        },
+        "976730": {
+            "name": "Halo: The Master Chief Collection",
+            "drm": [
+                "SteamStub",
+                "EasyAntiCheat"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "GoldbergExperimental",
+            "notes": "Multiplayer requires EAC"
+        },
+        "1172470": {
+            "name": "Apex Legends",
+            "drm": [
+                "EAOrigin",
+                "EasyAntiCheat"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "NotPossible",
+            "notes": "Online-only with EA authentication"
+        },
+        "359550": {
+            "name": "Tom Clancy's Rainbow Six Siege",
+            "drm": [
+                "UbisoftConnect",
+                "BattlEye"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "NotPossible",
+            "notes": "Requires Ubisoft Connect"
+        },
+        "578080": {
+            "name": "PUBG: BATTLEGROUNDS",
+            "drm": [
+                "SteamStub",
+                "BattlEye"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "NotPossible",
+            "notes": "Online-only with anti-cheat"
+        },
+        "570": {
+            "name": "Dota 2",
+            "drm": [
+                "SteamStub",
+                "VAC"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "NotPossible",
+            "notes": "Online-only, Steam required"
+        },
+        "730": {
+            "name": "Counter-Strike 2",
+            "drm": [
+                "SteamStub",
+                "VAC"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "NotPossible",
+            "notes": "Online-only, Steam required"
+        },
+        "413150": {
+            "name": "Stardew Valley",
+            "drm": [
+                "None"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "None",
+            "notes": "DRM-free indie game"
+        },
+        "105600": {
+            "name": "Terraria",
+            "drm": [
+                "SteamStub"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "Goldberg",
+            "notes": "Simple Steam DRM"
+        },
+        "322330": {
+            "name": "Don't Starve Together",
+            "drm": [
+                "SteamStub"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "Goldberg",
+            "notes": "Steam multiplayer compatible with Goldberg LAN"
+        },
+        "892970": {
+            "name": "Valheim",
+            "drm": [
+                "SteamStub"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "Goldberg",
+            "notes": "Steam multiplayer compatible with Goldberg LAN"
+        },
+        "1817190": {
+            "name": "Marvel's Spider-Man Remastered",
+            "drm": [
+                "SteamStub"
+            ],
+            "confidence": "High",
+            "bypassRecommendation": "Goldberg",
+            "notes": "Standard Steamworks DRM"
+        }
+    },
+    "publishers": {
+        "Rockstar Games": {
+            "defaultDrm": [
+                "Rockstar",
+                "SteamStub"
+            ],
+            "bypassRecommendation": "NotPossible",
+            "notes": "Requires Rockstar Games Launcher"
+        },
+        "Electronic Arts": {
+            "defaultDrm": [
+                "EAOrigin"
+            ],
+            "bypassRecommendation": "NotPossible",
+            "notes": "Most titles require EA Play/Origin"
+        },
+        "Ubisoft": {
+            "defaultDrm": [
+                "UbisoftConnect"
+            ],
+            "bypassRecommendation": "NotPossible",
+            "notes": "Requires Ubisoft Connect"
+        },
+        "CD Projekt RED": {
+            "defaultDrm": [
+                "None"
+            ],
+            "bypassRecommendation": "None",
+            "notes": "DRM-free policy"
+        }
+    },
+    "drmDetectionHints": {
+        "Denuvo": {
+            "filePatterns": [
+                "steam_api64.dll size > 3MB",
+                "denuvo*.dll"
+            ],
+            "confidence": "High"
+        },
+        "VMProtect": {
+            "filePatterns": [
+                ".vmp section in PE header"
+            ],
+            "confidence": "High"
+        },
+        "EasyAntiCheat": {
+            "filePatterns": [
+                "EasyAntiCheat*.dll",
+                "EasyAntiCheat_EOS.sys"
+            ],
+            "folderPatterns": [
+                "EasyAntiCheat"
+            ],
+            "confidence": "High"
+        },
+        "BattlEye": {
+            "filePatterns": [
+                "BEService*.exe",
+                "BEClient*.dll"
+            ],
+            "folderPatterns": [
+                "BattlEye"
+            ],
+            "confidence": "High"
+        }
+    }
+}

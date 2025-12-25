@@ -120,11 +120,10 @@ public partial class GameLibraryView : UserControl
         GamesList.ItemsSource = games;
         GamesListView.ItemsSource = games;
 
-        // Handle empty state logic in parent or helper
-        // But for display consistency:
+        // Handle empty state logic
         var count = 0;
         if (games is ICollection col) count = col.Count;
-        else { foreach(var item in games) count++; } // Inefficient but functional
+        else { foreach(var item in games) count++; }
 
         var isEmpty = count == 0;
 
@@ -136,34 +135,25 @@ public partial class GameLibraryView : UserControl
             GamesGridScroll.Visibility = Visibility.Collapsed;
             GamesListView.Visibility = Visibility.Collapsed;
         }
-        else
-        {
-            // Visibility of grid vs list depends on view mode, which is controlled externally
-            // We just ensure they are not hidden due to empty state.
-            // But we need to know the view mode.
-            // Let's expose methods to set view mode.
-        }
     }
 
     public void SetViewMode(bool isList)
     {
         if (EmptyStatePanel.Visibility == Visibility.Visible)
         {
-             GamesGridScroll.Visibility = Visibility.Collapsed;
-             GamesListView.Visibility = Visibility.Collapsed;
-             return;
+            GamesGridScroll.Visibility = Visibility.Collapsed;
+            GamesListView.Visibility = Visibility.Collapsed;
+            return;
         }
 
         if (isList)
         {
             GamesGridScroll.Visibility = Visibility.Collapsed;
-            GamesList.Visibility = Visibility.Collapsed;
             GamesListView.Visibility = Visibility.Visible;
         }
         else
         {
             GamesGridScroll.Visibility = Visibility.Visible;
-            GamesList.Visibility = Visibility.Visible;
             GamesListView.Visibility = Visibility.Collapsed;
         }
     }
@@ -173,10 +163,9 @@ public partial class GameLibraryView : UserControl
         if (isLoading)
         {
             SkeletonView.Visibility = Visibility.Visible;
-            GamesList.Visibility = Visibility.Collapsed;
+            GamesGridScroll.Visibility = Visibility.Collapsed;
             GamesListView.Visibility = Visibility.Collapsed;
             EmptyStatePanel.Visibility = Visibility.Collapsed;
-            GamesGridScroll.Visibility = Visibility.Collapsed;
         }
         else
         {

@@ -6,6 +6,7 @@ using System.Net.Sockets;
 using System.Text.Json;
 using SteamRoll.Services.DeltaSync;
 using SteamRoll.Services.Security;
+using SteamRoll.Utils;
 
 namespace SteamRoll.Services.Transfer;
 
@@ -359,28 +360,11 @@ public class TransferSender
 
     /// <summary>
     /// Computes XxHash64 for a file asynchronously.
-    /// 10-20x faster than SHA-256. Used for integrity checking during transfers.
+    /// Uses memory-mapped files for large files to reduce memory pressure.
     /// </summary>
-    private static async Task<string> ComputeXxHash64Async(string filePath, CancellationToken ct)
+    private static Task<string> ComputeXxHash64Async(string filePath, CancellationToken ct)
     {
-        // Use FileShare.ReadWrite to allow reading open files
-        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 81920, true);
-        var hash = new XxHash64();
-
-        var buffer = ArrayPool<byte>.Shared.Rent(81920);
-        try
-        {
-            int bytesRead;
-            while ((bytesRead = await stream.ReadAsync(buffer, ct)) > 0)
-            {
-                hash.Append(buffer.AsSpan(0, bytesRead));
-            }
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
-
-        return Convert.ToHexString(hash.GetCurrentHash()).ToLowerInvariant();
+        // Delegate to MemoryMappedHasher which handles large files efficiently
+        return MemoryMappedHasher.ComputeXxHash64Async(filePath, ct);
     }
 }

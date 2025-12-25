@@ -162,6 +162,13 @@
                             <TextBlock Text="Settings"/>
                         </StackPanel>
                     </Button>
+                    <Button Style="{DynamicResource SecondaryButton}"
+                            Click="StatsButton_Click" Margin="0,0,12,0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📊" FontSize="12" Margin="0,0,6,0"/>
+                            <TextBlock Text="Stats"/>
+                        </StackPanel>
+                    </Button>
 
                     <!-- Search Box -->
                     <TextBox x:Name="SearchBox" Width="150" Margin="0,0,8,0"

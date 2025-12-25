@@ -36,6 +36,7 @@ public partial class MainWindow : Window
     private bool _isLibraryViewActive = true;
     private string _outputPath;
     private MeshLibraryService? _meshLibraryService;
+    private BackgroundIndexingService? _backgroundIndexingService;
     
     // ViewModel for MVVM pattern
     private readonly MainViewModel _viewModel;
@@ -354,6 +355,10 @@ public partial class MainWindow : Window
         
         // Check for incomplete packages after loading
         await CheckForIncompletePackages();
+        
+        // Start background indexing service for pre-computing file hashes
+        _backgroundIndexingService = new BackgroundIndexingService(_cacheService, _settingsService);
+        _backgroundIndexingService.Start();
     }
     
     private void OnUpdateAvailable(object? sender, UpdateAvailableEventArgs e)
@@ -468,6 +473,9 @@ public partial class MainWindow : Window
         
         // Note: Service disposal is handled by ServiceContainer.Dispose() in App.OnExit
         // We only unsubscribe from events here to prevent any callbacks during shutdown
+        
+        // Stop background indexing
+        _backgroundIndexingService?.Dispose();
         
         // Flush logs before exit
         LogService.Instance.Dispose();
@@ -799,6 +807,46 @@ public partial class MainWindow : Window
         }
     }
 
+    private void StatsButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowPlaytimeStatsView();
+    }
+
+    private void ShowPlaytimeStatsView()
+    {
+        // Hide other views
+        GameLibraryViewControl.Visibility = Visibility.Collapsed;
+        GameDetailsView.Visibility = Visibility.Collapsed;
+        StatsBarControl.Visibility = Visibility.Collapsed;
+        TransfersViewControl.Visibility = Visibility.Collapsed;
+        
+        // Show playtime stats view
+        PlaytimeStatsViewControl.Visibility = Visibility.Visible;
+        PlaytimeStatsViewControl.RefreshStats();
+    }
+
+    private void PlaytimeStatsView_BackClicked(object sender, RoutedEventArgs e)
+    {
+        // Hide stats view and show library
+        PlaytimeStatsViewControl.Visibility = Visibility.Collapsed;
+        GameLibraryViewControl.Visibility = Visibility.Visible;
+        StatsBarControl.Visibility = Visibility.Visible;
+    }
+
+    private void PlaytimeStatsView_GameClicked(object? sender, int appId)
+    {
+        // Find the game and navigate back to library with it selected
+        var game = _viewModel.GetGamesSnapshot().FirstOrDefault(g => g.AppId == appId);
+        if (game != null)
+        {
+            // Return to library view
+            PlaytimeStatsView_BackClicked(this, new RoutedEventArgs());
+            
+            // Show toast with game info
+            ToastService.Instance.ShowInfo(game.Name, $"AppID: {appId}");
+        }
+    }
+
     private void TransfersButton_Click(object sender, RoutedEventArgs e)
     {
         // Show the Transfers section view
@@ -811,10 +859,12 @@ public partial class MainWindow : Window
         GameLibraryViewControl.Visibility = Visibility.Collapsed;
         GameDetailsView.Visibility = Visibility.Collapsed;
         StatsBarControl.Visibility = Visibility.Collapsed;
+        PlaytimeStatsViewControl.Visibility = Visibility.Collapsed;
         
         // Show transfers view
         TransfersViewControl.Visibility = Visibility.Visible;
     }
+
 
     private void TransfersView_BackClicked(object sender, RoutedEventArgs e)
     {

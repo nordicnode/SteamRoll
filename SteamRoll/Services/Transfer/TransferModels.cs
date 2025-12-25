@@ -155,6 +155,16 @@ public class TransferApprovalEventArgs : EventArgs
     public string GameName { get; set; } = "";
     public long SizeBytes { get; set; }
     public int FileCount { get; set; }
+    
+    /// <summary>
+    /// Name of the peer sending the transfer (if known).
+    /// </summary>
+    public string? PeerName { get; set; }
+    
+    /// <summary>
+    /// IP address of the peer sending the transfer.
+    /// </summary>
+    public string? PeerIp { get; set; }
 
     /// <summary>
     /// Gets whether the transfer was approved.

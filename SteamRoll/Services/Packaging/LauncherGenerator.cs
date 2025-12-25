@@ -59,12 +59,21 @@ public class LauncherGenerator
 
                 var args = !string.IsNullOrWhiteSpace(customArgs) ? $" {customArgs}" : "";
 
-                // Windows Batch
+                // Windows Batch - with playtime tracking via marker file
                 var launcherContent = $"""
                     @echo off
                     title {game.Name}
+                    
+                    rem Create launch marker for SteamRoll playtime tracking
+                    echo {game.AppId}|{DateTime.Now:o} > "%~dp0.steamroll_playing"
+                    
                     cd /d "%~dp0{cdPath}"
-                    start "" "{exeName}"{args}
+                    
+                    rem Start game and wait for it to exit
+                    "{exeName}"{args}
+                    
+                    rem Remove marker when game exits
+                    del "%~dp0.steamroll_playing" 2>nul
                     """;
 
                 File.WriteAllText(Path.Combine(packageDir, "LAUNCH.bat"), launcherContent);
@@ -77,9 +86,20 @@ public class LauncherGenerator
                 var shellScriptContent = $$"""
                     #!/bin/bash
                     # SteamRoll Launcher for {{game.Name}}
-
-                    # Set working directory to script location + relative path
+                    
+                    # Get script directory
                     DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+                    
+                    # Cleanup function to remove marker on exit
+                    cleanup() {
+                        rm -f "$DIR/.steamroll_playing"
+                    }
+                    trap cleanup EXIT
+                    
+                    # Create launch marker for SteamRoll playtime tracking
+                    echo "{{game.AppId}}|$(date -Iseconds)" > "$DIR/.steamroll_playing"
+                    
+                    # Set working directory
                     cd "$DIR/{{linuxCdPath}}"
 
                     # Add current directory to library path (for Goldberg steam_api.so)

@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 
@@ -10,6 +12,7 @@ namespace SteamRoll.Services;
 /// <summary>
 /// Provides UDP-based LAN discovery for finding other SteamRoll instances on the network.
 /// Uses broadcast to announce presence and discover peers.
+/// Supports both IPv4 broadcast and IPv6 link-local multicast.
 /// </summary>
 public class LanDiscoveryService : IDisposable
 {
@@ -19,10 +22,14 @@ public class LanDiscoveryService : IDisposable
     private const int ANNOUNCE_STARTUP_JITTER_MS = AppConstants.ANNOUNCE_STARTUP_JITTER_MS;
     private const int PEER_TIMEOUT_MS = AppConstants.PEER_TIMEOUT_MS;
     private const string PROTOCOL_MAGIC = ProtocolConstants.DISCOVERY_MAGIC;
+    
+    // IPv6 link-local all-nodes multicast address
+    private static readonly IPAddress IPv6MulticastAddress = IPAddress.Parse("ff02::1");
 
     private static readonly Random _jitterRandom = new();
 
-    private UdpClient? _udpClient;
+    private UdpClient? _udpClient;       // IPv4
+    private UdpClient? _udpClientV6;     // IPv6
     private CancellationTokenSource? _cts;
     private readonly ConcurrentDictionary<string, PeerInfo> _peers = new();
     private string _localHostName;
@@ -59,6 +66,7 @@ public class LanDiscoveryService : IDisposable
 
     /// <summary>
     /// Starts the discovery service - begins broadcasting presence and listening for peers.
+    /// Supports both IPv4 broadcast and IPv6 link-local multicast.
     /// </summary>
     public void Start()
     {
@@ -67,15 +75,40 @@ public class LanDiscoveryService : IDisposable
         try
         {
             _cts = new CancellationTokenSource();
+            
+            // IPv4: Broadcast-based discovery
             _udpClient = new UdpClient();
             _udpClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             _udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, DISCOVERY_PORT));
             _udpClient.EnableBroadcast = true;
 
+            // IPv6: Multicast-based discovery (best-effort, doesn't fail if IPv6 unavailable)
+            try
+            {
+                _udpClientV6 = new UdpClient(AddressFamily.InterNetworkV6);
+                _udpClientV6.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                _udpClientV6.Client.Bind(new IPEndPoint(IPAddress.IPv6Any, DISCOVERY_PORT));
+                
+                // Join link-local multicast group on all interfaces
+                _udpClientV6.JoinMulticastGroup(IPv6MulticastAddress);
+                
+                LogService.Instance.Info("IPv6 discovery enabled", "LanDiscovery");
+            }
+            catch (Exception ex)
+            {
+                LogService.Instance.Debug($"IPv6 discovery not available: {ex.Message}", "LanDiscovery");
+                _udpClientV6?.Dispose();
+                _udpClientV6 = null;
+            }
+
             IsRunning = true;
 
             // Start background tasks
             _ = ListenAsync(_cts.Token);
+            if (_udpClientV6 != null)
+            {
+                _ = ListenAsyncV6(_cts.Token);
+            }
             _ = AnnounceAsync(_cts.Token);
             _ = CleanupPeersAsync(_cts.Token);
 
@@ -110,6 +143,15 @@ public class LanDiscoveryService : IDisposable
         _udpClient?.Close();
         _udpClient?.Dispose();
         _udpClient = null;
+        
+        // Cleanup IPv6 client
+        if (_udpClientV6 != null)
+        {
+            try { _udpClientV6.DropMulticastGroup(IPv6MulticastAddress); } catch { }
+            _udpClientV6.Close();
+            _udpClientV6.Dispose();
+            _udpClientV6 = null;
+        }
 
         _peers.Clear();
 
@@ -318,6 +360,60 @@ public class LanDiscoveryService : IDisposable
             catch (Exception ex)
             {
                 LogService.Instance.Debug($"Listen error: {ex.Message}", "LanDiscovery");
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Listens for IPv6 multicast discovery messages.
+    /// </summary>
+    private async Task ListenAsyncV6(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested && _udpClientV6 != null)
+        {
+            try
+            {
+                var result = await _udpClientV6.ReceiveAsync(ct);
+                var json = Encoding.UTF8.GetString(result.Buffer);
+                
+                var message = JsonSerializer.Deserialize<DiscoveryMessage>(json);
+                if (message == null || message.Magic != PROTOCOL_MAGIC) continue;
+
+                // Ignore our own broadcasts
+                if (message.HostName == _localHostName) continue;
+
+                // Extract IPv6 address (may be zone-scoped like fe80::1%eth0)
+                var peerIp = result.RemoteEndPoint.Address.ToString();
+                // Remove zone ID for consistent peer tracking
+                var zoneSeparator = peerIp.IndexOf('%');
+                if (zoneSeparator > 0)
+                {
+                    peerIp = peerIp.Substring(0, zoneSeparator);
+                }
+
+                switch (message.Type)
+                {
+                    case MessageType.Announce:
+                        HandleAnnounce(peerIp, message);
+                        break;
+                    case MessageType.TransferRequest:
+                        HandleTransferRequest(peerIp, message);
+                        break;
+                    case MessageType.SaveSyncOffer:
+                        HandleSaveSyncOffer(peerIp, message);
+                        break;
+                    case MessageType.SaveSyncRequest:
+                        HandleSaveSyncRequest(peerIp, message);
+                        break;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                LogService.Instance.Debug($"IPv6 Listen error: {ex.Message}", "LanDiscovery");
             }
         }
     }
@@ -578,9 +674,23 @@ public class LanDiscoveryService : IDisposable
                     var json = JsonSerializer.Serialize(message);
                     var data = Encoding.UTF8.GetBytes(json);
 
-                    // Broadcast to all network interfaces
+                    // Broadcast to all network interfaces (IPv4)
                     var broadcastEndpoint = new IPEndPoint(IPAddress.Broadcast, DISCOVERY_PORT);
                     await _udpClient.SendAsync(data, data.Length, broadcastEndpoint);
+                    
+                    // Also send to IPv6 multicast if available
+                    if (_udpClientV6 != null)
+                    {
+                        try
+                        {
+                            var multicastEndpoint = new IPEndPoint(IPv6MulticastAddress, DISCOVERY_PORT);
+                            await _udpClientV6.SendAsync(data, data.Length, multicastEndpoint);
+                        }
+                        catch
+                        {
+                            // IPv6 send may fail on some networks, continue with IPv4
+                        }
+                    }
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -653,8 +763,15 @@ public class LanDiscoveryService : IDisposable
 /// <summary>
 /// Information about a discovered peer on the network.
 /// </summary>
-public class PeerInfo
+public class PeerInfo : INotifyPropertyChanged
 {
+    public event PropertyChangedEventHandler? PropertyChanged;
+    
+    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
     public string Id { get; set; } = "";
     public string HostName { get; set; } = "";
     public string IpAddress { get; set; } = "";
@@ -664,6 +781,55 @@ public class PeerInfo
     public bool IsManual { get; set; }
 
     public string DisplayName => IsManual ? $"{HostName} (Manual)" : $"{HostName} ({IpAddress})";
+
+    // Connection health properties
+    private long _latencyMs;
+    public long LatencyMs
+    {
+        get => _latencyMs;
+        set
+        {
+            if (_latencyMs != value)
+            {
+                _latencyMs = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(LatencyDisplay));
+                OnPropertyChanged(nameof(QualityDisplay));
+            }
+        }
+    }
+
+    private bool _isOnline = true;
+    public bool IsOnline
+    {
+        get => _isOnline;
+        set
+        {
+            if (_isOnline != value)
+            {
+                _isOnline = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(QualityDisplay));
+            }
+        }
+    }
+
+    public string LatencyDisplay => IsOnline && LatencyMs > 0 ? $"{LatencyMs}ms" : "";
+    
+    public string QualityDisplay
+    {
+        get
+        {
+            if (!IsOnline) return "🔴 Offline";
+            return LatencyMs switch
+            {
+                < 50 => "🟢 Excellent",
+                < 150 => "🟢 Good",
+                < 300 => "🟡 Fair",
+                _ => "🟠 Poor"
+            };
+        }
+    }
 }
 
 /// <summary>

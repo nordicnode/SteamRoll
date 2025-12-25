@@ -179,7 +179,7 @@ public partial class MainWindow
                 e.GameName,
                 e.FormattedSize,
                 e.FileCount,
-                null, // TODO: Add peer name when available
+                e.PeerName ?? e.PeerIp ?? "Unknown",
                 appId
             )
             {

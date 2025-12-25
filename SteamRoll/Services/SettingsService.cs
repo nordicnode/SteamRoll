@@ -391,6 +391,28 @@ public class AppSettings
     /// Persisted to retain user customizations across sessions.
     /// </summary>
     public Dictionary<int, GoldbergConfig> GameGoldbergConfigs { get; set; } = new();
+
+    /// <summary>
+    /// Whether to enable background indexing of packages during idle time.
+    /// Pre-computes file hashes for faster transfer initialization.
+    /// </summary>
+    public bool? EnableBackgroundIndexing { get; set; } = true;
+
+    /// <summary>
+    /// Whether to enable the transfer queue system.
+    /// When enabled, transfers are queued and processed based on priority.
+    /// </summary>
+    public bool EnableTransferQueue { get; set; } = true;
+
+    /// <summary>
+    /// Maximum number of concurrent transfers.
+    /// </summary>
+    public int MaxConcurrentTransfers { get; set; } = 1;
+
+    /// <summary>
+    /// Whether to enable bandwidth scheduling (time-based limits).
+    /// </summary>
+    public bool EnableBandwidthScheduling { get; set; } = false;
 }
 
 /// <summary>

@@ -184,12 +184,16 @@ public class TransferReceiver
 
             try
             {
+                // Get the peer IP from the client connection
+                var peerIp = client.Client.RemoteEndPoint?.ToString()?.Split(':')[0] ?? "Unknown";
+                
                 // Request approval from UI
                 var approvalArgs = new TransferApprovalEventArgs
                 {
                     GameName = gameName,
                     SizeBytes = header.TotalSize,
-                    FileCount = header.TotalFiles
+                    FileCount = header.TotalFiles,
+                    PeerIp = peerIp
                 };
 
                 TransferApprovalRequested?.Invoke(this, approvalArgs);
