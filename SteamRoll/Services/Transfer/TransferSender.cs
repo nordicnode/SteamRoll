@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.IO;
 using System.IO.Hashing;
 using System.Net.Sockets;
@@ -61,29 +62,37 @@ public class TransferSender
             // Base path for relative calculations
             var basePath = File.Exists(sourcePath) ? System.IO.Path.GetDirectoryName(sourcePath)! : sourcePath;
 
-            // Sequential processing for HDD-friendly I/O (parallel thrashes mechanical drives)
-            // Process files iteratively with cancellation checks for responsiveness
-            var fileInfos = new List<TransferFileInfo>();
-            foreach (var f in files)
+            // Parallel processing for SSD performance
+            // Use ConcurrentBag for thread-safe collection
+            var fileInfoBag = new ConcurrentBag<TransferFileInfo>();
+
+            // Limit parallelism to avoid overwhelming disk I/O
+            var parallelOptions = new ParallelOptions
             {
-                ct.ThrowIfCancellationRequested(); // Allow cancellation between files
-                
+                MaxDegreeOfParallelism = Math.Max(4, Environment.ProcessorCount),
+                CancellationToken = ct
+            };
+
+            await Parallel.ForEachAsync(files, parallelOptions, async (f, token) =>
+            {
                 var relativePath = System.IO.Path.GetRelativePath(basePath, f).Replace('\\', '/');
                 var fi = new FileInfo(f);
                 var size = fi.Length;
 
                 // Always compute XxHash64 for transfer integrity.
                 // We cannot use cached SHA256 from steamroll.json because the receiver expects XxHash64.
-                // Using an async computation to avoid blocking the thread.
-                var hash = await ComputeXxHash64Async(f, ct);
+                var hash = await ComputeXxHash64Async(f, token);
 
-                fileInfos.Add(new TransferFileInfo
+                fileInfoBag.Add(new TransferFileInfo
                 {
                     RelativePath = relativePath, // Always send forward slashes
                     Size = size,
                     Sha256 = hash
                 });
-            }
+            });
+
+            // Sort by path for deterministic order
+            var fileInfos = fileInfoBag.OrderBy(f => f.RelativePath).ToList();
 
             var totalSize = fileInfos.Sum(f => f.Size);
 
