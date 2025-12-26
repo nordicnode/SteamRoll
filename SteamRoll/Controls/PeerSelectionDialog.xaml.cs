@@ -103,7 +103,8 @@ public partial class PeerSelectionDialog : Window
             // or we assume MainWindow passes one.
             // To keep this dialog simple/standalone, we'll assume we can't easily reuse the main one without passing it.
             // But we can instantiate a temporary one easily.
-            using var transferService = new TransferService(Path.GetTempPath());
+            var tempPathLockService = new PathLockService();
+            using var transferService = new TransferService(Path.GetTempPath(), tempPathLockService);
 
             // We use a small buffer for quick test (50MB)
             var mbps = await transferService.RunSpeedTestAsync(peer.IpAddress, peer.TransferPort);

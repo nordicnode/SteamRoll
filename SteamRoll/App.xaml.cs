@@ -97,6 +97,7 @@ public partial class App : Application
             new PackageBuilder(
                 sp.GetRequiredService<GoldbergService>(),
                 sp.GetRequiredService<SettingsService>(),
+                sp.GetRequiredService<PathLockService>(),
                 sp.GetRequiredService<DlcService>(),
                 steamStoreService: sp.GetRequiredService<SteamStoreService>()));
         

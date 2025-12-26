@@ -194,7 +194,6 @@ public partial class TransferReceiver
                 return;
             }
 
-            try
             {
                 // Get the peer IP from the client connection
                 var peerIp = client.Client.RemoteEndPoint?.ToString()?.Split(':')[0] ?? "Unknown";
@@ -648,7 +647,6 @@ public partial class TransferReceiver
 
                 LogService.Instance.Info($"Received package: {gameName}", "TransferReceiver");
             }
-            // finally block for releasing lock is handled by 'using var lockHandle'
         }
         catch (Exception ex)
         {

@@ -103,7 +103,7 @@ public class ServiceContainer : IDisposable
         CacheService = new CacheService();
         SteamStoreService = new SteamStoreService();
         GameImageService = new GameImageService(SteamStoreService);
-        PackageBuilder = new PackageBuilder(GoldbergService, Settings, DlcService, steamStoreService: SteamStoreService);
+        PackageBuilder = new PackageBuilder(GoldbergService, Settings, PathLockService, DlcService, steamStoreService: SteamStoreService);
         LibraryManager = new LibraryManager(
             SteamLocator, LibraryScanner, PackageScanner,
             CacheService, DlcService, Settings, SteamStoreService, GameImageService);
