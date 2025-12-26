@@ -32,6 +32,7 @@ public class SettingsService
     }
     
     private AppSettings _settings = new();
+    private readonly object _saveLock = new();
     
     /// <summary>
     /// Gets the current application settings.
@@ -43,44 +44,47 @@ public class SettingsService
     /// </summary>
     public void Load()
     {
-        try
+        lock (_saveLock)
         {
-            if (File.Exists(SettingsPath))
+            try
             {
-                var json = File.ReadAllText(SettingsPath);
-                _settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
-                LogService.Instance.Info($"Settings loaded from {SettingsPath}", "Settings");
-                
-                // Validate loaded settings
-                ValidateSettings();
+                if (File.Exists(SettingsPath))
+                {
+                    var json = File.ReadAllText(SettingsPath);
+                    _settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+                    LogService.Instance.Info($"Settings loaded from {SettingsPath}", "Settings");
+
+                    // Validate loaded settings
+                    ValidateSettings();
+                }
+                else
+                {
+                    _settings = new AppSettings();
+                    Save(); // Create default settings file
+                    LogService.Instance.Info("Created default settings file", "Settings");
+                }
             }
-            else
+            catch (Exception ex)
             {
+                LogService.Instance.Error($"Error loading settings", ex, "Settings");
+
+                // Backup corrupt settings file if it exists
+                if (File.Exists(SettingsPath))
+                {
+                    try
+                    {
+                        var backupPath = SettingsPath + ".bak";
+                        File.Copy(SettingsPath, backupPath, true);
+                        LogService.Instance.Warning($"Backed up corrupt settings to {backupPath}", "Settings");
+                    }
+                    catch (Exception backupEx)
+                    {
+                        LogService.Instance.Error($"Failed to backup corrupt settings", backupEx, "Settings");
+                    }
+                }
+
                 _settings = new AppSettings();
-                Save(); // Create default settings file
-                LogService.Instance.Info("Created default settings file", "Settings");
             }
-        }
-        catch (Exception ex)
-        {
-            LogService.Instance.Error($"Error loading settings", ex, "Settings");
-
-            // Backup corrupt settings file if it exists
-            if (File.Exists(SettingsPath))
-            {
-                try
-                {
-                    var backupPath = SettingsPath + ".bak";
-                    File.Copy(SettingsPath, backupPath, true);
-                    LogService.Instance.Warning($"Backed up corrupt settings to {backupPath}", "Settings");
-                }
-                catch (Exception backupEx)
-                {
-                    LogService.Instance.Error($"Failed to backup corrupt settings", backupEx, "Settings");
-                }
-            }
-
-            _settings = new AppSettings();
         }
     }
     
@@ -139,32 +143,35 @@ public class SettingsService
     /// </summary>
     public void Save()
     {
-        try
+        lock (_saveLock)
         {
-            var directory = System.IO.Path.GetDirectoryName(SettingsPath);
-            if (!string.IsNullOrEmpty(directory))
+            try
             {
-                Directory.CreateDirectory(directory);
+                var directory = System.IO.Path.GetDirectoryName(SettingsPath);
+                if (!string.IsNullOrEmpty(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                // Use atomic write pattern to prevent corruption on crash/power loss
+                var tempPath = SettingsPath + ".tmp";
+                var options = new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                };
+                var json = JsonSerializer.Serialize(_settings, options);
+                File.WriteAllText(tempPath, json);
+
+                // Atomic move - replaces destination file in single operation
+                File.Move(tempPath, SettingsPath, overwrite: true);
+
+                LogService.Instance.Info($"Settings saved to {SettingsPath}", "Settings");
             }
-            
-            // Use atomic write pattern to prevent corruption on crash/power loss
-            var tempPath = SettingsPath + ".tmp";
-            var options = new JsonSerializerOptions 
-            { 
-                WriteIndented = true,
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            };
-            var json = JsonSerializer.Serialize(_settings, options);
-            File.WriteAllText(tempPath, json);
-            
-            // Atomic move - replaces destination file in single operation
-            File.Move(tempPath, SettingsPath, overwrite: true);
-            
-            LogService.Instance.Info($"Settings saved to {SettingsPath}", "Settings");
-        }
-        catch (Exception ex)
-        {
-            LogService.Instance.Error($"Error saving settings", ex, "Settings");
+            catch (Exception ex)
+            {
+                LogService.Instance.Error($"Error saving settings", ex, "Settings");
+            }
         }
     }
     
@@ -173,8 +180,11 @@ public class SettingsService
     /// </summary>
     public void Update(Action<AppSettings> updateAction)
     {
-        updateAction(_settings);
-        Save();
+        lock (_saveLock)
+        {
+            updateAction(_settings);
+            Save();
+        }
     }
 
     /// <summary>
