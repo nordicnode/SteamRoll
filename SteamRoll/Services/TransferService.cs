@@ -21,9 +21,6 @@ public class TransferService : IDisposable
     private readonly SettingsService? _settingsService;
     private readonly ConcurrentDictionary<Guid, Task> _activeTransfers = new();
 
-    // Limits concurrent transfers to the same destination path to prevent file corruption
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _pathLocks = new(StringComparer.OrdinalIgnoreCase);
-
     private readonly TransferSender _sender;
     private readonly TransferReceiver _receiver;
     private SwarmManager? _swarmManager;
@@ -44,7 +41,7 @@ public class TransferService : IDisposable
     public bool IsListening { get; private set; }
     public int Port { get; private set; }
 
-    public TransferService(string receiveBasePath, SettingsService? settingsService = null)
+    public TransferService(string receiveBasePath, PathLockService pathLockService, SettingsService? settingsService = null)
     {
         _receiveBasePath = receiveBasePath;
         _settingsService = settingsService;
@@ -55,7 +52,7 @@ public class TransferService : IDisposable
         _sender.TransferComplete += (s, e) => TransferComplete?.Invoke(this, e);
         _sender.Error += (s, e) => Error?.Invoke(this, e);
 
-        _receiver = new TransferReceiver(receiveBasePath, _pathLocks);
+        _receiver = new TransferReceiver(receiveBasePath, pathLockService, settingsService);
         _receiver.ProgressChanged += (s, e) => ProgressChanged?.Invoke(this, e);
         _receiver.TransferComplete += (s, e) => TransferComplete?.Invoke(this, e);
         _receiver.Error += (s, e) => Error?.Invoke(this, e);

@@ -47,6 +47,7 @@ public class ServiceContainer : IDisposable
     public SteamStoreService SteamStoreService { get; }
     public GameImageService GameImageService { get; }
     public SaveSyncService SaveSyncService { get; }
+    public PathLockService PathLockService { get; }
     
     /// <summary>
     /// Creates a new service container that resolves from IServiceProvider.
@@ -75,6 +76,7 @@ public class ServiceContainer : IDisposable
         IntegrityService = serviceProvider.GetRequiredService<IntegrityService>();
         SaveSyncService = serviceProvider.GetRequiredService<SaveSyncService>();
         UpdateService = serviceProvider.GetRequiredService<UpdateService>();
+        PathLockService = serviceProvider.GetRequiredService<PathLockService>();
     }
     
     /// <summary>
@@ -105,8 +107,9 @@ public class ServiceContainer : IDisposable
         LibraryManager = new LibraryManager(
             SteamLocator, LibraryScanner, PackageScanner,
             CacheService, DlcService, Settings, SteamStoreService, GameImageService);
+        PathLockService = new PathLockService();
         LanDiscoveryService = new LanDiscoveryService();
-        TransferService = new TransferService(Settings.Settings.OutputPath, Settings);
+        TransferService = new TransferService(Settings.Settings.OutputPath, PathLockService, Settings);
         SaveGameService = new SaveGameService(Settings);
         IntegrityService = new IntegrityService();
         SaveSyncService = new SaveSyncService(SaveGameService, LanDiscoveryService, TransferService, Settings);

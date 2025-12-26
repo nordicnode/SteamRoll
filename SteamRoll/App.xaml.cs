@@ -117,10 +117,12 @@ public partial class App : Application
         services.AddSingleton<TransferService>(sp =>
         {
             var settings = sp.GetRequiredService<SettingsService>();
-            return new TransferService(settings.Settings.OutputPath, settings);
+            var lockService = sp.GetRequiredService<PathLockService>();
+            return new TransferService(settings.Settings.OutputPath, lockService, settings);
         });
         
         // Other services
+        services.AddSingleton<PathLockService>();
         services.AddSingleton<SaveGameService>(sp =>
             new SaveGameService(sp.GetRequiredService<SettingsService>()));
         services.AddSingleton<IntegrityService>();
