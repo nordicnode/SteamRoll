@@ -26,6 +26,8 @@ public class TransferService : IDisposable
 
     private readonly TransferSender _sender;
     private readonly TransferReceiver _receiver;
+    private SwarmManager? _swarmManager;
+    private LanDiscoveryService? _discoveryService;
 
     public event EventHandler<TransferProgress>? ProgressChanged;
     public event EventHandler<TransferResult>? TransferComplete;
@@ -289,9 +291,123 @@ public class TransferService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Initializes swarm download capability with the discovery service.
+    /// Call this after both TransferService and LanDiscoveryService are started.
+    /// </summary>
+    public void InitializeSwarm(LanDiscoveryService discoveryService)
+    {
+        _discoveryService = discoveryService;
+        _swarmManager = new SwarmManager(discoveryService, _settingsService);
+        
+        // Wire up progress events
+        _swarmManager.ProgressChanged += (s, progress) =>
+        {
+            ProgressChanged?.Invoke(this, new TransferProgress
+            {
+                GameName = progress.GameName,
+                CurrentFile = progress.FilePath,
+                TotalBytes = progress.TotalBytes,
+                BytesTransferred = progress.CompletedBytes,
+                IsSending = false // Receiving from swarm
+            });
+        };
+
+        // Wire up game availability callback so we respond to swarm queries
+        discoveryService.CheckGameAvailabilityCallback = gameName =>
+        {
+            var packagePath = Path.Combine(_receiveBasePath, gameName);
+            if (Directory.Exists(packagePath))
+            {
+                var size = Directory.GetFiles(packagePath, "*", SearchOption.AllDirectories)
+                    .Sum(f => new FileInfo(f).Length);
+                return (true, size);
+            }
+            return (false, 0);
+        };
+
+        LogService.Instance.Info("Swarm download capability initialized", "TransferService");
+    }
+
+    /// <summary>
+    /// Downloads a package using swarm mode (multiple peers simultaneously).
+    /// Automatically discovers peers that have the game using LAN discovery.
+    /// Falls back to single-peer download if only one source is available.
+    /// </summary>
+    /// <param name="gameName">Name of the game to download.</param>
+    /// <param name="filePath">Relative path of the file within the package.</param>
+    /// <param name="fileSize">Expected file size in bytes.</param>
+    /// <param name="peers">Optional pre-discovered peers. If null, auto-discovers.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Swarm download result with statistics.</returns>
+    public async Task<SwarmResult> DownloadSwarmAsync(
+        string gameName, 
+        string filePath, 
+        long fileSize,
+        List<SwarmPeerInfo>? peers = null,
+        CancellationToken ct = default)
+    {
+        if (_swarmManager == null || _discoveryService == null)
+        {
+            return new SwarmResult
+            {
+                Success = false,
+                GameName = gameName,
+                Error = "Swarm not initialized. Call InitializeSwarm first."
+            };
+        }
+
+        // Auto-discover peers if not provided
+        if (peers == null || peers.Count == 0)
+        {
+            LogService.Instance.Info($"Discovering swarm peers for {gameName}...", "TransferService");
+            peers = await _discoveryService.DiscoverSwarmPeersAsync(gameName, TimeSpan.FromSeconds(3));
+        }
+
+        if (peers.Count == 0)
+        {
+            return new SwarmResult
+            {
+                Success = false,
+                GameName = gameName,
+                Error = "No peers found with this game"
+            };
+        }
+
+        // Determine output path
+        var outputPath = Path.Combine(_receiveBasePath, gameName, filePath);
+
+        LogService.Instance.Info($"Starting swarm download: {gameName}/{filePath} from {peers.Count} peer(s)", "TransferService");
+
+        return await _swarmManager.DownloadSwarmAsync(
+            gameName,
+            filePath,
+            outputPath,
+            fileSize,
+            peers,
+            ct);
+    }
+
+    /// <summary>
+    /// Checks if swarm download is available (initialized with discovery service).
+    /// </summary>
+    public bool IsSwarmEnabled => _swarmManager != null && _discoveryService != null;
+
+    /// <summary>
+    /// Gets swarm peers that have a specific game.
+    /// </summary>
+    public async Task<List<SwarmPeerInfo>> GetSwarmPeersAsync(string gameName, TimeSpan? timeout = null)
+    {
+        if (_discoveryService == null)
+            return new List<SwarmPeerInfo>();
+
+        return await _discoveryService.DiscoverSwarmPeersAsync(gameName, timeout);
+    }
+
     public void Dispose()
     {
         StopListening();
+        _swarmManager?.Dispose();
         _cts?.Dispose();
     }
 }

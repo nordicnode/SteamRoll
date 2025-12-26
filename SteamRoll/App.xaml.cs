@@ -42,6 +42,9 @@ public partial class App : Application
         var legacyContainer = new ServiceContainer(_serviceProvider);
         ServiceContainer.Initialize(legacyContainer);
 
+        // Initialize swarm download capability (multi-source downloads)
+        legacyContainer.TransferService.InitializeSwarm(legacyContainer.LanDiscoveryService);
+
         // Load transfer history
         _ = SteamRoll.Services.Transfer.TransferManager.Instance.LoadHistoryAsync();
 

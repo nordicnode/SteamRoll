@@ -102,7 +102,15 @@ public enum MessageType
     GameListRequest,
     GameListResponse,
     SaveSyncOffer,
-    SaveSyncRequest
+    SaveSyncRequest,
+    /// <summary>
+    /// Query for peers that have a specific game for swarm download.
+    /// </summary>
+    SwarmQuery,
+    /// <summary>
+    /// Response indicating this peer has the queried game.
+    /// </summary>
+    SwarmResponse
 }
 
 /// <summary>
@@ -127,6 +135,22 @@ public class DiscoveryMessage
     /// Serialized save sync offer for SaveSyncOffer messages.
     /// </summary>
     public string? SaveSyncJson { get; set; }
+
+    /// <summary>
+    /// For SwarmQuery: hash of the file being requested.
+    /// For SwarmResponse: indicates if this peer has the file.
+    /// </summary>
+    public string? FileHash { get; set; }
+
+    /// <summary>
+    /// For SwarmResponse: this peer's unique ID for swarm coordination.
+    /// </summary>
+    public Guid? SwarmPeerId { get; set; }
+
+    /// <summary>
+    /// For SwarmResponse: this peer's advertised upload speed (bytes/sec).
+    /// </summary>
+    public long SwarmUploadSpeed { get; set; }
 }
 
 /// <summary>
@@ -139,3 +163,18 @@ public class SaveSyncOfferEventArgs : EventArgs
     public int PeerPort { get; set; }
     public SaveSyncOffer Offer { get; set; } = new();
 }
+
+/// <summary>
+/// Event args for swarm peer responses.
+/// </summary>
+public class SwarmPeerResponseEventArgs : EventArgs
+{
+    public Guid PeerId { get; set; }
+    public string HostName { get; set; } = string.Empty;
+    public string IpAddress { get; set; } = string.Empty;
+    public int Port { get; set; }
+    public string GameName { get; set; } = string.Empty;
+    public long FileSize { get; set; }
+    public long UploadSpeedBytesPerSec { get; set; }
+}
+

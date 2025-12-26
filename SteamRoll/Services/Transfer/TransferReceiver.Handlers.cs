@@ -160,4 +160,116 @@ public partial class TransferReceiver
         if (relativePath.IndexOfAny(invalidChars) >= 0) return false;
         return true;
     }
+
+    /// <summary>
+    /// Handles block request from a swarm peer.
+    /// Reads a specific block from a package file and sends it back.
+    /// Used for multi-source/swarm downloads.
+    /// </summary>
+    private async Task HandleBlockRequestAsync(NetworkStream stream, TransferHeader header, CancellationToken ct)
+    {
+        try
+        {
+            // Receive block request details
+            var request = await TransferUtils.ReceiveJsonAsync<RequestBlockMessage>(stream, ct);
+            if (request == null)
+            {
+                await SendBlockError(stream, -1, "Invalid block request", ct);
+                return;
+            }
+
+            LogService.Instance.Debug(
+                $"Block request: {request.GameName}/{request.FilePath} block {request.BlockIndex} " +
+                $"(offset {request.Offset}, length {request.Length})", 
+                "TransferReceiver");
+
+            // Validate and construct file path
+            var gameName = FormatUtils.SanitizeFileName(request.GameName);
+            var filePath = request.FilePath.Replace('/', Path.DirectorySeparatorChar);
+            
+            if (!IsPathSafe(filePath))
+            {
+                await SendBlockError(stream, request.BlockIndex, "Invalid file path", ct);
+                return;
+            }
+
+            var fullPath = Path.Combine(_receiveBasePath, gameName, filePath);
+            
+            // Verify path doesn't escape base directory
+            if (!Path.GetFullPath(fullPath).StartsWith(Path.GetFullPath(_receiveBasePath), StringComparison.OrdinalIgnoreCase))
+            {
+                await SendBlockError(stream, request.BlockIndex, "Path traversal blocked", ct);
+                return;
+            }
+
+            if (!File.Exists(fullPath))
+            {
+                await SendBlockError(stream, request.BlockIndex, "File not found", ct);
+                return;
+            }
+
+            // Read the requested block
+            var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(request.Length);
+            try
+            {
+                using var fileStream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                fileStream.Seek(request.Offset, SeekOrigin.Begin);
+                
+                var bytesRead = await fileStream.ReadAsync(buffer.AsMemory(0, request.Length), ct);
+                
+                if (bytesRead == 0)
+                {
+                    await SendBlockError(stream, request.BlockIndex, "No data at offset", ct);
+                    return;
+                }
+
+                // Compute hash for verification
+                var hasher = new System.IO.Hashing.XxHash64();
+                hasher.Append(buffer.AsSpan(0, bytesRead));
+                var hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
+
+                // Send block response
+                var response = new BlockDataMessage
+                {
+                    BlockIndex = request.BlockIndex,
+                    Data = buffer[..bytesRead],
+                    Hash = hash,
+                    Success = true
+                };
+
+                await TransferUtils.SendJsonAsync(stream, response, ct);
+
+                LogService.Instance.Debug(
+                    $"Sent block {request.BlockIndex} ({bytesRead} bytes) for {request.GameName}", 
+                    "TransferReceiver");
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Warning($"Block request handler error: {ex.Message}", "TransferReceiver");
+            try
+            {
+                await SendBlockError(stream, -1, ex.Message, ct);
+            }
+            catch { /* Ignore send errors */ }
+        }
+    }
+
+    /// <summary>
+    /// Sends an error response for a block request.
+    /// </summary>
+    private async Task SendBlockError(NetworkStream stream, int blockIndex, string error, CancellationToken ct)
+    {
+        var response = new BlockDataMessage
+        {
+            BlockIndex = blockIndex,
+            Success = false,
+            Error = error
+        };
+        await TransferUtils.SendJsonAsync(stream, response, ct);
+    }
 }

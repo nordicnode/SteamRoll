@@ -102,13 +102,15 @@ public class PackageMetadataGenerator
             sb.AppendLine("HOW TO PLAY");
             sb.AppendLine("───────────────────────────────────────────────────────────────────────────────");
             sb.AppendLine("  1. Copy this entire folder to the target PC");
-            sb.AppendLine("  2. Run LAUNCH.bat (or the game executable directly)");
+            sb.AppendLine("  2. Run the game executable directly (see launcher.json for which exe)");
             sb.AppendLine("  3. No Steam required!");
             sb.AppendLine();
             sb.AppendLine("  For LAN multiplayer:");
             sb.AppendLine("  • Both PCs must be on the same network");
             sb.AppendLine("  • Run the game on both PCs");
             sb.AppendLine("  • Use in-game LAN/Local multiplayer options");
+            sb.AppendLine();
+            sb.AppendLine("  Linux users: Run ./launch.sh (requires Wine or Proton)");
             sb.AppendLine();
             sb.AppendLine("  Customization:");
             sb.AppendLine("  • Edit steam_settings/force_account_name.txt to change your player name");

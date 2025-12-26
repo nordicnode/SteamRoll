@@ -176,6 +176,11 @@ public partial class TransferReceiver
                 await HandleSpeedTestAsync(networkStream, header, ct);
                 return;
             }
+            if (header.TransferType == "BlockRequest")
+            {
+                await HandleBlockRequestAsync(networkStream, header, ct);
+                return;
+            }
 
             var destPath = System.IO.Path.Combine(_receiveBasePath, gameName);
 

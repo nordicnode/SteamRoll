@@ -351,6 +351,12 @@ public class LanDiscoveryService : IDisposable
                     case MessageType.SaveSyncRequest:
                         HandleSaveSyncRequest(peerIp, message);
                         break;
+                    case MessageType.SwarmQuery:
+                        HandleSwarmQuery(peerIp, message);
+                        break;
+                    case MessageType.SwarmResponse:
+                        HandleSwarmResponse(peerIp, message);
+                        break;
                 }
             }
             catch (OperationCanceledException)
@@ -404,6 +410,12 @@ public class LanDiscoveryService : IDisposable
                         break;
                     case MessageType.SaveSyncRequest:
                         HandleSaveSyncRequest(peerIp, message);
+                        break;
+                    case MessageType.SwarmQuery:
+                        HandleSwarmQuery(peerIp, message);
+                        break;
+                    case MessageType.SwarmResponse:
+                        HandleSwarmResponse(peerIp, message);
                         break;
                 }
             }
@@ -602,6 +614,181 @@ public class LanDiscoveryService : IDisposable
         // Peer is requesting our save data for a specific game
         // This would trigger the SaveSyncService to handle the actual transfer
         LogService.Instance.Debug($"Received save sync request from {ip}", "LanDiscovery");
+    }
+
+    /// <summary>
+    /// Raised when a peer responds to a swarm query with availability info.
+    /// </summary>
+    public event EventHandler<SwarmPeerResponseEventArgs>? SwarmPeerResponseReceived;
+
+    /// <summary>
+    /// Callback to check if we have a specific game for swarm queries.
+    /// Returns (hasGame, fileSize) tuple.
+    /// </summary>
+    public Func<string, (bool HasGame, long FileSize)>? CheckGameAvailabilityCallback { get; set; }
+
+    /// <summary>
+    /// Device ID for swarm peer identification.
+    /// </summary>
+    public Guid SwarmPeerId { get; set; } = Guid.NewGuid();
+
+    /// <summary>
+    /// Advertised upload speed in bytes/sec for swarm load balancing.
+    /// </summary>
+    public long SwarmUploadSpeedBytesPerSec { get; set; }
+
+    private async void HandleSwarmQuery(string ip, DiscoveryMessage message)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(message.GameName)) return;
+
+            // Check if we have the requested game
+            var availability = CheckGameAvailabilityCallback?.Invoke(message.GameName);
+            if (availability?.HasGame != true) return;
+
+            // Respond that we have the file
+            var response = new DiscoveryMessage
+            {
+                Type = MessageType.SwarmResponse,
+                Magic = PROTOCOL_MAGIC,
+                HostName = _localHostName,
+                TransferPort = _transferPort,
+                GameName = message.GameName,
+                GameSize = availability.Value.FileSize,
+                FileHash = message.FileHash,
+                SwarmPeerId = SwarmPeerId,
+                SwarmUploadSpeed = SwarmUploadSpeedBytesPerSec
+            };
+
+            var json = JsonSerializer.Serialize(response);
+            var data = Encoding.UTF8.GetBytes(json);
+
+            using var client = new UdpClient();
+            await client.SendAsync(data, data.Length, new IPEndPoint(IPAddress.Parse(ip), DISCOVERY_PORT));
+
+            LogService.Instance.Debug($"Sent swarm response to {ip} for {message.GameName}", "LanDiscovery");
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Debug($"Failed to send swarm response: {ex.Message}", "LanDiscovery");
+        }
+    }
+
+    private void HandleSwarmResponse(string ip, DiscoveryMessage message)
+    {
+        try
+        {
+            var eventArgs = new SwarmPeerResponseEventArgs
+            {
+                PeerId = message.SwarmPeerId ?? Guid.NewGuid(),
+                HostName = message.HostName ?? "Unknown",
+                IpAddress = ip,
+                Port = message.TransferPort,
+                GameName = message.GameName ?? "",
+                FileSize = message.GameSize,
+                UploadSpeedBytesPerSec = message.SwarmUploadSpeed
+            };
+
+            SwarmPeerResponseReceived?.Invoke(this, eventArgs);
+            LogService.Instance.Debug($"Received swarm response from {ip}: {message.GameName}", "LanDiscovery");
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Debug($"Failed to handle swarm response: {ex.Message}", "LanDiscovery");
+        }
+    }
+
+    /// <summary>
+    /// Broadcasts a swarm query to find peers that have a specific game.
+    /// Listen to SwarmPeerResponseReceived for responses.
+    /// </summary>
+    /// <param name="gameName">Name of the game to find.</param>
+    /// <param name="fileHash">Optional file hash for verification.</param>
+    public async Task BroadcastSwarmQueryAsync(string gameName, string? fileHash = null)
+    {
+        try
+        {
+            if (_udpClient == null) return;
+
+            var message = new DiscoveryMessage
+            {
+                Type = MessageType.SwarmQuery,
+                Magic = PROTOCOL_MAGIC,
+                HostName = _localHostName,
+                TransferPort = _transferPort,
+                GameName = gameName,
+                FileHash = fileHash,
+                SwarmPeerId = SwarmPeerId
+            };
+
+            var json = JsonSerializer.Serialize(message);
+            var data = Encoding.UTF8.GetBytes(json);
+
+            var broadcastEndpoint = new IPEndPoint(IPAddress.Broadcast, DISCOVERY_PORT);
+            await _udpClient.SendAsync(data, data.Length, broadcastEndpoint);
+
+            // Also send to IPv6 multicast if available
+            if (_udpClientV6 != null)
+            {
+                try
+                {
+                    var multicastEndpoint = new IPEndPoint(IPv6MulticastAddress, DISCOVERY_PORT);
+                    await _udpClientV6.SendAsync(data, data.Length, multicastEndpoint);
+                }
+                catch { /* IPv6 may not be available */ }
+            }
+
+            LogService.Instance.Debug($"Broadcast swarm query for {gameName}", "LanDiscovery");
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Failed to broadcast swarm query: {ex.Message}", ex, "LanDiscovery");
+        }
+    }
+
+    /// <summary>
+    /// Discovers all peers that have a specific game for swarm download.
+    /// Waits for responses for the specified timeout.
+    /// </summary>
+    /// <param name="gameName">Name of the game to find.</param>
+    /// <param name="timeout">How long to wait for responses.</param>
+    /// <returns>List of peers that have the game.</returns>
+    public async Task<List<Transfer.SwarmPeerInfo>> DiscoverSwarmPeersAsync(string gameName, TimeSpan? timeout = null)
+    {
+        var waitTime = timeout ?? TimeSpan.FromSeconds(2);
+        var peers = new List<Transfer.SwarmPeerInfo>();
+
+        void OnResponse(object? sender, SwarmPeerResponseEventArgs e)
+        {
+            if (e.GameName == gameName)
+            {
+                peers.Add(new Transfer.SwarmPeerInfo
+                {
+                    PeerId = e.PeerId,
+                    IpAddress = e.IpAddress,
+                    Port = e.Port,
+                    DeviceName = e.HostName,
+                    AdvertisedSpeedBytesPerSec = e.UploadSpeedBytesPerSec,
+                    DiscoveredAt = DateTime.UtcNow,
+                    IsAvailable = true
+                });
+            }
+        }
+
+        SwarmPeerResponseReceived += OnResponse;
+        try
+        {
+            await BroadcastSwarmQueryAsync(gameName);
+            await Task.Delay(waitTime);
+        }
+        finally
+        {
+            SwarmPeerResponseReceived -= OnResponse;
+        }
+
+        LogService.Instance.Info($"Discovered {peers.Count} swarm peers for {gameName}", "LanDiscovery");
+        return peers;
     }
 
     /// <summary>
