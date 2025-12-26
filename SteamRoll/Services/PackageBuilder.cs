@@ -286,12 +286,27 @@ public class PackageBuilder
                 return;
 
             // Security check: Prevent deleting root or system directories
-            var root = Path.GetPathRoot(packageDir);
-            if (string.Equals(packageDir, root, StringComparison.OrdinalIgnoreCase) ||
-                packageDir.Length <= 3) // e.g. "C:\" or "/"
+            var fullPath = Path.GetFullPath(packageDir);
+            var root = Path.GetPathRoot(fullPath);
+
+            // Check if path is root (e.g., C:\ or /)
+            // Or if path is effectively empty or just a drive letter
+            if (string.Equals(fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                              root?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                              StringComparison.OrdinalIgnoreCase))
             {
-                LogService.Instance.Error($"Safety check prevented deletion of critical path: {packageDir}", category: "PackageBuilder");
+                LogService.Instance.Error($"Safety check prevented deletion of root path: {packageDir}", category: "PackageBuilder");
                 return;
+            }
+
+            // Also prevent deleting very short paths that might be system roots (e.g. C:)
+            // But allow C:\A (length 3 + 1 = 4)
+            if (fullPath.Length <= 3 && (root != null && fullPath.StartsWith(root)))
+            {
+                 // This covers "C:\" (3 chars) but allows "C:\A" (4 chars)
+                 // Just strictly block anything length <= 3 if it looks like a root
+                 LogService.Instance.Error($"Safety check prevented deletion of short path: {packageDir}", category: "PackageBuilder");
+                 return;
             }
 
             ReportProgress("Cleaning up failed package...", 0);

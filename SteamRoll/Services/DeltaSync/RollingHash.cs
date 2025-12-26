@@ -69,9 +69,13 @@ public class RollingHash
         _a = (uint)(( (long)_a - outgoing + incoming + MOD_ADLER) % MOD_ADLER);
 
         long bCalc = _b - (long)_windowSize * outgoing + _a - 1;
-        // Ensure result is positive before modulo
-        while (bCalc < 0) bCalc += MOD_ADLER;
-        _b = (uint)(bCalc % MOD_ADLER);
+
+        // Optimize: Use modulo arithmetic instead of loop for handling negative values
+        // This handles cases where bCalc is very negative (large window size) in O(1)
+        bCalc %= MOD_ADLER;
+        if (bCalc < 0) bCalc += MOD_ADLER;
+
+        _b = (uint)bCalc;
 
         // Update window
         _window[_windowPos] = incoming;
