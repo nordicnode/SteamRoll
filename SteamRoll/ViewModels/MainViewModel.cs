@@ -91,10 +91,14 @@ public class MainViewModel : ViewModelBase
 
     /// <summary>
     /// Refreshes the FilteredGames collection from the current filter state.
+    /// Runs filtering on background thread to avoid UI blocking on large libraries.
     /// </summary>
-    public void RefreshFilteredGames()
+    public async void RefreshFilteredGames()
     {
-        var games = GetFilteredGames();
+        // Run expensive LINQ filtering on background thread
+        var games = await Task.Run(() => GetFilteredGames());
+        
+        // Update ObservableCollection on UI thread only
         FilteredGames.Clear();
         foreach (var game in games)
         {

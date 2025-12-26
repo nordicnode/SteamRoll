@@ -28,6 +28,9 @@ public class TransferService : IDisposable
     private readonly TransferReceiver _receiver;
     private SwarmManager? _swarmManager;
     private LanDiscoveryService? _discoveryService;
+    
+    // Limits concurrent incoming connections to prevent DoS attacks
+    private readonly SemaphoreSlim _connectionSemaphore = new(20, 20);
 
     public event EventHandler<TransferProgress>? ProgressChanged;
     public event EventHandler<TransferResult>? TransferComplete;
@@ -177,11 +180,23 @@ public class TransferService : IDisposable
         {
             try
             {
-                var client = await _listener.AcceptTcpClientAsync(ct);
+                // Wait for a connection slot (prevents DoS from unlimited connections)
+                await _connectionSemaphore.WaitAsync(ct);
+                
+                TcpClient client;
+                try
+                {
+                    client = await _listener.AcceptTcpClientAsync(ct);
+                }
+                catch
+                {
+                    _connectionSemaphore.Release();
+                    throw;
+                }
 
                 var transferId = Guid.NewGuid();
-                // Delegate to receiver
-                var task = _receiver.HandleIncomingTransferAsync(client, ct);
+                // Delegate to receiver, release semaphore when done
+                var task = HandleConnectionWithSemaphoreAsync(client, ct);
 
                 _activeTransfers.TryAdd(transferId, task);
 
@@ -195,6 +210,21 @@ public class TransferService : IDisposable
             {
                 LogService.Instance.Debug($"Accept error: {ex.Message}", "TransferService");
             }
+        }
+    }
+    
+    /// <summary>
+    /// Handles a connection and releases the semaphore when done.
+    /// </summary>
+    private async Task HandleConnectionWithSemaphoreAsync(TcpClient client, CancellationToken ct)
+    {
+        try
+        {
+            await _receiver.HandleIncomingTransferAsync(client, ct);
+        }
+        finally
+        {
+            _connectionSemaphore.Release();
         }
     }
 
