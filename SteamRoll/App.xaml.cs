@@ -38,8 +38,8 @@ public partial class App : Application
         ConfigureServices(services);
         _serviceProvider = services.BuildServiceProvider();
         
-        // Initialize legacy ServiceContainer for backward compatibility
-        var legacyContainer = new ServiceContainer(_serviceProvider.GetRequiredService<IDispatcherService>());
+        // Initialize ServiceContainer as facade over IServiceProvider
+        var legacyContainer = new ServiceContainer(_serviceProvider);
         ServiceContainer.Initialize(legacyContainer);
 
         // Load transfer history

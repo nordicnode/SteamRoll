@@ -1,19 +1,23 @@
+using Microsoft.Extensions.DependencyInjection;
+
 namespace SteamRoll.Services;
 
 /// <summary>
-/// Simple service container for dependency injection.
-/// Provides a lightweight alternative to full DI frameworks while
-/// improving testability and decoupling components.
+/// Service container facade for dependency injection.
+/// Acts as a bridge between legacy code and the modern IServiceProvider.
+/// All services are resolved from the DI container to ensure single instances.
 /// </summary>
 public class ServiceContainer : IDisposable
 {
     private static ServiceContainer? _instance;
+    private readonly IServiceProvider? _serviceProvider;
     private bool _disposed;
     
     /// <summary>
     /// Gets the singleton instance of the service container.
     /// </summary>
-    public static ServiceContainer Instance => _instance ??= new ServiceContainer();
+    public static ServiceContainer Instance => _instance ?? throw new InvalidOperationException(
+        "ServiceContainer not initialized. Call Initialize() first.");
     
     /// <summary>
     /// Initializes the service container explicitly.
@@ -24,7 +28,7 @@ public class ServiceContainer : IDisposable
         _instance = container;
     }
     
-    // Core services
+    // Core services - resolved from IServiceProvider
     public SettingsService Settings { get; }
     public IDispatcherService Dispatcher { get; }
     public SteamLocator SteamLocator { get; }
@@ -44,30 +48,46 @@ public class ServiceContainer : IDisposable
     public GameImageService GameImageService { get; }
     
     /// <summary>
-    /// Creates a new service container with default WPF services.
+    /// Creates a new service container that resolves from IServiceProvider.
+    /// This is the preferred constructor for production use.
     /// </summary>
-    public ServiceContainer() : this(null)
+    public ServiceContainer(IServiceProvider serviceProvider)
     {
+        _serviceProvider = serviceProvider;
+        
+        // Resolve all services from DI container - ensures single instances
+        Dispatcher = serviceProvider.GetRequiredService<IDispatcherService>();
+        Settings = serviceProvider.GetRequiredService<SettingsService>();
+        SteamLocator = serviceProvider.GetRequiredService<SteamLocator>();
+        LibraryScanner = serviceProvider.GetRequiredService<LibraryScanner>();
+        GoldbergService = serviceProvider.GetRequiredService<GoldbergService>();
+        DlcService = serviceProvider.GetRequiredService<DlcService>();
+        PackageScanner = serviceProvider.GetRequiredService<PackageScanner>();
+        CacheService = serviceProvider.GetRequiredService<CacheService>();
+        SteamStoreService = serviceProvider.GetRequiredService<SteamStoreService>();
+        GameImageService = serviceProvider.GetRequiredService<GameImageService>();
+        PackageBuilder = serviceProvider.GetRequiredService<PackageBuilder>();
+        LibraryManager = serviceProvider.GetRequiredService<LibraryManager>();
+        LanDiscoveryService = serviceProvider.GetRequiredService<LanDiscoveryService>();
+        TransferService = serviceProvider.GetRequiredService<TransferService>();
+        SaveGameService = serviceProvider.GetRequiredService<SaveGameService>();
+        IntegrityService = serviceProvider.GetRequiredService<IntegrityService>();
+        UpdateService = serviceProvider.GetRequiredService<UpdateService>();
     }
     
     /// <summary>
-    /// Creates a new service container with specified dispatcher.
-    /// Pass null for default WPF dispatcher, or provide custom for testing/other platforms.
+    /// Creates a new service container with specified dispatcher (for testing).
     /// </summary>
-    public ServiceContainer(IDispatcherService? dispatcher)
+    [Obsolete("Use constructor with IServiceProvider for production. This is for testing only.")]
+    public ServiceContainer(IDispatcherService dispatcher)
     {
-        // Default to WPF dispatcher if not specified - easier porting to other platforms later
-        Dispatcher = dispatcher ?? new WpfDispatcherService();
+        // Fallback for tests that don't use full DI
+        Dispatcher = dispatcher;
         
-        // Initialize settings with fallback to defaults on error
         Settings = new SettingsService();
-        try
-        {
-            Settings.Load();
-        }
+        try { Settings.Load(); }
         catch (Exception ex)
         {
-            // Log error but continue with defaults - UI can still show
             LogService.Instance.Error("Failed to load settings, using defaults", ex, "ServiceContainer");
         }
         
@@ -77,17 +97,12 @@ public class ServiceContainer : IDisposable
         DlcService = new DlcService();
         PackageScanner = new PackageScanner(Settings);
         CacheService = new CacheService();
-        
-        // HTTP-based services (share cache and HttpClient)
         SteamStoreService = new SteamStoreService();
         GameImageService = new GameImageService(SteamStoreService);
-        
         PackageBuilder = new PackageBuilder(GoldbergService, Settings, DlcService, steamStoreService: SteamStoreService);
-        
         LibraryManager = new LibraryManager(
             SteamLocator, LibraryScanner, PackageScanner,
             CacheService, DlcService, Settings, SteamStoreService, GameImageService);
-        
         LanDiscoveryService = new LanDiscoveryService();
         TransferService = new TransferService(Settings.Settings.OutputPath, Settings);
         SaveGameService = new SaveGameService(Settings);
@@ -97,13 +112,15 @@ public class ServiceContainer : IDisposable
     
     /// <summary>
     /// Disposes all disposable services.
-    /// Call this when the application is shutting down.
-    /// Safe to call multiple times.
+    /// Note: When using IServiceProvider, disposal is handled by the DI container.
     /// </summary>
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        
+        // If we have a service provider, it handles disposal
+        if (_serviceProvider != null) return;
         
         try
         {
@@ -119,8 +136,8 @@ public class ServiceContainer : IDisposable
         }
         catch (Exception ex)
         {
-            // Log but don't throw during shutdown
             LogService.Instance.Debug($"Disposal error: {ex.Message}", "ServiceContainer");
         }
     }
 }
+
