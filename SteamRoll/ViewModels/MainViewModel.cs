@@ -2,10 +2,12 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using SteamRoll.Controls;
 using SteamRoll.Models;
 using SteamRoll.Services;
 using SteamRoll.Services.Transfer;
+using SteamRoll.ViewModels.Messages;
 
 namespace SteamRoll.ViewModels;
 
@@ -466,15 +468,21 @@ public class MainViewModel : ViewModelBase
         // Initialize NetworkViewModel
         _networkViewModel = new NetworkViewModel(_lanDiscoveryService, _transferService);
         
-        // Sync NetworkViewModel with main status and events
-        _networkViewModel.PropertyChanged += (_, e) =>
+        // Subscribe to Messenger for decoupled peer notifications
+        WeakReferenceMessenger.Default.Register<PeerDiscoveredMessage>(this, (r, m) =>
         {
-            if (e.PropertyName == nameof(NetworkViewModel.StatusText))
-                StatusText = _networkViewModel.StatusText;
-            if (e.PropertyName == nameof(NetworkViewModel.PeerCount))
-                PeerCount = _networkViewModel.PeerCount;
-        };
-        _networkViewModel.PeerDiscoveredNotification += (_, peer) => PeerDiscoveredNotification?.Invoke(this, peer);
+            PeerDiscoveredNotification?.Invoke(this, m.Value);
+        });
+        WeakReferenceMessenger.Default.Register<PeerCountChangedMessage>(this, (r, m) =>
+        {
+            PeerCount = m.Value;
+        });
+        WeakReferenceMessenger.Default.Register<StatusTextChangedMessage>(this, (r, m) =>
+        {
+            StatusText = m.Value;
+        });
+        
+        // Legacy event forwarding (keep for backward compatibility during transition)
         _networkViewModel.NetworkStatusChanged += (_, _) => NetworkStatusChanged?.Invoke(this, EventArgs.Empty);
 
         // Initialize PackagingViewModel
@@ -525,9 +533,8 @@ public class MainViewModel : ViewModelBase
         ClearSelectionCommand = new RelayCommand(ClearSelection);
 
         // Subscribe to service events
+        // Note: Peer events now handled via Messenger from NetworkViewModel
         _libraryManager.ProgressChanged += status => StatusText = status;
-        _lanDiscoveryService.PeerDiscovered += (_, _) => UpdatePeerCount();
-        _lanDiscoveryService.PeerLost += (_, _) => UpdatePeerCount();
 
         // Phase H: Transfer and Update service subscriptions
         _transferService.ProgressChanged += (_, progress) => OnTransferProgress(progress);
