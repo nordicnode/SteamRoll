@@ -185,7 +185,8 @@ public partial class TransferReceiver
 
             // Validate and construct file path
             var gameName = FormatUtils.SanitizeFileName(request.GameName);
-            var filePath = request.FilePath.Replace('/', Path.DirectorySeparatorChar);
+            // Normalize separators to handle cross-platform paths correctly (e.g. backslashes on Linux)
+            var filePath = request.FilePath.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
             
             if (!IsPathSafe(filePath))
             {

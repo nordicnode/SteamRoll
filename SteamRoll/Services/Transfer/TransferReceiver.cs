@@ -36,8 +36,7 @@ public partial class TransferReceiver
     private readonly DeltaService _deltaService = new();
     private readonly PairingService _pairingService = new();
     private readonly SettingsService? _settingsService;
-    // Using a shared dictionary for path locks to prevent concurrent writes to same path
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _pathLocks;
+    private readonly PathLockService _pathLockService;
 
     public event EventHandler<TransferProgress>? ProgressChanged;
     public event EventHandler<string>? Error;
@@ -48,10 +47,10 @@ public partial class TransferReceiver
     public event Func<List<Models.RemoteGame>>? LocalLibraryRequested;
     public event Func<string, string, int, Task>? PullPackageRequested;
 
-    public TransferReceiver(string receiveBasePath, System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> pathLocks, SettingsService? settingsService = null)
+    public TransferReceiver(string receiveBasePath, PathLockService pathLockService, SettingsService? settingsService = null)
     {
         _receiveBasePath = receiveBasePath;
-        _pathLocks = pathLocks;
+        _pathLockService = pathLockService;
         _settingsService = settingsService;
     }
 
@@ -185,12 +184,11 @@ public partial class TransferReceiver
             var destPath = System.IO.Path.Combine(_receiveBasePath, gameName);
 
             // Acquire lock for this destination path
-            var pathLock = _pathLocks.GetOrAdd(destPath, _ => new SemaphoreSlim(1, 1));
+            using var lockHandle = await _pathLockService.AcquireLockAsync(destPath, 10000, ct);
 
-            // Increased timeout to 10 seconds to handle slow disk I/O or high contention
-            if (!await pathLock.WaitAsync(10000, ct))
+            if (lockHandle == null)
             {
-                var msg = $"Transfer rejected: A transfer for '{gameName}' is already in progress.";
+                var msg = $"Transfer rejected: A transfer or packaging operation for '{gameName}' is already in progress.";
                 LogService.Instance.Warning(msg, "TransferReceiver");
                 await TransferUtils.SendJsonAsync(networkStream, new TransferAck { Accepted = false, Reason = msg }, ct);
                 return;
@@ -650,11 +648,7 @@ public partial class TransferReceiver
 
                 LogService.Instance.Info($"Received package: {gameName}", "TransferReceiver");
             }
-            finally
-            {
-                pathLock.Release();
-            }
-
+            // finally block for releasing lock is handled by 'using var lockHandle'
         }
         catch (Exception ex)
         {

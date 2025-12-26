@@ -16,6 +16,7 @@ public class PackageBuilder
     private readonly DlcService _dlcService;
     private readonly CreamApiService _creamApiService;
     private readonly SteamStoreService _steamStoreService;
+    private readonly PathLockService _pathLockService;
     
     private readonly PackageFileHandler _fileHandler;
     private readonly PackageMetadataGenerator _metadataGenerator;
@@ -27,12 +28,14 @@ public class PackageBuilder
     /// </summary>
     public event Action<string, int>? ProgressChanged;
 
-    public PackageBuilder(GoldbergService goldbergService, SettingsService settingsService, DlcService? dlcService = null, CreamApiService? creamApiService = null, SteamStoreService? steamStoreService = null)
+    public PackageBuilder(GoldbergService goldbergService, SettingsService settingsService, PathLockService? pathLockService = null, DlcService? dlcService = null, CreamApiService? creamApiService = null, SteamStoreService? steamStoreService = null)
     {
         _goldbergService = goldbergService;
         _dlcService = dlcService ?? new DlcService();
         _creamApiService = creamApiService ?? new CreamApiService(settingsService);
         _steamStoreService = steamStoreService ?? throw new ArgumentNullException(nameof(steamStoreService), "SteamStoreService is required");
+        // Fallback to new instance if not provided, though DI is preferred
+        _pathLockService = pathLockService ?? new PathLockService();
 
         _fileHandler = new PackageFileHandler();
         _fileHandler.ProgressChanged += (status, percentage) => ReportProgress(status, percentage);
@@ -90,6 +93,15 @@ public class PackageBuilder
             CurrentStep = PackagingStep.NotStarted,
             Mode = options.Mode.ToString()
         };
+
+        // Acquire lock for the package directory to prevent concurrent modification/transfer
+        // We use a long timeout (30s) as we want to wait a bit if a transfer is just finishing up
+        using var lockHandle = await _pathLockService.AcquireLockAsync(packageDir, 30000, ct);
+
+        if (lockHandle == null)
+        {
+            throw new IOException($"Cannot modify package for {game.Name} because it is currently locked by another operation (e.g. file transfer).");
+        }
 
         try
         {
