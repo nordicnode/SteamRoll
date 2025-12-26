@@ -21,6 +21,7 @@ public partial class GameDetailsView : UserControl
     public event EventHandler? BackRequested;
     public event EventHandler<(InstalledGame Game, PackageMode Mode)>? PackageRequested;
     public event EventHandler<InstalledGame>? SyncSavesRequested;
+    public event EventHandler<InstalledGame>? TimeMachineRequested;
 
     public GameDetailsView()
     {
@@ -72,12 +73,14 @@ public partial class GameDetailsView : UserControl
             PackageBtnText.Text = "Open";
             VerifyIntegrityBtn.Visibility = Visibility.Visible;
             SyncSavesBtn.Visibility = Visibility.Visible;
+            TimeMachineBtn.Visibility = Visibility.Visible;
         }
         else
         {
             PackageBtnText.Text = "Build";
             VerifyIntegrityBtn.Visibility = Visibility.Collapsed;
             SyncSavesBtn.Visibility = Visibility.Collapsed;
+            TimeMachineBtn.Visibility = Visibility.Collapsed;
         }
     }
     
@@ -181,12 +184,14 @@ public partial class GameDetailsView : UserControl
             PackageBtnText.Text = "Open";
             VerifyIntegrityBtn.Visibility = Visibility.Visible;
             SyncSavesBtn.Visibility = Visibility.Visible;
+            TimeMachineBtn.Visibility = Visibility.Visible;
         }
         else
         {
             PackageBtnText.Text = "Build";
             VerifyIntegrityBtn.Visibility = Visibility.Collapsed;
             SyncSavesBtn.Visibility = Visibility.Collapsed;
+            TimeMachineBtn.Visibility = Visibility.Collapsed;
         }
         
         // Load header image with retry logic
@@ -552,6 +557,12 @@ public partial class GameDetailsView : UserControl
     {
         if (_game == null) return;
         SyncSavesRequested?.Invoke(this, _game);
+    }
+
+    private void TimeMachine_Click(object sender, RoutedEventArgs e)
+    {
+        if (_game == null) return;
+        TimeMachineRequested?.Invoke(this, _game);
     }
 
     private async void RepairEnvironment_Click(object sender, RoutedEventArgs e)

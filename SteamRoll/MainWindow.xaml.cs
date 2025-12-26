@@ -166,6 +166,7 @@ public partial class MainWindow : Window
         GameDetailsView.SetStoreService(_storeService);
         GameDetailsView.BackRequested += OnDetailsBackRequested;
         GameDetailsView.PackageRequested += OnDetailsPackageRequested;
+        GameDetailsView.TimeMachineRequested += OnTimeMachineRequested;
     }
     
 

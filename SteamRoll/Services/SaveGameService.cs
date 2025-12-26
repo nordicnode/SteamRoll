@@ -21,7 +21,7 @@ public class SaveGameService
 
     /// <summary>
     /// Locates the save directory for a specific AppID.
-    /// Checks standard Goldberg locations.
+    /// Checks standard Goldberg locations. Creates the default directory if none exists.
     /// </summary>
     public string? FindSaveDirectory(int appId, string? gamePackagePath = null)
     {
@@ -47,9 +47,15 @@ public class SaveGameService
              var settingsSavePath = Path.Combine(gamePackagePath, "steam_settings", "saves", appId.ToString());
              if (Directory.Exists(settingsSavePath))
                 return settingsSavePath;
+            
+            // Create the relative save path in the game package for new games
+            Directory.CreateDirectory(relativeSavePath);
+            return relativeSavePath;
         }
 
-        return null;
+        // 3. Create the default AppData location if no gamePackagePath provided
+        Directory.CreateDirectory(appDataPath);
+        return appDataPath;
     }
 
     /// <summary>

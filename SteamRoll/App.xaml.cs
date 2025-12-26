@@ -124,6 +124,12 @@ public partial class App : Application
         services.AddSingleton<SaveGameService>(sp =>
             new SaveGameService(sp.GetRequiredService<SettingsService>()));
         services.AddSingleton<IntegrityService>();
+        services.AddSingleton<SaveSyncService>(sp =>
+            new SaveSyncService(
+                sp.GetRequiredService<SaveGameService>(),
+                sp.GetRequiredService<LanDiscoveryService>(),
+                sp.GetRequiredService<TransferService>(),
+                sp.GetRequiredService<SettingsService>()));
         services.AddSingleton<UpdateService>(sp =>
             new UpdateService(sp.GetRequiredService<GoldbergService>().GoldbergPath));
     }

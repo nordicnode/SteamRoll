@@ -46,6 +46,7 @@ public class ServiceContainer : IDisposable
     public LibraryManager LibraryManager { get; }
     public SteamStoreService SteamStoreService { get; }
     public GameImageService GameImageService { get; }
+    public SaveSyncService SaveSyncService { get; }
     
     /// <summary>
     /// Creates a new service container that resolves from IServiceProvider.
@@ -72,6 +73,7 @@ public class ServiceContainer : IDisposable
         TransferService = serviceProvider.GetRequiredService<TransferService>();
         SaveGameService = serviceProvider.GetRequiredService<SaveGameService>();
         IntegrityService = serviceProvider.GetRequiredService<IntegrityService>();
+        SaveSyncService = serviceProvider.GetRequiredService<SaveSyncService>();
         UpdateService = serviceProvider.GetRequiredService<UpdateService>();
     }
     
@@ -107,6 +109,7 @@ public class ServiceContainer : IDisposable
         TransferService = new TransferService(Settings.Settings.OutputPath, Settings);
         SaveGameService = new SaveGameService(Settings);
         IntegrityService = new IntegrityService();
+        SaveSyncService = new SaveSyncService(SaveGameService, LanDiscoveryService, TransferService, Settings);
         UpdateService = new UpdateService(GoldbergService.GoldbergPath);
     }
     

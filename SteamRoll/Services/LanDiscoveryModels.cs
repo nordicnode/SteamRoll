@@ -110,7 +110,19 @@ public enum MessageType
     /// <summary>
     /// Response indicating this peer has the queried game.
     /// </summary>
-    SwarmResponse
+    SwarmResponse,
+    /// <summary>
+    /// Broadcast when a named restore point is created, offering it to peers.
+    /// </summary>
+    RestorePointOffer,
+    /// <summary>
+    /// Request to download a restore point from a peer.
+    /// </summary>
+    RestorePointRequest,
+    /// <summary>
+    /// Request all peers to restore to a specific save point.
+    /// </summary>
+    GroupRestoreRequest
 }
 
 /// <summary>
@@ -151,6 +163,11 @@ public class DiscoveryMessage
     /// For SwarmResponse: this peer's advertised upload speed (bytes/sec).
     /// </summary>
     public long SwarmUploadSpeed { get; set; }
+
+    /// <summary>
+    /// Serialized restore point data for RestorePointOffer/Request/GroupRestore messages.
+    /// </summary>
+    public string? RestorePointJson { get; set; }
 }
 
 /// <summary>

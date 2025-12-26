@@ -97,6 +97,29 @@ public partial class MainWindow
         }
     }
     
+    private void OnTimeMachineRequested(object? sender, InstalledGame game)
+    {
+        try
+        {
+            var saveSyncService = ServiceContainer.Instance.SaveSyncService;
+            
+            // Ensure the game is being monitored for save sync
+            saveSyncService.StartMonitoring(game.AppId, game.Name, game.PackagePath);
+            
+            // Open the Save Timeline Window
+            var timelineWindow = new Controls.SaveTimelineWindow(saveSyncService, game.AppId, game.Name)
+            {
+                Owner = this
+            };
+            timelineWindow.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error("Failed to open Time Machine", ex, "MainWindow");
+            ToastService.Instance.ShowError("Time Machine Error", ex.Message);
+        }
+    }
+    
     private void GameCard_Click(object sender, MouseButtonEventArgs e)
     {
         if (sender is FrameworkElement element && element.Tag is InstalledGame game)

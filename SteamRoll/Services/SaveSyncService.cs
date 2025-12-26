@@ -21,10 +21,13 @@ public class SaveSyncService : IDisposable
     private readonly ConcurrentDictionary<int, FileSystemWatcher> _watchers = new();
     private readonly ConcurrentDictionary<int, DateTime> _pendingChanges = new();
     private readonly ConcurrentDictionary<int, List<SyncedSave>> _saveVersions = new();
+    private readonly ConcurrentDictionary<int, List<RestorePoint>> _restorePoints = new();
     
     private const int MAX_VERSIONS_TO_KEEP = 5;
+    private const int MAX_RESTORE_POINTS = 10;
     private const int DEBOUNCE_MS = 5000; // Wait 5 seconds after changes before syncing
     private readonly string _versionsPath;
+    private readonly string _restorePointsPath;
     private bool _autoSyncEnabled;
     private CancellationTokenSource? _debounceCtx;
 
@@ -43,6 +46,21 @@ public class SaveSyncService : IDisposable
     /// </summary>
     public event EventHandler<SaveSyncOffer>? RemoteSaveAvailable;
 
+    /// <summary>
+    /// Raised when a restore point is created locally.
+    /// </summary>
+    public event EventHandler<RestorePoint>? RestorePointCreated;
+
+    /// <summary>
+    /// Raised when a restore point offer is received from a peer.
+    /// </summary>
+    public event EventHandler<RestorePointOffer>? RestorePointReceived;
+
+    /// <summary>
+    /// Raised when a peer requests group restore.
+    /// </summary>
+    public event EventHandler<GroupRestoreRequest>? GroupRestoreRequested;
+
     public SaveSyncService(
         SaveGameService saveGameService,
         LanDiscoveryService lanDiscoveryService,
@@ -54,11 +72,15 @@ public class SaveSyncService : IDisposable
         _transferService = transferService;
         _settingsService = settingsService;
         
-        _versionsPath = Path.Combine(
+        var appDataPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "SteamRoll", "SaveVersions");
+            "SteamRoll");
+        
+        _versionsPath = Path.Combine(appDataPath, "SaveVersions");
+        _restorePointsPath = Path.Combine(appDataPath, "RestorePoints");
         
         Directory.CreateDirectory(_versionsPath);
+        Directory.CreateDirectory(_restorePointsPath);
         
         _autoSyncEnabled = settingsService.Settings.AutoSaveSync;
     }
@@ -106,8 +128,9 @@ public class SaveSyncService : IDisposable
 
         _syncStates[appId] = state;
 
-        // Load existing versions
+        // Load existing versions and restore points
         LoadSaveVersions(appId);
+        LoadRestorePoints(appId);
 
         if (_autoSyncEnabled)
         {
@@ -620,6 +643,296 @@ public class SaveSyncService : IDisposable
         return Directory.GetFiles(path, "*", SearchOption.AllDirectories)
             .Sum(f => new FileInfo(f).Length);
     }
+
+    #region Restore Point Methods
+
+    /// <summary>
+    /// Creates a named restore point for the specified game.
+    /// </summary>
+    public async Task<RestorePoint?> CreateRestorePointAsync(int appId, string name, string description = "", bool isPinned = false)
+    {
+        if (!_syncStates.TryGetValue(appId, out var state))
+        {
+            LogService.Instance.Warning($"Cannot create restore point: game {appId} is not being monitored", "SaveSync");
+            return null;
+        }
+
+        // Check if save directory exists and has files
+        if (!Directory.Exists(state.SavePath))
+        {
+            LogService.Instance.Warning($"Cannot create restore point: save directory does not exist at {state.SavePath}", "SaveSync");
+            return null;
+        }
+
+        var saveFiles = Directory.GetFiles(state.SavePath, "*", SearchOption.AllDirectories);
+        if (saveFiles.Length == 0)
+        {
+            LogService.Instance.Warning($"Cannot create restore point: save directory is empty. Run the game first to create save data.", "SaveSync");
+            return null;
+        }
+
+        try
+        {
+            var gameRestorePointsPath = Path.Combine(_restorePointsPath, appId.ToString());
+            Directory.CreateDirectory(gameRestorePointsPath);
+
+            var restorePoint = new RestorePoint
+            {
+                Name = name,
+                Description = description,
+                AppId = appId,
+                GameName = state.GameName,
+                IsPinned = isPinned,
+                BackupFileName = $"{Guid.NewGuid()}.zip"
+            };
+
+            var backupPath = Path.Combine(gameRestorePointsPath, restorePoint.BackupFileName);
+
+            await Task.Run(() =>
+            {
+                ZipFile.CreateFromDirectory(state.SavePath, backupPath);
+            });
+
+            restorePoint.Hash = ComputeDirectoryHash(state.SavePath);
+            restorePoint.SizeBytes = new FileInfo(backupPath).Length;
+
+            // Add to collection
+            if (!_restorePoints.TryGetValue(appId, out var points))
+            {
+                points = new List<RestorePoint>();
+                _restorePoints[appId] = points;
+            }
+            points.Add(restorePoint);
+
+            // Prune old non-pinned points if over limit
+            PruneRestorePoints(appId);
+
+            // Persist metadata
+            SaveRestorePointsMetadata(appId);
+
+            LogService.Instance.Info($"Created restore point '{name}' for {state.GameName}", "SaveSync");
+
+            // Raise event
+            RestorePointCreated?.Invoke(this, restorePoint);
+
+            return restorePoint;
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Failed to create restore point: {ex.Message}", ex, "SaveSync");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Gets all restore points for a game, ordered by most recent first.
+    /// </summary>
+    public List<RestorePoint> GetRestorePoints(int appId)
+    {
+        return _restorePoints.TryGetValue(appId, out var points)
+            ? points.OrderByDescending(p => p.CreatedAt).ToList()
+            : new List<RestorePoint>();
+    }
+
+    /// <summary>
+    /// Deletes a restore point by ID.
+    /// </summary>
+    public async Task<bool> DeleteRestorePointAsync(int appId, Guid restorePointId)
+    {
+        if (!_restorePoints.TryGetValue(appId, out var points))
+            return false;
+
+        var point = points.FirstOrDefault(p => p.Id == restorePointId);
+        if (point == null)
+            return false;
+
+        try
+        {
+            var backupPath = Path.Combine(_restorePointsPath, appId.ToString(), point.BackupFileName);
+            if (File.Exists(backupPath))
+            {
+                await Task.Run(() => File.Delete(backupPath));
+            }
+
+            points.Remove(point);
+            SaveRestorePointsMetadata(appId);
+
+            LogService.Instance.Info($"Deleted restore point '{point.Name}' for AppId {appId}", "SaveSync");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Failed to delete restore point: {ex.Message}", ex, "SaveSync");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Restores saves from a named restore point.
+    /// </summary>
+    public async Task<bool> RestoreFromPointAsync(int appId, Guid restorePointId)
+    {
+        if (!_syncStates.TryGetValue(appId, out var state))
+            return false;
+
+        if (!_restorePoints.TryGetValue(appId, out var points))
+            return false;
+
+        var point = points.FirstOrDefault(p => p.Id == restorePointId);
+        if (point == null)
+        {
+            LogService.Instance.Warning($"Restore point {restorePointId} not found for AppId {appId}", "SaveSync");
+            return false;
+        }
+
+        var backupPath = Path.Combine(_restorePointsPath, appId.ToString(), point.BackupFileName);
+        if (!File.Exists(backupPath))
+        {
+            LogService.Instance.Error($"Restore point backup file not found: {backupPath}", null, "SaveSync");
+            return false;
+        }
+
+        try
+        {
+            // Create a backup before restoring
+            await CreateVersionBackupAsync(appId, state.SavePath, "_before_restore");
+
+            // Restore
+            await Task.Run(() =>
+            {
+                // Clear current saves
+                if (Directory.Exists(state.SavePath))
+                {
+                    foreach (var file in Directory.GetFiles(state.SavePath, "*", SearchOption.AllDirectories))
+                    {
+                        File.Delete(file);
+                    }
+                }
+
+                // Extract restore point
+                ZipFile.ExtractToDirectory(backupPath, state.SavePath, true);
+            });
+
+            state.LastKnownHash = ComputeDirectoryHash(state.SavePath);
+            state.LastSyncTime = DateTime.Now;
+
+            LogService.Instance.Info($"Restored from point '{point.Name}' for {state.GameName}", "SaveSync");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Failed to restore from point: {ex.Message}", ex, "SaveSync");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Broadcasts a group restore request to all LAN peers.
+    /// </summary>
+    public void BroadcastGroupRestoreRequest(int appId, Guid restorePointId)
+    {
+        if (!_restorePoints.TryGetValue(appId, out var points))
+            return;
+
+        var point = points.FirstOrDefault(p => p.Id == restorePointId);
+        if (point == null)
+            return;
+
+        var request = new GroupRestoreRequest
+        {
+            RestorePointId = restorePointId,
+            RestorePointName = point.Name,
+            AppId = appId,
+            GameName = point.GameName,
+            RequestedBy = Environment.MachineName
+        };
+
+        // This will be handled by LanDiscoveryService to broadcast
+        LogService.Instance.Info($"Broadcasting group restore request for '{point.Name}' to all peers", "SaveSync");
+        
+        // Raise event so MainViewModel/LanDiscoveryService can handle the broadcast
+        GroupRestoreRequested?.Invoke(this, request);
+    }
+
+    /// <summary>
+    /// Handles a group restore request from a peer.
+    /// </summary>
+    public void HandleGroupRestoreRequest(GroupRestoreRequest request)
+    {
+        LogService.Instance.Info($"Received group restore request from {request.RequestedBy} for '{request.RestorePointName}'", "SaveSync");
+        GroupRestoreRequested?.Invoke(this, request);
+    }
+
+    /// <summary>
+    /// Handles receiving a restore point offer from a peer.
+    /// </summary>
+    public void HandleRestorePointOffer(RestorePointOffer offer)
+    {
+        LogService.Instance.Info($"Received restore point offer '{offer.Name}' from {offer.CreatedBy}", "SaveSync");
+        RestorePointReceived?.Invoke(this, offer);
+    }
+
+    private void PruneRestorePoints(int appId)
+    {
+        if (!_restorePoints.TryGetValue(appId, out var points))
+            return;
+
+        // Keep all pinned + most recent unpinned up to MAX_RESTORE_POINTS
+        var unpinned = points.Where(p => !p.IsPinned).OrderByDescending(p => p.CreatedAt).ToList();
+        var toRemove = unpinned.Skip(MAX_RESTORE_POINTS - points.Count(p => p.IsPinned)).ToList();
+
+        foreach (var point in toRemove)
+        {
+            var backupPath = Path.Combine(_restorePointsPath, appId.ToString(), point.BackupFileName);
+            try
+            {
+                if (File.Exists(backupPath))
+                    File.Delete(backupPath);
+                points.Remove(point);
+                LogService.Instance.Debug($"Pruned old restore point '{point.Name}'", "SaveSync");
+            }
+            catch { }
+        }
+    }
+
+    private void LoadRestorePoints(int appId)
+    {
+        var metadataPath = Path.Combine(_restorePointsPath, appId.ToString(), "restorepoints.json");
+        if (File.Exists(metadataPath))
+        {
+            try
+            {
+                var json = File.ReadAllText(metadataPath);
+                var points = JsonSerializer.Deserialize<List<RestorePoint>>(json) ?? new List<RestorePoint>();
+                _restorePoints[appId] = points;
+            }
+            catch (Exception ex)
+            {
+                LogService.Instance.Debug($"Failed to load restore points for AppId {appId}: {ex.Message}", "SaveSync");
+                _restorePoints[appId] = new List<RestorePoint>();
+            }
+        }
+        else
+        {
+            _restorePoints[appId] = new List<RestorePoint>();
+        }
+    }
+
+    private void SaveRestorePointsMetadata(int appId)
+    {
+        var gameRestorePointsPath = Path.Combine(_restorePointsPath, appId.ToString());
+        Directory.CreateDirectory(gameRestorePointsPath);
+
+        var metadataPath = Path.Combine(gameRestorePointsPath, "restorepoints.json");
+
+        if (_restorePoints.TryGetValue(appId, out var points))
+        {
+            var json = JsonSerializer.Serialize(points, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(metadataPath, json);
+        }
+    }
+
+    #endregion
 
     public void Dispose()
     {

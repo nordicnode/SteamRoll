@@ -1,0 +1,215 @@
+<Window x:Class="SteamRoll.Controls.SaveTimelineWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Save Time Machine"
+        Width="650" Height="550"
+        WindowStartupLocation="CenterOwner"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        WindowStyle="None"
+        AllowsTransparency="True">
+    
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+        
+        <Style x:Key="TimelineActionButton" TargetType="Button">
+            <Setter Property="Background" Value="#21262D"/>
+            <Setter Property="Foreground" Value="#C9D1D9"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#30363D"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#238636"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#238636"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        
+        <Style x:Key="TimelineDeleteButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#6E7681"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Width" Value="32"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" 
+                                CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#F8514933"/>
+                                <Setter Property="Foreground" Value="#F85149"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    
+    <Border Background="#0D1117" CornerRadius="8" BorderBrush="#30363D" BorderThickness="1">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="48"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Title Bar (draggable) -->
+            <Border Grid.Row="0" Background="#161B22" CornerRadius="8,8,0,0" 
+                    MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                <Grid>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0">
+                        <TextBlock Text="⏱️" FontSize="18" VerticalAlignment="Center" Margin="0,0,10,0" FontFamily="Segoe UI Emoji"/>
+                        <TextBlock x:Name="TitleText" Text="Save Time Machine" Foreground="#F0F6FC" FontWeight="SemiBold" FontSize="16" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Button Content="✕" 
+                            HorizontalAlignment="Right" 
+                            VerticalAlignment="Center"
+                            Margin="0,0,8,0"
+                            Width="32" Height="32"
+                            Click="Close_Click"
+                            Background="Transparent"
+                            Foreground="#8B949E"
+                            BorderThickness="0"
+                            FontSize="16"
+                            Cursor="Hand">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="4">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="border" Property="Background" Value="#F85149"/>
+                                        <Setter Property="Foreground" Value="White"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </Grid>
+            </Border>
+            
+            <!-- Header with Create Button -->
+            <Border Grid.Row="1" Background="#161B22" Padding="16,12" BorderBrush="#30363D" BorderThickness="0,0,0,1">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <TextBlock x:Name="GameNameText" Text="Game Name" Foreground="#C9D1D9" FontSize="13"/>
+                        <TextBlock x:Name="RestorePointCountText" Text="0 restore points" Foreground="#6E7681" FontSize="11" Margin="0,2,0,0"/>
+                    </StackPanel>
+                    
+                    <Button x:Name="CreateRestorePointBtn" Grid.Column="1" Padding="16,10"
+                            Background="#238636" Foreground="White" BorderThickness="0" 
+                            FontWeight="SemiBold" Cursor="Hand" Click="CreateRestorePoint_Click">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="+" FontSize="16" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Create Restore Point" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="border" Property="Background" Value="#2EA043"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </Grid>
+            </Border>
+            
+            <!-- Timeline Content -->
+            <Grid Grid.Row="2" Margin="16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                
+                <!-- Empty State -->
+                <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Visible">
+                    <TextBlock Text="📂" FontSize="48" FontFamily="Segoe UI Emoji" HorizontalAlignment="Center" Opacity="0.5"/>
+                    <TextBlock Text="No restore points yet" Foreground="#6E7681" FontSize="15" HorizontalAlignment="Center" Margin="0,16,0,0"/>
+                    <TextBlock Text="Create a restore point before your next gaming session" Foreground="#484F58" FontSize="12" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                </StackPanel>
+                
+                <!-- Restore Points List -->
+                <ScrollViewer x:Name="TimelineScroll" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                    <ItemsControl x:Name="RestorePointsList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#161B22" CornerRadius="8" Padding="16" Margin="0,0,0,8"
+                                        BorderBrush="#30363D" BorderThickness="1" Cursor="Hand"
+                                        MouseEnter="RestorePointItem_MouseEnter" MouseLeave="RestorePointItem_MouseLeave">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        
+                                        <!-- Timeline indicator -->
+                                        <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                                            <Ellipse Width="12" Height="12" Fill="#58A6FF" Margin="0,4,0,0"/>
+                                            <Border Width="2" Background="#30363D" Height="40" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                                        </StackPanel>
+                                        
+                                        <!-- Content -->
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding Name}" Foreground="#F0F6FC" FontSize="14" FontWeight="SemiBold"/>
+                                                <TextBlock Text="📌" FontFamily="Segoe UI Emoji" FontSize="12" Margin="8,0,0,0" 
+                                                           Visibility="{Binding IsPinned, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                                <TextBlock Text="{Binding FormattedTime}" Foreground="#6E7681" FontSize="11"/>
+                                                <TextBlock Text=" • " Foreground="#484F58" FontSize="11"/>
+                                                <TextBlock Text="{Binding FormattedSize}" Foreground="#6E7681" FontSize="11"/>
+                                                <TextBlock Text=" • " Foreground="#484F58" FontSize="11"/>
+                                                <TextBlock Text="{Binding CreatedBy}" Foreground="#6E7681" FontSize="11"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                        
+                                        <!-- Actions -->
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button Content="Restore" Tag="{Binding Id}" Click="Restore_Click" 
+                                                    Style="{StaticResource TimelineActionButton}" Margin="0,0,8,0"/>
+                                            <Button Content="🗑️" Tag="{Binding Id}" Click="Delete_Click" 
+                                                    Style="{StaticResource TimelineDeleteButton}" FontFamily="Segoe UI Emoji"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
