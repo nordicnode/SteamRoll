@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
 using System.Windows.Data;
+using CommunityToolkit.Mvvm.Messaging;
 using SteamRoll.Services;
 using SteamRoll.Services.Transfer;
+using SteamRoll.ViewModels.Messages;
 
 namespace SteamRoll.ViewModels;
 
@@ -107,6 +109,13 @@ public class NetworkViewModel : ViewModelBase
         UpdatePeerCount();
         RefreshNetworkPeers();
         StatusText = $"🔗 Found peer: {peer.HostName}";
+        
+        // Publish via Messenger for decoupled subscribers
+        WeakReferenceMessenger.Default.Send(new PeerDiscoveredMessage(peer));
+        WeakReferenceMessenger.Default.Send(new PeerCountChangedMessage(PeerCount));
+        WeakReferenceMessenger.Default.Send(new StatusTextChangedMessage(StatusText));
+        
+        // Legacy events (for backward compatibility)
         PeerDiscoveredNotification?.Invoke(this, peer);
         NetworkStatusChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -118,6 +127,12 @@ public class NetworkViewModel : ViewModelBase
     {
         UpdatePeerCount();
         RefreshNetworkPeers();
+        
+        // Publish via Messenger for decoupled subscribers
+        WeakReferenceMessenger.Default.Send(new PeerLostMessage(peer.IpAddress));
+        WeakReferenceMessenger.Default.Send(new PeerCountChangedMessage(PeerCount));
+        
+        // Legacy events (for backward compatibility)
         NetworkStatusChanged?.Invoke(this, EventArgs.Empty);
     }
 
