@@ -76,4 +76,65 @@ public static class ProtocolConstants
     /// Smaller files transfer faster without delta overhead.
     /// </summary>
     public const int DELTA_MIN_FILE_SIZE = 1024 * 1024;
+    
+    // ====================================
+    // NAT Traversal Protocol Constants
+    // ====================================
+    
+    /// <summary>
+    /// Signaling message type: Request to initiate hole punch coordination.
+    /// </summary>
+    public const string HOLE_PUNCH_REQUEST = "HP_REQ";
+    
+    /// <summary>
+    /// Signaling message type: Response with own public endpoint.
+    /// </summary>
+    public const string HOLE_PUNCH_RESPONSE = "HP_RSP";
+    
+    /// <summary>
+    /// Signaling message type: Both peers ready, prepare to connect.
+    /// </summary>
+    public const string HOLE_PUNCH_READY = "HP_RDY";
+    
+    /// <summary>
+    /// Signaling message type: Start simultaneous connect NOW.
+    /// </summary>
+    public const string HOLE_PUNCH_GO = "HP_GO";
+    
+    /// <summary>
+    /// Signaling message type: Connection attempt failed.
+    /// </summary>
+    public const string HOLE_PUNCH_FAIL = "HP_FAIL";
+    
+    /// <summary>
+    /// Signaling message type: Connection established successfully.
+    /// </summary>
+    public const string HOLE_PUNCH_SUCCESS = "HP_OK";
+    
+    /// <summary>
+    /// Total timeout for hole punch attempt in milliseconds.
+    /// </summary>
+    public const int HOLE_PUNCH_TIMEOUT_MS = 10000;
+    
+    /// <summary>
+    /// Delay in milliseconds after receiving GO signal before simultaneous connect.
+    /// Both peers wait this exact amount to synchronize their ConnectAsync calls.
+    /// </summary>
+    public const int HOLE_PUNCH_SYNC_DELAY_MS = 100;
+    
+    /// <summary>
+    /// Number of retry attempts for hole punch before giving up.
+    /// </summary>
+    public const int HOLE_PUNCH_RETRY_COUNT = 3;
+    
+    /// <summary>
+    /// Timeout for individual TCP connect attempt during hole punch.
+    /// </summary>
+    public const int HOLE_PUNCH_CONNECT_TIMEOUT_MS = 3000;
+    
+    /// <summary>
+    /// Port used for TCP hole punching. Uses a separate port from transfer
+    /// to avoid conflicts with existing TCP listeners.
+    /// </summary>
+    public const int HOLE_PUNCH_PORT = 27053;
 }

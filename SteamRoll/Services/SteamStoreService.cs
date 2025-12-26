@@ -6,12 +6,15 @@ namespace SteamRoll.Services;
 
 /// <summary>
 /// Service for fetching game details from the Steam Store API.
+/// Uses an LRU cache for O(1) eviction when cache limit is reached.
 /// Registered in ServiceContainer for dependency injection.
 /// </summary>
 public class SteamStoreService : IDisposable
 {
     private readonly HttpClient _httpClient;
     private readonly ConcurrentDictionary<int, CachedStoreEntry> _cache = new();
+    private readonly LinkedList<int> _lruList = new(); // Tracks access order for LRU eviction
+    private readonly object _lruLock = new(); // Lock for LRU list operations
     private bool _disposed;
 
     public SteamStoreService()
@@ -33,10 +36,26 @@ public class SteamStoreService : IDisposable
         {
             if ((DateTime.UtcNow - cached.CachedAt).TotalDays < AppConstants.CACHE_EXPIRY_DAYS)
             {
+                // LRU: Move to end of list (most recently used)
+                lock (_lruLock)
+                {
+                    if (cached.LruNode != null)
+                    {
+                        _lruList.Remove(cached.LruNode);
+                        _lruList.AddLast(cached.LruNode);
+                    }
+                }
                 return cached.Details;
             }
-            // Expired - remove from cache (thread-safe)
-            _cache.TryRemove(appId, out _);
+            // Expired - remove from cache and LRU list
+            if (_cache.TryRemove(appId, out var removed))
+            {
+                lock (_lruLock)
+                {
+                    if (removed.LruNode != null)
+                        _lruList.Remove(removed.LruNode);
+                }
+            }
         }
 
 
@@ -142,13 +161,17 @@ public class SteamStoreService : IDisposable
                     details.MetacriticScore = score.GetInt32();
             }
 
-            // Evict oldest entries if cache is full (thread-safe eviction)
-            if (_cache.Count >= AppConstants.MAX_STORE_CACHE_ENTRIES)
+            // LRU eviction: O(1) by removing from front of linked list
+            lock (_lruLock)
             {
-                var oldest = _cache.OrderBy(kvp => kvp.Value.CachedAt).FirstOrDefault();
-                if (oldest.Key != 0)
+                while (_cache.Count >= AppConstants.MAX_STORE_CACHE_ENTRIES && _lruList.Count > 0)
                 {
-                    _cache.TryRemove(oldest.Key, out _);
+                    var oldestKey = _lruList.First!.Value;
+                    _lruList.RemoveFirst();
+                    if (_cache.TryRemove(oldestKey, out _))
+                    {
+                        // Successfully evicted oldest entry
+                    }
                 }
             }
             
@@ -162,12 +185,17 @@ public class SteamStoreService : IDisposable
                 // Ignore review fetch errors
             }
             
-            // Cache the result with timestamp
-            _cache[appId] = new CachedStoreEntry
+            // Cache the result with timestamp and LRU tracking
+            lock (_lruLock)
             {
-                Details = details,
-                CachedAt = DateTime.UtcNow
-            };
+                var lruNode = _lruList.AddLast(appId);
+                _cache[appId] = new CachedStoreEntry
+                {
+                    Details = details,
+                    CachedAt = DateTime.UtcNow,
+                    LruNode = lruNode
+                };
+            }
             return details;
 
         }
@@ -301,11 +329,12 @@ public class SteamTrailer
 }
 
 /// <summary>
-/// Cache entry wrapper for Steam Store data with timestamp.
+/// Cache entry wrapper for Steam Store data with timestamp and LRU tracking.
 /// </summary>
 internal class CachedStoreEntry
 {
     public SteamGameDetails Details { get; set; } = new();
     public DateTime CachedAt { get; set; }
+    public LinkedListNode<int>? LruNode { get; set; }
 }
 

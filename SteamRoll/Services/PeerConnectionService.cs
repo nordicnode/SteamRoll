@@ -87,14 +87,20 @@ public class PeerConnectionService
     
     /// <summary>
     /// Attempts to establish a connection to a peer using the best available method.
-    /// Priority: Direct LAN -> UDP Hole Punch -> Fail
+    /// Priority: Direct LAN -> Fail
+    /// 
+    /// NOTE: TCP Hole Punching requires signaling coordination between both peers
+    /// and cannot be attempted automatically here. Use the following workflow instead:
+    /// 1. Exchange public endpoints via LanDiscoveryService hole punch signaling
+    /// 2. Receive HolePunchGo message with coordinated goTime
+    /// 3. Call TryTcpHolePunchAsync() with the coordinated parameters
     /// </summary>
     public async Task<PeerConnectionResult> ConnectToPeerAsync(
         string peerId, 
         IPEndPoint lanEndpoint,
         IPEndPoint? publicEndpoint = null)
     {
-        // 1. Try direct LAN connection first (always fastest)
+        // 1. Try direct LAN connection first (always fastest and most reliable)
         var directResult = await TryDirectConnectionAsync(lanEndpoint);
         if (directResult.Success)
         {
@@ -103,23 +109,29 @@ public class PeerConnectionService
             return directResult;
         }
         
-        // 2. If we have a public endpoint, try hole punching
+        // 2. TCP Hole Punching requires signaling coordination between both peers.
+        //    It cannot be attempted automatically here because both sides must call
+        //    ConnectAsync() at exactly the same time (TCP Simultaneous Open).
+        //    
+        //    To use hole punching:
+        //    1. Call LanDiscoveryService.SendHolePunchRequestAsync() to initiate
+        //    2. Handle HolePunchCoordinationReceived event for the response
+        //    3. When HolePunchGo is received, call TryTcpHolePunchAsync()
+        //
+        //    The old approach of sending UDP packets and then trying TCP was
+        //    fundamentally broken because NATs track UDP and TCP separately.
         if (publicEndpoint != null)
         {
-            var holePunchResult = await TryHolePunchingAsync(peerId, publicEndpoint);
-            if (holePunchResult.Success)
-            {
-                holePunchResult.Method = ConnectionMethod.HolePunch;
-                LogService.Instance.Info($"Connected to {peerId} via hole-punching", "PeerConnection");
-                return holePunchResult;
-            }
+            LogService.Instance.Debug(
+                $"Direct connection to {peerId} failed. Hole punching requires signaling coordination - use LanDiscoveryService.SendHolePunchRequestAsync() to initiate.",
+                "PeerConnection");
         }
         
         return new PeerConnectionResult
         {
             Success = false,
             Method = ConnectionMethod.Failed,
-            Error = "All connection methods failed"
+            Error = "Direct connection failed. Use signaling coordination for hole punching."
         };
     }
     
@@ -150,51 +162,120 @@ public class PeerConnectionService
     }
     
     /// <summary>
-    /// Attempts UDP hole-punching to establish a connection through NAT.
-    /// This is a simplified implementation that sends UDP packets to punch a hole,
-    /// then attempts a TCP connection through the opened port mapping.
+    /// Attempts TCP Simultaneous Open (TCP hole-punching) to establish a connection through NAT.
+    /// 
+    /// This replaces the previous flawed implementation that tried to use UDP hole punching
+    /// to open a path for TCP. NATs track UDP and TCP sessions separately, so that approach
+    /// was fundamentally broken.
+    /// 
+    /// TCP Simultaneous Open works by having both peers call ConnectAsync() at the same time.
+    /// This requires coordination via signaling messages through LanDiscoveryService.
+    /// 
+    /// IMPORTANT: This method performs the actual TCP connect after signaling has already
+    /// been coordinated. The caller must have already:
+    /// 1. Exchanged public endpoints via signaling (HolePunchRequest/Response)
+    /// 2. Received the GO signal with coordinated goTime
     /// </summary>
-    private async Task<PeerConnectionResult> TryHolePunchingAsync(string peerId, IPEndPoint publicEndpoint)
+    /// <param name="peerId">The peer's unique identifier.</param>
+    /// <param name="peerPublicEndpoint">The peer's public endpoint (from signaling).</param>
+    /// <param name="ourLocalPort">Our local port to bind to (from STUN).</param>
+    /// <param name="goTime">The coordinated UTC time to start connecting.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Result of the hole punch attempt.</returns>
+    public async Task<PeerConnectionResult> TryTcpHolePunchAsync(
+        string peerId,
+        IPEndPoint peerPublicEndpoint,
+        int ourLocalPort,
+        DateTime goTime,
+        CancellationToken cancellationToken = default)
     {
+        var holePunchService = new TcpHolePunchService();
+        
         try
         {
-            // UDP hole punching works by both sides sending UDP packets to each other
-            // This creates NAT mappings that allow return traffic
+            LogService.Instance.Info(
+                $"Starting TCP hole punch to {peerId} ({peerPublicEndpoint}), local port: {ourLocalPort}",
+                "PeerConnection");
             
-            using var udpClient = new UdpClient();
-            udpClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            var result = await holePunchService.AttemptHolePunchAsync(
+                peerPublicEndpoint,
+                ourLocalPort,
+                goTime,
+                cancellationToken);
             
-            // Our punch packet (just a small identifier)
-            var punchData = System.Text.Encoding.UTF8.GetBytes($"STEAMROLL_PUNCH:{peerId}");
-            
-            // Send multiple punch packets to increase success chance
-            for (int i = 0; i < 5; i++)
+            if (result.Success && result.ConnectedSocket != null)
             {
-                try
+                LogService.Instance.Info(
+                    $"TCP hole punch succeeded to {peerId} in {result.Duration.TotalMilliseconds:F0}ms (attempt {result.AttemptNumber})",
+                    "PeerConnection");
+                
+                return new PeerConnectionResult
                 {
-                    await udpClient.SendAsync(punchData, punchData.Length, publicEndpoint);
-                    await Task.Delay(100);
-                }
-                catch
-                {
-                    // Ignore send failures
-                }
+                    Success = true,
+                    ConnectedSocket = result.ConnectedSocket,
+                    RemoteEndpoint = result.RemoteEndpoint,
+                    Method = ConnectionMethod.HolePunch
+                };
             }
-            
-            // Wait a moment for NAT mappings to establish
-            await Task.Delay(500);
-            
-            // Now try TCP connection through the (hopefully) punched hole
-            // Note: In practice, this requires both sides to coordinate timing
-            var tcpResult = await TryDirectConnectionAsync(publicEndpoint);
-            
-            return tcpResult;
+            else
+            {
+                LogService.Instance.Warning(
+                    $"TCP hole punch failed to {peerId}: {result.Error}",
+                    "PeerConnection");
+                
+                return new PeerConnectionResult
+                {
+                    Success = false,
+                    Error = result.Error,
+                    Method = ConnectionMethod.Failed
+                };
+            }
         }
         catch (Exception ex)
         {
-            LogService.Instance.Debug($"Hole-punching failed: {ex.Message}", "PeerConnection");
-            return new PeerConnectionResult { Success = false, Error = ex.Message };
+            LogService.Instance.Error($"TCP hole punch exception: {ex.Message}", ex, "PeerConnection");
+            return new PeerConnectionResult
+            {
+                Success = false,
+                Error = ex.Message,
+                Method = ConnectionMethod.Failed
+            };
         }
+    }
+    
+    /// <summary>
+    /// [DEPRECATED] Old UDP-then-TCP hole punch implementation.
+    /// This method was fundamentally flawed because NATs track UDP and TCP separately.
+    /// Opening a UDP hole does NOT allow TCP traffic through.
+    /// 
+    /// Use TryTcpHolePunchAsync with coordinated signaling instead.
+    /// </summary>
+    [Obsolete("Use TryTcpHolePunchAsync with coordinated signaling. UDP holes do not enable TCP traffic.")]
+    private async Task<PeerConnectionResult> TryHolePunchingAsync_Deprecated(string peerId, IPEndPoint publicEndpoint)
+    {
+        // This implementation was technically flawed and has been replaced.
+        // Keeping as reference for what NOT to do:
+        // 
+        // The old approach:
+        // 1. Send UDP packets to peer (creates UDP NAT mapping)
+        // 2. Try TCP connect through "the opened hole"
+        // 
+        // Why it failed:
+        // - NAT devices maintain SEPARATE state tables for UDP and TCP
+        // - A UDP mapping does NOT allow incoming TCP traffic
+        // - For TCP hole punching, both sides must call ConnectAsync() simultaneously
+        //   (TCP Simultaneous Open) with coordinated timing
+        
+        LogService.Instance.Warning(
+            "Deprecated hole punch method called - use TryTcpHolePunchAsync instead",
+            "PeerConnection");
+        
+        return new PeerConnectionResult
+        {
+            Success = false,
+            Error = "Deprecated: Use TryTcpHolePunchAsync with signaling coordination",
+            Method = ConnectionMethod.Failed
+        };
     }
     
     /// <summary>

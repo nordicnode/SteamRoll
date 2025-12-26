@@ -356,7 +356,9 @@ public class LibraryManager
                     _cacheService.UpdateCache(game);
                 }
                 
-                await Task.Delay(50, ct);
+                // Rate limit: Steam API is sensitive to high request rates
+                // 200ms = ~5 req/s, safer than aggressive 50ms = 20 req/s
+                await Task.Delay(200, ct);
             }
             catch (Exception ex)
             {

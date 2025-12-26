@@ -357,6 +357,11 @@ public class LanDiscoveryService : IDisposable
                     case MessageType.SwarmResponse:
                         HandleSwarmResponse(peerIp, message);
                         break;
+                    case MessageType.HolePunchRequest:
+                    case MessageType.HolePunchResponse:
+                    case MessageType.HolePunchGo:
+                        HandleHolePunchMessage(peerIp, message);
+                        break;
                 }
             }
             catch (OperationCanceledException)
@@ -416,6 +421,11 @@ public class LanDiscoveryService : IDisposable
                         break;
                     case MessageType.SwarmResponse:
                         HandleSwarmResponse(peerIp, message);
+                        break;
+                    case MessageType.HolePunchRequest:
+                    case MessageType.HolePunchResponse:
+                    case MessageType.HolePunchGo:
+                        HandleHolePunchMessage(peerIp, message);
                         break;
                 }
             }
@@ -614,6 +624,161 @@ public class LanDiscoveryService : IDisposable
         // Peer is requesting our save data for a specific game
         // This would trigger the SaveSyncService to handle the actual transfer
         LogService.Instance.Debug($"Received save sync request from {ip}", "LanDiscovery");
+    }
+
+    // ====================================
+    // TCP Hole Punch Coordination
+    // ====================================
+    
+    /// <summary>
+    /// Raised when a hole punch coordination message is received from a peer.
+    /// Subscribe to this event to handle hole punch requests/responses.
+    /// </summary>
+    public event EventHandler<HolePunchCoordinationEventArgs>? HolePunchCoordinationReceived;
+    
+    /// <summary>
+    /// Handles all hole punch signaling messages.
+    /// </summary>
+    private void HandleHolePunchMessage(string ip, DiscoveryMessage message)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(message.HolePunchJson)) return;
+            
+            var data = JsonSerializer.Deserialize<HolePunchCoordinationData>(message.HolePunchJson);
+            if (data == null) return;
+            
+            var eventArgs = new HolePunchCoordinationEventArgs
+            {
+                PeerHostName = message.HostName ?? "Unknown",
+                PeerLanIp = ip,
+                PeerTransferPort = message.TransferPort,
+                Data = data
+            };
+            
+            LogService.Instance.Debug(
+                $"Received hole punch {data.SignalType} from {eventArgs.PeerHostName} ({ip}), session: {data.SessionId}",
+                "LanDiscovery");
+            
+            HolePunchCoordinationReceived?.Invoke(this, eventArgs);
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Failed to parse hole punch message from {ip}: {ex.Message}", ex, "LanDiscovery");
+        }
+    }
+    
+    /// <summary>
+    /// Sends a hole punch coordination message to a specific peer.
+    /// </summary>
+    /// <param name="peerIp">IP address of the peer.</param>
+    /// <param name="data">Hole punch coordination data.</param>
+    public async Task SendHolePunchMessageAsync(string peerIp, HolePunchCoordinationData data)
+    {
+        try
+        {
+            var messageType = data.SignalType switch
+            {
+                ProtocolConstants.HOLE_PUNCH_REQUEST => MessageType.HolePunchRequest,
+                ProtocolConstants.HOLE_PUNCH_RESPONSE => MessageType.HolePunchResponse,
+                ProtocolConstants.HOLE_PUNCH_GO => MessageType.HolePunchGo,
+                _ => MessageType.HolePunchRequest
+            };
+            
+            var message = new DiscoveryMessage
+            {
+                Type = messageType,
+                Magic = PROTOCOL_MAGIC,
+                HostName = _localHostName,
+                TransferPort = _transferPort,
+                HolePunchJson = JsonSerializer.Serialize(data)
+            };
+            
+            var json = JsonSerializer.Serialize(message);
+            var bytes = Encoding.UTF8.GetBytes(json);
+            
+            using var client = new UdpClient();
+            await client.SendAsync(bytes, bytes.Length, new IPEndPoint(IPAddress.Parse(peerIp), DISCOVERY_PORT));
+            
+            LogService.Instance.Debug(
+                $"Sent hole punch {data.SignalType} to {peerIp}, session: {data.SessionId}",
+                "LanDiscovery");
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error($"Failed to send hole punch message to {peerIp}: {ex.Message}", ex, "LanDiscovery");
+        }
+    }
+    
+    /// <summary>
+    /// Sends a hole punch request to initiate NAT traversal with a peer.
+    /// </summary>
+    /// <param name="peerIp">The peer's LAN IP address.</param>
+    /// <param name="ourPublicIp">Our public IP from STUN.</param>
+    /// <param name="ourPublicPort">Our public port from STUN.</param>
+    /// <param name="ourNatType">Our NAT type from STUN.</param>
+    /// <param name="sessionId">Optional session ID (generated if not provided).</param>
+    /// <returns>The session ID for tracking.</returns>
+    public async Task<string> SendHolePunchRequestAsync(
+        string peerIp, 
+        string ourPublicIp, 
+        int ourPublicPort, 
+        NatType ourNatType,
+        string? sessionId = null)
+    {
+        sessionId ??= Guid.NewGuid().ToString("N");
+        
+        var data = new HolePunchCoordinationData
+        {
+            SessionId = sessionId,
+            SignalType = ProtocolConstants.HOLE_PUNCH_REQUEST,
+            PublicIp = ourPublicIp,
+            PublicPort = ourPublicPort,
+            NatType = ourNatType
+        };
+        
+        await SendHolePunchMessageAsync(peerIp, data);
+        return sessionId;
+    }
+    
+    /// <summary>
+    /// Sends a hole punch response with our endpoint info.
+    /// </summary>
+    public async Task SendHolePunchResponseAsync(
+        string peerIp,
+        string sessionId,
+        string ourPublicIp,
+        int ourPublicPort,
+        NatType ourNatType)
+    {
+        var data = new HolePunchCoordinationData
+        {
+            SessionId = sessionId,
+            SignalType = ProtocolConstants.HOLE_PUNCH_RESPONSE,
+            PublicIp = ourPublicIp,
+            PublicPort = ourPublicPort,
+            NatType = ourNatType
+        };
+        
+        await SendHolePunchMessageAsync(peerIp, data);
+    }
+    
+    /// <summary>
+    /// Sends the GO signal to start simultaneous TCP connect.
+    /// </summary>
+    /// <param name="peerIp">The peer's LAN IP.</param>
+    /// <param name="sessionId">The session ID.</param>
+    /// <param name="goTime">The coordinated time when both should call ConnectAsync.</param>
+    public async Task SendHolePunchGoAsync(string peerIp, string sessionId, DateTime goTime)
+    {
+        var data = new HolePunchCoordinationData
+        {
+            SessionId = sessionId,
+            SignalType = ProtocolConstants.HOLE_PUNCH_GO,
+            GoTime = goTime
+        };
+        
+        await SendHolePunchMessageAsync(peerIp, data);
     }
 
     /// <summary>

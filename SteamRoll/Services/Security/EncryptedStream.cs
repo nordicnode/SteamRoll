@@ -116,6 +116,15 @@ public class EncryptedStream : Stream
 
     public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
     {
+        // Return previously rented buffer if we finished using it
+        if (_pooledReadBuffer != null && _readBufferPos >= _pooledReadBufferActualLength)
+        {
+            ArrayPool<byte>.Shared.Return(_pooledReadBuffer);
+            _pooledReadBuffer = null;
+            _readBufferPos = 0;
+            _readBufferLen = 0;
+        }
+        
         // Return from buffer if we have data
         if (_readBufferPos < _readBufferLen)
         {
@@ -125,24 +134,28 @@ public class EncryptedStream : Stream
             return toCopy;
         }
 
-        // Read next encrypted chunk
-        var plaintext = await ReadDecryptedChunkAsync(cancellationToken);
-        if (plaintext == null || plaintext.Length == 0)
+        // Read next encrypted chunk (returns pooled buffer)
+        var (plaintext, actualLength) = await ReadDecryptedChunkAsync(cancellationToken);
+        if (plaintext == null || actualLength == 0)
             return 0;
 
         // Copy what fits to output buffer
-        var copyLen = Math.Min(buffer.Length, plaintext.Length);
+        var copyLen = Math.Min(buffer.Length, actualLength);
         plaintext.AsSpan(0, copyLen).CopyTo(buffer.Span);
 
-        // Store remainder in read buffer
-        if (plaintext.Length > copyLen)
+        // Store remainder in read buffer, track pooled buffer for later return
+        if (actualLength > copyLen)
         {
             _readBuffer = plaintext;
+            _pooledReadBuffer = plaintext;
+            _pooledReadBufferActualLength = actualLength;
             _readBufferPos = copyLen;
-            _readBufferLen = plaintext.Length;
+            _readBufferLen = actualLength;
         }
         else
         {
+            // No remainder needed, return buffer immediately
+            ArrayPool<byte>.Shared.Return(plaintext);
             _readBufferPos = 0;
             _readBufferLen = 0;
         }
@@ -150,13 +163,16 @@ public class EncryptedStream : Stream
         return copyLen;
     }
 
-    private async Task<byte[]?> ReadDecryptedChunkAsync(CancellationToken ct)
+    private byte[]? _pooledReadBuffer; // Tracks pooled buffer that needs to be returned
+    private int _pooledReadBufferActualLength; // Actual data length in pooled buffer
+    
+    private async Task<(byte[]? Buffer, int Length)> ReadDecryptedChunkAsync(CancellationToken ct)
     {
         // Read length header
         var lengthBytes = new byte[LENGTH_SIZE];
         var lengthRead = await ReadExactAsync(_innerStream, lengthBytes, ct);
         if (lengthRead < LENGTH_SIZE)
-            return null; // End of stream
+            return (null, 0); // End of stream
 
         var totalLength = BitConverter.ToInt32(lengthBytes);
         if (totalLength < NONCE_SIZE + TAG_SIZE || totalLength > MAX_CHUNK_SIZE + NONCE_SIZE + TAG_SIZE)
@@ -170,8 +186,8 @@ public class EncryptedStream : Stream
             if (dataRead < totalLength)
                 throw new CryptographicException("Unexpected end of encrypted stream");
 
-            // Decrypt in sync method to avoid Span-in-async issue (C# 12 limitation)
-            return DecryptChunk(encryptedData, totalLength);
+            // Decrypt using pooled buffer
+            return DecryptChunkPooled(encryptedData, totalLength);
         }
         finally
         {
@@ -191,7 +207,14 @@ public class EncryptedStream : Stream
         return totalRead;
     }
 
-    private byte[] DecryptChunk(byte[] encryptedData, int totalLength)
+    /// <summary>
+    /// Decrypts a chunk using AES-GCM, allocating the plaintext into a pooled array.
+    /// Caller is responsible for returning the array to ArrayPool after use.
+    /// </summary>
+    /// <param name="encryptedData">The encrypted data buffer (from pool).</param>
+    /// <param name="totalLength">Total length of encrypted data.</param>
+    /// <returns>Tuple of (plaintext buffer from pool, actual plaintext length).</returns>
+    private (byte[] Buffer, int Length) DecryptChunkPooled(byte[] encryptedData, int totalLength)
     {
         // Parse components
         var nonce = encryptedData.AsSpan(0, NONCE_SIZE);
@@ -199,12 +222,12 @@ public class EncryptedStream : Stream
         var ciphertext = encryptedData.AsSpan(NONCE_SIZE, ciphertextLength);
         var tag = encryptedData.AsSpan(NONCE_SIZE + ciphertextLength, TAG_SIZE);
 
-        // Decrypt
-        var plaintext = new byte[ciphertextLength];
+        // Rent buffer from pool to reduce GC pressure
+        var plaintext = ArrayPool<byte>.Shared.Rent(ciphertextLength);
         using var aes = new AesGcm(_key, TAG_SIZE);
-        aes.Decrypt(nonce, ciphertext, tag, plaintext);
+        aes.Decrypt(nonce, ciphertext, tag, plaintext.AsSpan(0, ciphertextLength));
 
-        return plaintext;
+        return (plaintext, ciphertextLength);
     }
 
     private static async Task<int> ReadExactAsync(Stream stream, byte[] buffer, CancellationToken ct)

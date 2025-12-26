@@ -65,6 +65,7 @@ public class MainViewModel : ViewModelBase
     
     // State properties - Filters
     private string _searchText = "";
+    private CancellationTokenSource? _searchDebounce; // Debounce timer for search
     private bool _isReadyChecked;
     private bool _isPackagedChecked;
     private bool _isDlcChecked;
@@ -198,7 +199,7 @@ public class MainViewModel : ViewModelBase
     // ========================================
 
     /// <summary>
-    /// Search text for filtering games.
+    /// Search text for filtering games. Uses 300ms debounce to prevent UI lag.
     /// </summary>
     public string SearchText
     {
@@ -206,7 +207,35 @@ public class MainViewModel : ViewModelBase
         set
         {
             if (SetProperty(ref _searchText, value))
+            {
                 OnPropertyChanged(nameof(IsSearchActive));
+                
+                // Debounce: Cancel previous timer and start new one
+                _searchDebounce?.Cancel();
+                _searchDebounce = new CancellationTokenSource();
+                var token = _searchDebounce.Token;
+                
+                // Wait 300ms before filtering to avoid lag on every keystroke
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(300, token);
+                        if (!token.IsCancellationRequested)
+                        {
+                            // Run filter on UI thread
+                            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+                            {
+                                RefreshFilteredGames();
+                            });
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected when user types faster than debounce delay
+                    }
+                });
+            }
         }
     }
 

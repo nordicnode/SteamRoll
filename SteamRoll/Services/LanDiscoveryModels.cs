@@ -122,7 +122,19 @@ public enum MessageType
     /// <summary>
     /// Request all peers to restore to a specific save point.
     /// </summary>
-    GroupRestoreRequest
+    GroupRestoreRequest,
+    /// <summary>
+    /// Request to initiate TCP hole punch coordination with a peer.
+    /// </summary>
+    HolePunchRequest,
+    /// <summary>
+    /// Response to hole punch request with own public endpoint.
+    /// </summary>
+    HolePunchResponse,
+    /// <summary>
+    /// Signal to start simultaneous TCP connect at coordinated time.
+    /// </summary>
+    HolePunchGo
 }
 
 /// <summary>
@@ -168,6 +180,11 @@ public class DiscoveryMessage
     /// Serialized restore point data for RestorePointOffer/Request/GroupRestore messages.
     /// </summary>
     public string? RestorePointJson { get; set; }
+    
+    /// <summary>
+    /// Serialized hole punch coordination data for HolePunchRequest/Response/Go messages.
+    /// </summary>
+    public string? HolePunchJson { get; set; }
 }
 
 /// <summary>
