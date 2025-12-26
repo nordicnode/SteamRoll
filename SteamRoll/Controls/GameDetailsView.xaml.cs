@@ -235,7 +235,14 @@ public partial class GameDetailsView : UserControl
                     bitmap.DownloadCompleted += (s, e) => tcs.TrySetResult(true);
                     bitmap.DownloadFailed += (s, e) => tcs.TrySetException(new Exception("Download failed"));
                     bitmap.DecodeFailed += (s, e) => tcs.TrySetException(new Exception("Decode failed"));
-                    await tcs.Task;
+                    
+                    // Timeout after 10 seconds to prevent infinite hang
+                    var timeoutTask = Task.Delay(10000);
+                    if (await Task.WhenAny(tcs.Task, timeoutTask) == timeoutTask)
+                    {
+                        LogService.Instance.Debug($"Image download timed out for AppId {targetAppId}", "GameDetailsView");
+                        throw new TimeoutException("Image download timed out");
+                    }
                 }
 
                 // Final check before setting the image - game might have changed during download
@@ -342,7 +349,11 @@ public partial class GameDetailsView : UserControl
                             bitmap.DownloadFailed += (s, e) => tcs.TrySetResult(false);
                             bitmap.DecodeFailed += (s, e) => tcs.TrySetResult(false);
                             
-                            if (await tcs.Task && _game != null)
+                            // Timeout after 10 seconds to prevent infinite hang
+                            var timeoutTask = Task.Delay(10000);
+                            var completedTask = await Task.WhenAny(tcs.Task, timeoutTask);
+                            
+                            if (completedTask != timeoutTask && await tcs.Task && _game != null)
                             {
                                 HeaderImageBrush.ImageSource = bitmap;
                                 // Cache the working URL for future use
