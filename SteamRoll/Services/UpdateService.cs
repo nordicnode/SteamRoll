@@ -1,5 +1,6 @@
 using System.IO;
 using System.Net.Http;
+using System.Reflection;
 using System.Text.Json;
 
 namespace SteamRoll.Services;
@@ -7,14 +8,15 @@ namespace SteamRoll.Services;
 /// <summary>
 /// Service for checking for updates to Goldberg Emulator and SteamRoll.
 /// </summary>
-public class UpdateService
+public class UpdateService : IDisposable
 {
     private const string GOLDBERG_RELEASES_API = "https://api.github.com/repos/Detanup01/gbe_fork/releases/latest";
-    private const string STEAMROLL_RELEASES_API = "https://api.github.com/repos/steamroll/steamroll/releases/latest";
+    private const string STEAMROLL_RELEASES_API = "https://api.github.com/repos/NordicNode/steamroll/releases/latest";
     private const string USER_AGENT = "SteamRoll/1.1.0";
     
     private readonly HttpClient _httpClient;
     private readonly string _goldbergPath;
+    private bool _disposed;
     
     /// <summary>
     /// Event fired when an update is available.
@@ -81,6 +83,68 @@ public class UpdateService
     }
     
     /// <summary>
+    /// Checks for SteamRoll application updates.
+    /// </summary>
+    /// <returns>Update info if available, null otherwise.</returns>
+    public async Task<UpdateInfo?> CheckSteamRollUpdateAsync()
+    {
+        try
+        {
+            var currentVersion = GetCurrentSteamRollVersion();
+            if (string.IsNullOrEmpty(currentVersion))
+            {
+                LogService.Instance.Warning("Could not determine SteamRoll version", "UpdateService");
+                return null;
+            }
+            
+            var response = await _httpClient.GetStringAsync(STEAMROLL_RELEASES_API);
+            var release = JsonSerializer.Deserialize<GitHubRelease>(response, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+            
+            if (release == null)
+                return null;
+            
+            var latestVersion = release.TagName?.TrimStart('v') ?? "";
+            
+            if (IsNewerVersion(latestVersion, currentVersion))
+            {
+                var updateInfo = new UpdateInfo
+                {
+                    Name = "SteamRoll",
+                    CurrentVersion = currentVersion,
+                    LatestVersion = latestVersion,
+                    ReleaseUrl = release.HtmlUrl ?? "",
+                    ReleaseNotes = release.Body ?? ""
+                };
+                
+                UpdateAvailable?.Invoke(this, new UpdateAvailableEventArgs { Update = updateInfo });
+                LogService.Instance.Info($"SteamRoll update available: {currentVersion} -> {latestVersion}", "UpdateService");
+                return updateInfo;
+            }
+            
+            LogService.Instance.Debug($"SteamRoll is up to date: {currentVersion}", "UpdateService");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Warning($"SteamRoll update check failed: {ex.Message}", "UpdateService");
+            return null;
+        }
+    }
+    
+    /// <summary>
+    /// Gets the current SteamRoll application version from assembly.
+    /// </summary>
+    private static string GetCurrentSteamRollVersion()
+    {
+        var assembly = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
+        var version = assembly.GetName().Version;
+        return version != null ? $"{version.Major}.{version.Minor}.{version.Build}" : "";
+    }
+    
+    /// <summary>
     /// Gets the currently installed Goldberg version from version file.
     /// </summary>
     private string GetCurrentGoldbergVersion()
@@ -143,6 +207,17 @@ public class UpdateService
             return $"{segments[0]}.{segments[1]}.{segments[2]}.0";
         
         return parts;
+    }
+    
+    /// <summary>
+    /// Disposes of managed resources.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        
+        _httpClient?.Dispose();
     }
 }
 

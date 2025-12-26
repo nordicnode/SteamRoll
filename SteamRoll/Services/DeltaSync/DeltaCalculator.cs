@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.IO;
 using System.IO.Hashing;
 
@@ -38,32 +39,39 @@ public class DeltaCalculator
         using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, 
             FileShare.ReadWrite, _blockSize, FileOptions.SequentialScan);
         
-        var buffer = new byte[_blockSize];
-        long offset = 0;
-        int index = 0;
-
-        while (true)
+        var buffer = ArrayPool<byte>.Shared.Rent(_blockSize);
+        try
         {
-            int bytesRead = stream.Read(buffer, 0, _blockSize);
-            if (bytesRead == 0) break;
+            long offset = 0;
+            int index = 0;
 
-            var weakHash = RollingHash.ComputeHash(buffer, 0, bytesRead);
-            var strongHash = ComputeStrongHash(buffer, 0, bytesRead);
-
-            signatures.Add(new BlockSignature
+            while (true)
             {
-                Offset = offset,
-                Length = bytesRead,
-                WeakHash = weakHash,
-                StrongHash = strongHash,
-                Index = index
-            });
+                int bytesRead = stream.Read(buffer, 0, _blockSize);
+                if (bytesRead == 0) break;
 
-            offset += bytesRead;
-            index++;
+                var weakHash = RollingHash.ComputeHash(buffer, 0, bytesRead);
+                var strongHash = ComputeStrongHash(buffer, 0, bytesRead);
+
+                signatures.Add(new BlockSignature
+                {
+                    Offset = offset,
+                    Length = bytesRead,
+                    WeakHash = weakHash,
+                    StrongHash = strongHash,
+                    Index = index
+                });
+
+                offset += bytesRead;
+                index++;
+            }
+
+            return signatures;
         }
-
-        return signatures;
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
     /// <summary>
@@ -94,19 +102,22 @@ public class DeltaCalculator
 
         summary.OriginalSize = sourceStream.Length;
 
-        var buffer = new byte[_blockSize * 2]; // Double buffer for rolling
+        var bufferSize = _blockSize * 2; // Double buffer for rolling
+        var buffer = ArrayPool<byte>.Shared.Rent(bufferSize);
         var literalBuffer = new MemoryStream();
         
-        int bytesInBuffer = 0;
-        int bufferStart = 0;
-        long sourceOffset = 0;
-
-        // Fill initial buffer
-        bytesInBuffer = sourceStream.Read(buffer, 0, buffer.Length);
-        if (bytesInBuffer == 0)
+        try
         {
-            return (instructions, Array.Empty<byte>(), summary);
-        }
+            int bytesInBuffer = 0;
+            int bufferStart = 0;
+            long sourceOffset = 0;
+
+            // Fill initial buffer
+            bytesInBuffer = sourceStream.Read(buffer, 0, bufferSize);
+            if (bytesInBuffer == 0)
+            {
+                return (instructions, Array.Empty<byte>(), summary);
+            }
 
         while (bufferStart < bytesInBuffer)
         {
@@ -205,10 +216,15 @@ public class DeltaCalculator
             summary.ChangedBlocks++;
         }
 
-        // Add overhead for instruction metadata (estimate)
-        summary.BytesToTransfer += instructions.Count * 16;
+            // Add overhead for instruction metadata (estimate)
+            summary.BytesToTransfer += instructions.Count * 16;
 
-        return (instructions, literalStream.ToArray(), summary);
+            return (instructions, literalStream.ToArray(), summary);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
     /// <summary>
@@ -226,41 +242,47 @@ public class DeltaCalculator
             : null;
         using var outputFile = new FileStream(outputPath, FileMode.Create, FileAccess.Write);
 
-        var buffer = new byte[_blockSize];
-
-        foreach (var instruction in instructions)
+        var buffer = ArrayPool<byte>.Shared.Rent(_blockSize);
+        try
         {
-            switch (instruction.Type)
+            foreach (var instruction in instructions)
             {
-                case DeltaInstructionType.CopyFromTarget:
-                    if (targetFile == null)
-                        throw new InvalidOperationException("CopyFromTarget instruction but no target file");
-                    
-                    targetFile.Seek(instruction.Offset, SeekOrigin.Begin);
-                    int remaining = instruction.Length;
-                    while (remaining > 0)
-                    {
-                        int toRead = Math.Min(remaining, buffer.Length);
-                        int read = targetFile.Read(buffer, 0, toRead);
-                        if (read == 0) break;
-                        outputFile.Write(buffer, 0, read);
-                        remaining -= read;
-                    }
-                    break;
+                switch (instruction.Type)
+                {
+                    case DeltaInstructionType.CopyFromTarget:
+                        if (targetFile == null)
+                            throw new InvalidOperationException("CopyFromTarget instruction but no target file");
+                        
+                        targetFile.Seek(instruction.Offset, SeekOrigin.Begin);
+                        int remaining = instruction.Length;
+                        while (remaining > 0)
+                        {
+                            int toRead = Math.Min(remaining, _blockSize);
+                            int read = targetFile.Read(buffer, 0, toRead);
+                            if (read == 0) break;
+                            outputFile.Write(buffer, 0, read);
+                            remaining -= read;
+                        }
+                        break;
 
-                case DeltaInstructionType.LiteralData:
-                    literalDataStream.Seek(instruction.Offset, SeekOrigin.Begin);
-                    int literalRemaining = instruction.Length;
-                    while (literalRemaining > 0)
-                    {
-                        int toRead = Math.Min(literalRemaining, buffer.Length);
-                        int read = literalDataStream.Read(buffer, 0, toRead);
-                        if (read == 0) break;
-                        outputFile.Write(buffer, 0, read);
-                        literalRemaining -= read;
-                    }
-                    break;
+                    case DeltaInstructionType.LiteralData:
+                        literalDataStream.Seek(instruction.Offset, SeekOrigin.Begin);
+                        int literalRemaining = instruction.Length;
+                        while (literalRemaining > 0)
+                        {
+                            int toRead = Math.Min(literalRemaining, _blockSize);
+                            int read = literalDataStream.Read(buffer, 0, toRead);
+                            if (read == 0) break;
+                            outputFile.Write(buffer, 0, read);
+                            literalRemaining -= read;
+                        }
+                        break;
+                }
             }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 

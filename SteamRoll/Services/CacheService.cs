@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -233,7 +234,7 @@ public class CacheService
 
     #region File Hash Caching for Background Indexing
 
-    private readonly Dictionary<string, CachedFileHashes> _fileHashCache = new();
+    private readonly ConcurrentDictionary<string, CachedFileHashes> _fileHashCache = new();
 
     /// <summary>
     /// Stores file hashes for a package directory.
@@ -274,7 +275,7 @@ public class CacheService
             if (lastWriteTime > cached.CachedAt)
             {
                 // Cache is stale - metadata was modified after caching
-                _fileHashCache.Remove(key);
+                _fileHashCache.TryRemove(key, out _);
                 return null;
             }
         }
@@ -343,7 +344,7 @@ public class GameCache
 {
     public DateTime? LastUpdated { get; set; }
     public string Version { get; set; } = "1.0";
-    public Dictionary<int, CachedGame> Games { get; set; } = new();
+    public ConcurrentDictionary<int, CachedGame> Games { get; set; } = new();
 }
 
 /// <summary>

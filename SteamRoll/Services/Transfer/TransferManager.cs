@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 
 namespace SteamRoll.Services.Transfer;
 
@@ -374,6 +376,9 @@ public class TransferManager : INotifyPropertyChanged
                 }
             }
         });
+        
+        // Persist history after completion
+        _ = SaveHistoryAsync();
     }
 
     /// <summary>
@@ -406,5 +411,103 @@ public class TransferManager : INotifyPropertyChanged
         {
             CompletedTransfers.Clear();
         });
+        SaveHistoryAsync().ConfigureAwait(false);
+    }
+
+    private static string HistoryFilePath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "SteamRoll", "transfer_history.json");
+
+    /// <summary>
+    /// Saves completed transfers history to disk.
+    /// </summary>
+    public async Task SaveHistoryAsync()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(HistoryFilePath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            // Create serializable version (skip large/transient properties)
+            var historyData = CompletedTransfers.Select(t => new TransferHistoryEntry
+            {
+                Id = t.Id,
+                GameName = t.GameName,
+                AppId = t.AppId,
+                TotalBytes = t.TotalBytes,
+                TransferredBytes = t.TransferredBytes,
+                IsSending = t.IsSending,
+                Status = t.Status,
+                StartTime = t.StartTime,
+                EndTime = t.EndTime,
+                PeerName = t.PeerName
+            }).ToList();
+
+            var json = JsonSerializer.Serialize(historyData, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(HistoryFilePath, json);
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Warning($"Failed to save transfer history: {ex.Message}", "TransferManager");
+        }
+    }
+
+    /// <summary>
+    /// Loads completed transfers history from disk.
+    /// </summary>
+    public async Task LoadHistoryAsync()
+    {
+        try
+        {
+            if (!File.Exists(HistoryFilePath)) return;
+
+            var json = await File.ReadAllTextAsync(HistoryFilePath);
+            var historyData = JsonSerializer.Deserialize<List<TransferHistoryEntry>>(json);
+            if (historyData == null) return;
+
+            _dispatcher.Invoke(() =>
+            {
+                CompletedTransfers.Clear();
+                foreach (var entry in historyData.Take(MaxHistoryItems))
+                {
+                    CompletedTransfers.Add(new TransferInfo
+                    {
+                        Id = entry.Id,
+                        GameName = entry.GameName,
+                        AppId = entry.AppId,
+                        TotalBytes = entry.TotalBytes,
+                        TransferredBytes = entry.TransferredBytes,
+                        IsSending = entry.IsSending,
+                        Status = entry.Status,
+                        StartTime = entry.StartTime,
+                        EndTime = entry.EndTime,
+                        PeerName = entry.PeerName
+                    });
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            LogService.Instance.Warning($"Failed to load transfer history: {ex.Message}", "TransferManager");
+        }
     }
 }
+
+/// <summary>
+/// Serializable entry for transfer history persistence.
+/// </summary>
+public class TransferHistoryEntry
+{
+    public Guid Id { get; set; }
+    public string GameName { get; set; } = "";
+    public int AppId { get; set; }
+    public long TotalBytes { get; set; }
+    public long TransferredBytes { get; set; }
+    public bool IsSending { get; set; }
+    public TransferStatus Status { get; set; }
+    public DateTime StartTime { get; set; }
+    public DateTime? EndTime { get; set; }
+    public string? PeerName { get; set; }
+}
+

@@ -115,6 +115,7 @@ public class ServiceContainer : IDisposable
             DlcService?.Dispose();
             SteamStoreService?.Dispose();
             GameImageService?.Dispose();
+            UpdateService?.Dispose();
         }
         catch (Exception ex)
         {

@@ -13,15 +13,22 @@ namespace SteamRoll.Services.Transfer;
 
 /// <summary>
 /// Handles receiving files via TCP.
+/// This is a partial class - auxiliary handlers are in TransferReceiver.Handlers.cs
 /// </summary>
-public class TransferReceiver
+public partial class TransferReceiver
 {
-    private const int BUFFER_SIZE = 81920; // 80KB chunks
+    // 80KB buffer - balances memory usage vs I/O efficiency. Larger buffers reduce
+    // syscall overhead but increase memory pressure during parallel transfers.
+    // 80KB is the default FileStream buffer size and works well with modern disk I/O.
+    private const int BUFFER_SIZE = 81920;
+    
     private const string PROTOCOL_MAGIC_V1 = ProtocolConstants.TRANSFER_MAGIC_V1;
     private const string PROTOCOL_MAGIC_V2 = ProtocolConstants.TRANSFER_MAGIC_V2;
     private const string PROTOCOL_MAGIC_V3 = ProtocolConstants.TRANSFER_MAGIC_V3;
     
-    // Security: Maximum sizes for delta sync allocations to prevent DoS attacks
+    // Security: Maximum sizes for delta sync allocations to prevent DoS attacks.
+    // These limits are generous for legitimate use but prevent malicious peers from
+    // causing excessive memory allocation. Reduce if memory-constrained.
     private const int MAX_DELTA_LITERAL_SIZE = 64 * 1024 * 1024; // 64MB max literal data
     private const int MAX_INSTRUCTION_BYTES = 16 * 1024 * 1024;  // 16MB max instructions
 
@@ -229,7 +236,7 @@ public class TransferReceiver
                             }
                         }
                     }
-                    catch { /* Ignore */ }
+                    catch (Exception ex) { LogService.Instance.Debug($"Failed to load local hashes: {ex.Message}", "TransferReceiver"); }
 
                     // Parallel analysis for faster smart sync
                     await Parallel.ForEachAsync(fileInfos, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(4, Environment.ProcessorCount), CancellationToken = ct }, async (fileInfo, token) =>
@@ -267,7 +274,7 @@ public class TransferReceiver
                                             }
                                         }
                                     }
-                                    catch { /* Ignore */ }
+                                    catch (Exception ex) { LogService.Instance.Debug($"Hash comparison failed: {ex.Message}", "TransferReceiver"); }
                                 }
                             }
 
@@ -649,130 +656,5 @@ public class TransferReceiver
             LogService.Instance.Error($"Receive error: {ex.Message}", ex, "TransferReceiver");
             Error?.Invoke(this, $"Receive failed: {ex.Message}");
         }
-    }
-
-    private async Task ConsumeStreamBytes(Stream stream, long count, byte[] buffer, CancellationToken ct)
-    {
-        long remaining = count;
-        while (remaining > 0)
-        {
-            var toRead = (int)Math.Min(remaining, buffer.Length);
-            var bytesRead = await stream.ReadAsync(buffer.AsMemory(0, toRead), ct);
-            if (bytesRead == 0) break;
-            remaining -= bytesRead;
-        }
-    }
-
-    private async Task HandleIncomingSaveSyncAsync(NetworkStream stream, TransferHeader header, List<TransferFileInfo> fileInfos, CancellationToken ct)
-    {
-        var gameName = header.GameName ?? "Unknown";
-        var tempZip = Path.GetTempFileName();
-
-        await TransferUtils.SendJsonAsync(stream, new TransferAck { Accepted = true }, ct);
-
-        using (var fs = File.Create(tempZip))
-        {
-            var buffer = new byte[BUFFER_SIZE];
-            foreach (var info in fileInfos)
-            {
-                long remaining = info.Size;
-                while (remaining > 0)
-                {
-                    var read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(remaining, buffer.Length)), ct);
-                    if (read == 0) break;
-                    await fs.WriteAsync(buffer.AsMemory(0, read), ct);
-                    remaining -= read;
-                }
-            }
-        }
-
-        await TransferUtils.SendJsonAsync(stream, new TransferComplete { Success = true }, ct);
-
-        TransferComplete?.Invoke(this, new TransferResult
-        {
-            Success = true,
-            GameName = gameName,
-            Path = tempZip,
-            WasReceived = true,
-            VerificationPassed = true,
-            IsSaveSync = true
-        });
-    }
-
-    private async Task HandleListRequestAsync(NetworkStream stream, CancellationToken ct)
-    {
-        var games = LocalLibraryRequested?.Invoke() ?? new List<Models.RemoteGame>();
-        await TransferUtils.SendJsonAsync(stream, games, ct);
-    }
-
-    private async Task HandlePullRequestAsync(TcpClient client, TransferHeader header, CancellationToken ct)
-    {
-        var remoteEndpoint = client.Client.RemoteEndPoint as System.Net.IPEndPoint;
-        if (remoteEndpoint == null) return;
-
-        var targetIp = remoteEndpoint.Address.ToString();
-        // We need port but we can't get listener port easily here, assume same port config
-        // Or pass it via header? But header is standard.
-        // Assuming default port for now or we need to pass it in constructor
-        var targetPort = AppConstants.DEFAULT_TRANSFER_PORT;
-
-        if (PullPackageRequested != null && header.GameName != null)
-        {
-             _ = PullPackageRequested.Invoke(header.GameName, targetIp, targetPort);
-        }
-    }
-
-    private async Task HandleSpeedTestAsync(NetworkStream stream, TransferHeader header, CancellationToken ct)
-    {
-        var buffer = new byte[BUFFER_SIZE];
-        long received = 0;
-        while (received < header.TotalSize)
-        {
-             var toRead = (int)Math.Min(buffer.Length, header.TotalSize - received);
-             var read = await stream.ReadAsync(buffer, 0, toRead, ct);
-             if (read == 0) break;
-             received += read;
-        }
-        await TransferUtils.SendJsonAsync(stream, new TransferComplete { Success = true }, ct);
-    }
-
-    private async Task MarkAsReceivedPackage(string packagePath)
-    {
-        var markerPath = System.IO.Path.Combine(packagePath, ".steamroll_received");
-        var markerContent = new ReceivedMarker
-        {
-            ReceivedAt = DateTime.Now,
-            ReceivedFrom = "Network"
-        };
-        var json = JsonSerializer.Serialize(markerContent, new JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(markerPath, json);
-    }
-
-    /// <summary>
-    /// Computes XxHash64 for a file. 10-20x faster than SHA-256.
-    /// </summary>
-    private static string ComputeXxHash64(string filePath)
-    {
-        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, FileOptions.SequentialScan);
-        var hash = new XxHash64();
-        hash.Append(stream);
-        return Convert.ToHexString(hash.GetCurrentHash()).ToLowerInvariant();
-    }
-
-    private static bool IsPathSafe(string relativePath)
-    {
-        if (string.IsNullOrWhiteSpace(relativePath)) return false;
-        if (relativePath.StartsWith(".." + Path.DirectorySeparatorChar) ||
-            relativePath.StartsWith(".." + Path.AltDirectorySeparatorChar) ||
-            relativePath.Contains(Path.DirectorySeparatorChar + ".." + Path.DirectorySeparatorChar) ||
-            relativePath.Contains(Path.AltDirectorySeparatorChar + ".." + Path.AltDirectorySeparatorChar) ||
-            relativePath.EndsWith(Path.DirectorySeparatorChar + "..") ||
-            relativePath.EndsWith(Path.AltDirectorySeparatorChar + "..") ||
-            relativePath == "..") return false;
-        if (relativePath.StartsWith("/") || relativePath.StartsWith("\\")) return false;
-        if (Path.IsPathRooted(relativePath)) return false;
-        var invalidChars = Path.GetInvalidFileNameChars().Where(c => c != Path.DirectorySeparatorChar && c != Path.AltDirectorySeparatorChar).ToArray();
-        if (relativePath.IndexOfAny(invalidChars) >= 0) return false;
-        return true;
     }
 }

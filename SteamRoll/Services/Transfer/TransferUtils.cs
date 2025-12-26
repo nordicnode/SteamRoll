@@ -6,7 +6,14 @@ namespace SteamRoll.Services.Transfer;
 
 public static class TransferUtils
 {
-    public static async Task SendJsonAsync<T>(NetworkStream stream, T obj, CancellationToken ct)
+    /// <summary>
+    /// Sends a JSON-serialized object with a 4-byte length prefix.
+    /// </summary>
+    /// <typeparam name="T">The type of object to serialize.</typeparam>
+    /// <param name="stream">The stream to write to (typically a NetworkStream).</param>
+    /// <param name="obj">The object to serialize and send.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public static async Task SendJsonAsync<T>(Stream stream, T obj, CancellationToken ct)
     {
         using var ms = new MemoryStream();
         await JsonSerializer.SerializeAsync(ms, obj, cancellationToken: ct);
@@ -18,7 +25,7 @@ public static class TransferUtils
         await stream.WriteAsync(data, ct);
     }
 
-    public static async Task<T?> ReceiveJsonAsync<T>(NetworkStream stream, CancellationToken ct)
+    public static async Task<T?> ReceiveJsonAsync<T>(Stream stream, CancellationToken ct)
     {
         var lengthBytes = new byte[4];
         await ReadExactlyAsync(stream, lengthBytes, ct);
@@ -36,7 +43,7 @@ public static class TransferUtils
         return await JsonSerializer.DeserializeAsync<T>(boundedStream, cancellationToken: timeoutCts.Token);
     }
 
-    private static async Task ReadExactlyAsync(NetworkStream stream, byte[] buffer, CancellationToken ct)
+    private static async Task ReadExactlyAsync(Stream stream, byte[] buffer, CancellationToken ct)
     {
         int totalRead = 0;
         while (totalRead < buffer.Length)

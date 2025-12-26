@@ -138,7 +138,7 @@ public class MemoryMappedHasherTests : IDisposable
     }
 
     [Fact]
-    public void ComputeXxHash64_Sync_ProducesSameHashAsAsync()
+    public async Task ComputeXxHash64_Sync_ProducesSameHashAsAsync()
     {
         // Arrange
         var file = Path.Combine(_testDir, "sync_test.bin");
@@ -148,7 +148,7 @@ public class MemoryMappedHasherTests : IDisposable
 
         // Act
         var syncHash = MemoryMappedHasher.ComputeXxHash64(file);
-        var asyncHash = MemoryMappedHasher.ComputeXxHash64Async(file).GetAwaiter().GetResult();
+        var asyncHash = await MemoryMappedHasher.ComputeXxHash64Async(file);
 
         // Assert
         Assert.Equal(syncHash, asyncHash);
