@@ -21,11 +21,11 @@ public static class PackageVerifier
         string packageDir, CancellationToken ct = default)
     {
         var mismatches = new System.Collections.Concurrent.ConcurrentBag<string>();
-        var metadataPath = System.IO.Path.Combine(packageDir, "steamroll.json");
+        var metadataPath = System.IO.Path.Combine(packageDir, FileNames.STEAMROLL_JSON);
 
         if (!File.Exists(metadataPath))
         {
-            return (false, new List<string> { "steamroll.json not found" });
+            return (false, new List<string> { $"{FileNames.STEAMROLL_JSON} not found" });
         }
 
         try
